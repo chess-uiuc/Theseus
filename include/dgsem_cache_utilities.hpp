@@ -6,6 +6,7 @@
 #pragma once
 #include "mfem.hpp"
 #include "dgsem_cache.hpp"
+#include "ModalBasis.hpp"
 #include "timer.hpp"
 
 namespace Theseus {
@@ -842,6 +843,80 @@ namespace Theseus {
     device_cache.subcell_weights_d = cache.subcellWeights.Read();
 #endif
 
+  }
+
+  template<typename CacheT>
+  void BuildPerssonDeviceCache(CacheT &c,
+			       Prandtl::ModalBasis &modalBasis)
+  {
+    // std::shared_ptr<Prandtl::ModalBasis> modalBasis;
+    // mfem::Vector rho_p, modes, modesM1, modesM2;
+    // mfem::Array2D<int> ubdegs;
+    // mfem::Array<int> ubdegs_row;
+    dim = c.dim;
+    order = c.p;
+    ndofs = c.ndof_scalar_el;
+    ne = c.num_elements;
+    const mfem::Array2D<int> ubdegs(modalBasis.GetPolyDegs());
+
+    c.modal.SetSize(ndofs * ndofs);
+    c.keep_M1.SetSize(ndofs);
+    c.keep_M2.SetSize(ndofs);
+    c.eta.SetSize(ne);
+
+    c.modal.UseDevice(true);
+    c.keep_M1.UseDevice(true);
+    c.keep_M2.UseDevice(true);
+    c.eta.UseDevice(true);
+
+    auto *modal_h = c.modal.HostWrite();
+    auto *m1_h = c.keep_M1.HostWrite();
+    auto *m2_h = c.keep_M2.HostWrite();
+
+    mfem::Vector nodal(ndofs), modes(ndofs);
+
+    for (int q = 0; q < ndofs; ++q)
+      {
+	nodal = 0.0;
+	nodal(q) = 1.0;
+
+	modalBasis.ComputeModes(nodal, modes);
+
+	for (int m = 0; m < ndofs; ++m)
+	  {
+	    modal_h[m * ndofs + q] = modes(m);
+	  }
+      }
+
+    mfem::Array<int> row;
+    for (int m = 0; m < ndofs; ++m)
+      {
+	ubdegs.GetRow(m, row);
+
+	bool keep1 = true;
+	bool keep2 = true;
+
+	for (int d = 0; d < dim; ++d)
+	  {
+	    if (row[d] > order - 2)
+	      {
+		keep2 = false;
+	      }
+
+	    if (row[d] > order - 1)
+	      {
+		keep1 = false;
+	      }
+	  }
+
+	m1_h[m] = keep1 ? 1.0 : 0.0;
+	m2_h[m] = keep2 ? 1.0 : 0.0;
+      }
+
+    c.modal_d = c.modal.Read();
+    c.keep_M1_d = c.keep_M1.Read();
+    c.keep_M2_d = c.keep_M2.Read();
+    c.eta_d = c.eta.Write();
   }
 
   template<typename CacheT>

@@ -267,10 +267,13 @@ namespace Theseus
       const mfem::real_t *qWgt = ctx.subcell_weights_d;
 
       mfem::real_t max_char_speed = 0.0;
-      mfem::real_t flux_num[5];
-      mfem::real_t du_subcell[5];
-      mfem::real_t state1_local[5];
-      mfem::real_t state2_local[5];
+      mfem::real_t flux_num[Theseus::MAXEQ];
+      mfem::real_t du_subcell[Theseus::MAXEQ];
+      mfem::real_t state1_local[Theseus::MAXEQ];
+      mfem::real_t state2_local[Theseus::MAXEQ];
+
+      for(int i = 0;i < npe*neq;i++)
+	el_dudt[i] = 0.0;
 
       for (int k = 0; k < Np_z; k++)
         {
@@ -570,7 +573,6 @@ namespace Theseus
               }
           }
       } else if(dim == 2){
-        // Keep MAX_EQ in mind later if neq can exceed 5.
         mfem::real_t dudxi[Theseus::MAXEQ];
         mfem::real_t dudeta[Theseus::MAXEQ];
 

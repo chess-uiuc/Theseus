@@ -815,8 +815,11 @@ namespace Theseus
         vol_grad_prim[idim].UseDevice();
       }
     }
-
-    operator_cache.restr_v->Mult(pu, vol_u);
+    
+    if(!operator_cache.urestr_ready){
+      operator_cache.restr_v->Mult(pu, vol_u);
+      operator_cache.urestr_ready = true;
+    }
     for(int idim = 0;idim < dim;idim++){
       operator_cache.restr_v->Mult(*p_grad_prim[idim], vol_grad_prim[idim]);
     }
@@ -853,23 +856,27 @@ namespace Theseus
     const mfem::real_t *metric_eta_d = (dim > 1 ? dc.subcell_metric_eta_d : nullptr);
     const mfem::real_t *metric_zeta_d = (dim > 2 ? dc.subcell_metric_zeta_d : nullptr);
 
-    mfem::Vector dUfv(operator_cache.restr_v->Height());
-    dUfv.UseDevice();
-    mfem::real_t *dUfv_d = dUfv.Write();
-    // zero the array on-device
-    {
-      mfem::real_t *d = dUfv_d;
-      mfem::forall(dUfv.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
+    mfem::Vector &dUfv(operator_cache.dUfv);
+    if(dUfv.Size() == 0){
+      dUfv.SetSize(restr_size);
+      dUfv.UseDevice();
+      operator_cache.dUfv_d = dUfv.Write();
     }
+    mfem::real_t *dUfv_d = operator_cache.dUfv_d;
+    // zero the array on-device
+    // {
+    //   mfem::real_t *d = dUfv_d;
+    //   mfem::forall(dUfv.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
+    // }
 
-    const mfem::real_t *alpha_d = operator_cache.alpha->Read();
+    const mfem::real_t *alpha_d = operator_cache.alpha_d;// ->Read();
 #endif
 
     // Derived parameters
     const int metric_stride = ndof * dim * dim;
     const int jac_stride    = ndof;
     const int estride = ndof*neq;
-  
+
     // Device cache data/arrays
     const int *elem_attr_d = dc.elem_attr_d;
     const int *attr_marker_d = dc.attr_marker_d;
@@ -896,34 +903,73 @@ namespace Theseus
       const mfem::real_t *u_el = Ue_d + eoff;
       mfem::real_t *du_el = dUe_d + eoff;
 
-      mfem::real_t cs_el = \
-        Theseus::DGSEMIntegrator::AssembleElementVolumeKernel(dc, u_el,
-                                                              jac_el, metric_el, du_el);
+      ws_d[e] =								\
+	Theseus::DGSEMIntegrator::AssembleElementVolumeKernel(dc, u_el,
+							      jac_el, metric_el, du_el);
+    });
+
 #ifdef SUBCELL_FV_BLENDING
-      mfem::real_t alpha_fv = alpha_d[e];
-      if(alpha_fv > 1e-16){
-        mfem::real_t alpha_dg = (1.0 - alpha_fv);
-        mfem::real_t *du_fv = dUfv_d + eoff;
-        const mfem::real_t *el_metric_xi = metric_xi_d + e * npe_metric_xi * dim;
-        const mfem::real_t *el_metric_eta = (dim > 1 ? metric_eta_d + e * npe_metric_eta * dim :
-                                             nullptr);
-        const mfem::real_t *el_metric_zeta = (dim > 2 ? metric_zeta_d + e * npe_metric_zeta * dim :
-                                              nullptr);
-        const mfem::real_t cs_fv =                                              \
-          Theseus::DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta, el_metric_zeta, du_fv);
-      
-        for(int ipt = 0;ipt < estride;ipt++){
-          du_el[ipt] = alpha_dg * du_el[ipt] + alpha_fv * du_fv[ipt];
-        }
-      
-        cs_el = Kernels::rmax(cs_el, cs_fv);
+    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+   {
+    
+      const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
+      const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
+
+      const int attr = elem_attr_d[e];
+      if (attr_marker_d[attr-1] == 0) {
+   	ws_d[e] = 0.0;
+   	return;
       }
+      mfem::real_t alpha_fv = alpha_d[e];
+
+      if(alpha_fv > 1e-16){
+
+   	// Element-specific inputs and outputs
+   	const int eoff = e * estride;
+   	const mfem::real_t *u_el = Ue_d + eoff;
+   	mfem::real_t *du_el = dUe_d + eoff;
+
+   	mfem::real_t alpha_dg = (1.0 - alpha_fv);
+   	mfem::real_t *du_fv = dUfv_d + eoff;
+   	const mfem::real_t *el_metric_xi = metric_xi_d + e * npe_metric_xi * dim;
+   	const mfem::real_t *el_metric_eta = (dim > 1 ? metric_eta_d + e * npe_metric_eta * dim :
+   					     nullptr);
+   	const mfem::real_t *el_metric_zeta = (dim > 2 ? metric_zeta_d + e * npe_metric_zeta * dim :
+   					      nullptr);
+	
+   	const mfem::real_t cs_fv =					\
+   	  Theseus::DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta, el_metric_zeta, du_fv);
+	
+   	for(int ipt = 0;ipt < estride;ipt++){
+   	  du_el[ipt] = alpha_dg * du_el[ipt] + alpha_fv * du_fv[ipt];
+   	}
+	
+   	ws_d[e] = Kernels::rmax(ws_d[e], cs_fv);
+      }
+   });
 #endif
-      ws_d[e] = cs_el;
 
       // Inviscid part is done: dUe currrently holds the inviscid RHS
       // Host code mixes inviscid and viscous assembly, we need separate.
       // Call the Viscous Assembly routine
+    // Inside the FORALL below, executed on device
+    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+    {
+    
+      const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
+      const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
+
+      const int attr = elem_attr_d[e];
+      if (attr_marker_d[attr-1] == 0) {
+	ws_d[e] = 0.0;
+	return;
+      }
+
+      // Element-specific inputs and outputs
+      const int eoff = e * estride;
+      const mfem::real_t *u_el = Ue_d + eoff;
+      mfem::real_t *du_el = dUe_d + eoff;
+
       const mfem::real_t *grad_prim_el[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
       for(int idim = 0;idim < dim;idim++){
         grad_prim_el[idim] = gradPrim_d[idim] + eoff;

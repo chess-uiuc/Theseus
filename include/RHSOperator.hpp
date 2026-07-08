@@ -166,6 +166,7 @@ namespace Theseus
     void ComputeBlendingCoefficient(const mfem::Vector &u) const;
     void ComputeBlendingCoefficientFromIndicator(const mfem::Vector &indicator_field) const;
     void ComputeIndicatorField(const mfem::Vector &u, mfem::Vector &indicator_field) const;
+    void ComputeBlendingCoefficientFromIndicator_STUB(const mfem::Vector &indicator_field) const;
 #endif
 
     void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override;
