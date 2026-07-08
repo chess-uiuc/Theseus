@@ -80,6 +80,9 @@ namespace Theseus
     mfem::Vector entropyState;
     mfem::Vector duBnd;
     mfem::Vector duInt;
+    
+    // Eliminate redundant restr calls?
+    bool urestr_ready = false;
 
     std::vector<mfem::Vector> gradVol;
     std::vector<mfem::Vector> pGrad;
@@ -109,9 +112,22 @@ namespace Theseus
     mfem::Vector subcellMetricXi;
     mfem::Vector subcellMetricEta;
     mfem::Vector subcellMetricZeta;
-    mfem::Vector subcellWeights;    
+    mfem::Vector subcellWeights;
     mfem::Vector indicatorField;
+    mfem::Vector eta;
+    mfem::Vector modal;
+    mfem::Vector keep_M1;
+    mfem::Vector keep_M2;
+    mfem::Vector dUfv;
+    mfem::real_t *dUfv_d;
+    const mfem::real_t *alpha_d;
+    const mfem::real_t *modal_d;
+    const mfem::real_t *keep_M1_d;
+    const mfem::real_t *keep_M2_d;
+    mfem::real_t *eta_d;
+    mfem::real_t *indicator_d;
 #endif
+
     // nullptr if subcell blending is OFF
     std::shared_ptr<mfem::ParGridFunction> alpha;
 
