@@ -1,27 +1,17 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 #include <cmath>
 #include "mfem.hpp"
-// // Drag in essential parts of MFEM for kernels
-// #include "config/config.hpp"
-// #include "general/forall.hpp"
-// #ifndef MFEM_HOST_DEVICE
-// #include "general/device.hpp"
-// #endif
-// #ifndef MFEM_HOST_DEVICE
-// #error "MFEM_HOST_DEVICE not defined. Check MFEM headers/includes."
-// #endif
 
 namespace Theseus
 {
   constexpr const int MAXEQ = 5;
   constexpr const int MAXDIM = 3;
-
-// #ifdef MFEM_USE_SINGLE
-//   using mfem::real_t = float;
-// #else
-//   using mfem::real_t = double;
-// #endif
 
   namespace Kernels {
     MFEM_HOST_DEVICE inline mfem::real_t rmax(mfem::real_t a, mfem::real_t b) { return a > b ? a : b; }

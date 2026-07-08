@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: MIT
 #include "unit_test.hpp"
 
 // Minimal test stub to verify that the unit test infrastructure works.

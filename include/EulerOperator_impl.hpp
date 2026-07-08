@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 
 namespace Theseus
 {
@@ -123,9 +128,9 @@ namespace Theseus
         mfem::real_t *du_fv = dUfv_d + eoff;
         const mfem::real_t *el_metric_xi = metric_xi_d + e * npe_metric_xi * dim;
         const mfem::real_t *el_metric_eta = (dim > 1 ? metric_eta_d + e * npe_metric_eta * dim :
-					     nullptr);
+                                             nullptr);
         const mfem::real_t *el_metric_zeta = (dim > 2 ? metric_zeta_d + e * npe_metric_zeta * dim :
-					      nullptr);
+                                              nullptr);
         const mfem::real_t cs_fv =                                              \
           DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta, el_metric_zeta, du_fv);
       
@@ -215,7 +220,7 @@ namespace Theseus
       const mfem::real_t *w_plus_d = inv2_d + w_offset;
     
       mfem::real_t ws = DGSEMIntegrator::AssembleElementFaceKernel(dc, u_face_d, nor_face_d,
-								   w_minus_d, w_plus_d, rhs_face_d);
+                                                                   w_minus_d, w_plus_d, rhs_face_d);
       ws_d[i] = ws;
     
     });

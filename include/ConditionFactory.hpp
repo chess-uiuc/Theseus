@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 #include <map>
@@ -15,13 +20,13 @@ namespace Prandtl
   using IC_Function1 = std::function<std::function<void(const mfem::Vector&, mfem::Vector&)>(mfem::real_t)>;
   using IC_Function2 = std::function<std::function<void(const mfem::Vector&, mfem::Vector&)>(mfem::real_t, mfem::real_t)>;
   using IC_Function3 = std::function<std::function<void(const mfem::Vector&,
-							mfem::Vector&)>(mfem::real_t, mfem::real_t, mfem::real_t)>;
+                                                        mfem::Vector&)>(mfem::real_t, mfem::real_t, mfem::real_t)>;
   using IC_Function4 = std::function<std::function<void(const mfem::Vector&,
-							mfem::Vector&)>(mfem::real_t, mfem::real_t,
-									mfem::real_t, mfem::real_t)>;
+                                                        mfem::Vector&)>(mfem::real_t, mfem::real_t,
+                                                                        mfem::real_t, mfem::real_t)>;
   using IC_Function5 = std::function<std::function<void(const mfem::Vector&,
-							mfem::Vector&)>(mfem::real_t, mfem::real_t, mfem::real_t,
-									mfem::real_t, mfem::real_t)>;
+                                                        mfem::Vector&)>(mfem::real_t, mfem::real_t, mfem::real_t,
+                                                                        mfem::real_t, mfem::real_t)>;
 
   // Aliases for boundary condition function functions, vectors, and scalars.
   using BC_VectorFunction0 = std::function<std::function<void(const mfem::Vector&, mfem::Vector&)>()>;
@@ -34,14 +39,14 @@ namespace Prandtl
 
   using BC_VectorTDFunction0 = std::function<std::function<void(const mfem::Vector&, mfem::real_t, mfem::Vector&)>()>;
   using BC_VectorTDFunction1 = std::function<std::function<void(const mfem::Vector&, mfem::real_t,
-								mfem::Vector&)>(mfem::real_t)>;
+                                                                mfem::Vector&)>(mfem::real_t)>;
   using BC_VectorTDFunction2 = std::function<std::function<void(const mfem::Vector&, mfem::real_t,
-								mfem::Vector&)>(mfem::real_t, mfem::real_t)>;
+                                                                mfem::Vector&)>(mfem::real_t, mfem::real_t)>;
 
   using BC_ScalarTDFunction0 = std::function<std::function<mfem::real_t(const mfem::Vector&, mfem::real_t)>()>;
   using BC_ScalarTDFunction1 = std::function<std::function<mfem::real_t(const mfem::Vector&, mfem::real_t)>(mfem::real_t)>;
   using BC_ScalarTDFunction2 = std::function<std::function<mfem::real_t(const mfem::Vector&,
-									mfem::real_t)>(mfem::real_t, mfem::real_t)>;
+                                                                        mfem::real_t)>(mfem::real_t, mfem::real_t)>;
 
   using BC_Scalar = mfem::real_t;
   using BC_Vector = mfem::Vector;

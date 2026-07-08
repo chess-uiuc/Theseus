@@ -1,0 +1,1 @@
+Boundary conditions in Theseus are handled by the BC handlers and kernels in [BC Kernels](../include/bc_kernels.hpp) using constructs defined in [BC utilities](../include/bc_cache_utilities.hpp).

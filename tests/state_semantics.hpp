@@ -1,4 +1,8 @@
-// tests/state_semantics.hpp
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: MIT
 #pragma once
 
 // State-like objects must provide:

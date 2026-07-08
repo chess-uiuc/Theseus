@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "mfem.hpp"
 #include "dgsem_cache.hpp"
@@ -26,12 +31,6 @@ namespace Theseus {
     // MFEM_VERIFY(cache.face_normals.Size() == nfaces*nfp*dim, "normals size mismatch");
     // MFEM_VERIFY(cache.face_wt_minus.Size() == nfaces*nfp, "w_minus size mismatch");
     // MFEM_VERIFY(cache.face_wt_plus.Size()  == nfaces*nfp, "w_plus size mismatch");
-  }
-
-  template<typename GasModelT, typename DeviceCacheT>
-  void SetupGasModel(GasModelT &gas_model, DeviceCacheT &device_cache)
-  {
-    device_cache.gas = gas_model;
   }
 
   template<typename CacheT>
@@ -833,7 +832,7 @@ namespace Theseus {
     device_cache.bndWaveSpeed_d = cache.bndWaveSpeed.ReadWrite();
 
     // POD gas model
-    device_cache.gas = cache.gas;
+    device_cache.gas = cache.gas.to_device(cache);
     device_cache.iflux = cache.iflux;
 
 #ifdef SUBCELL_FV_BLENDING

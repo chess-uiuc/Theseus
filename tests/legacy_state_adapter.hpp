@@ -1,4 +1,8 @@
-// tests/legacy_state_adapter.hpp
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: MIT
 #pragma once
 
 #include "mfem.hpp"

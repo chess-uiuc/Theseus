@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+
+namespace Theseus::BuildConfig
+{
+  inline constexpr std::string_view PlatoDBPath = "@PLATO_DB_PATH@";
+}

@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #include "ModalBasis.hpp"
 
 namespace Prandtl
@@ -44,67 +49,67 @@ namespace Prandtl
     ubdegs = mfem::Array2D<int>(npts, dim);
     switch (gtype)
       {
-	// Segment: [0,1]
+        // Segment: [0,1]
       case 1:
-	{
-	  for (int i = 0; i < order + 1; i++)
-	    {
-	      ubdegs(i, 0) = i;
-	    }
-	  break;
-	}
-	// Triangle with vertices (0,0), (1,0), (0,1)
+        {
+          for (int i = 0; i < order + 1; i++)
+            {
+              ubdegs(i, 0) = i;
+            }
+          break;
+        }
+        // Triangle with vertices (0,0), (1,0), (0,1)
       case 2:
-	{
-	  int n = 0;
-	  for (int i = 0; i < order + 1; i++)
-	    {
-	      for (int j = 0; j < order + 1 - i; j++)
-		{
-		  ubdegs(n, 0) = i;
-		  ubdegs(n, 1) = j;
-		  n++;
-		}
-	    }
-	  break;
-	}
-	// Quad: [0,1]^2
+        {
+          int n = 0;
+          for (int i = 0; i < order + 1; i++)
+            {
+              for (int j = 0; j < order + 1 - i; j++)
+                {
+                  ubdegs(n, 0) = i;
+                  ubdegs(n, 1) = j;
+                  n++;
+                }
+            }
+          break;
+        }
+        // Quad: [0,1]^2
       case 3:
-	{
-	  int n = 0;
-	  for (int i = 0; i < order + 1; i++)
-	    {
-	      for (int j = 0; j < order + 1; j++)
-		{
-		  ubdegs(n, 0) = i;
-		  ubdegs(n, 1) = j;
-		  n++;
-		}
-	    }
-	  break;
-	}
-	// Hex: [0, 1]^3
+        {
+          int n = 0;
+          for (int i = 0; i < order + 1; i++)
+            {
+              for (int j = 0; j < order + 1; j++)
+                {
+                  ubdegs(n, 0) = i;
+                  ubdegs(n, 1) = j;
+                  n++;
+                }
+            }
+          break;
+        }
+        // Hex: [0, 1]^3
       case 5:
-	{
-	  int n = 0;
-	  for (int i = 0; i < order + 1; i++)
-	    {
-	      for (int j = 0; j < order + 1; j++)
-		{
-		  for (int k = 0; k < order + 1; k++)
-		    {
-		      ubdegs(n, 0) = i;
-		      ubdegs(n, 1) = j;
-		      ubdegs(n, 2) = k;
-		      n++;
-		    }
-		}
-	    }
-	  break;
-	}
+        {
+          int n = 0;
+          for (int i = 0; i < order + 1; i++)
+            {
+              for (int j = 0; j < order + 1; j++)
+                {
+                  for (int k = 0; k < order + 1; k++)
+                    {
+                      ubdegs(n, 0) = i;
+                      ubdegs(n, 1) = j;
+                      ubdegs(n, 2) = k;
+                      n++;
+                    }
+                }
+            }
+          break;
+        }
       default:
-	MFEM_ABORT("Element type not currently supported for modal basis.")
-	  }
+        MFEM_ABORT("Element type not currently supported for modal basis.")
+          }
   }
 
   void ModalBasis::ComputeVDM(mfem::IntegrationRule &solpts)
@@ -113,20 +118,20 @@ namespace Prandtl
     // Loop through solution nodes
     for (int i = 0; i < npts; i++)
       {
-	// Compute nodal location in reference space
-	solpts.IntPoint(i).Get(x, dim);
+        // Compute nodal location in reference space
+        solpts.IntPoint(i).Get(x, dim);
 
-	// Compute L_k(x_i)*L_k(y_i)*L_k(z_i) for each modal basis function k corresponding to the
-	// polynomial degree in ubdegs.
-	for (int j = 0; j < dim; j++)
-	  {
-	    mfem::Poly_1D::CalcLegendre(order, x[j], L);
-	    for (int k = 0; k < npts; k++)
-	      {
-		double v = L[ubdegs(k, j)];
-		V(i,k) = (j == 0) ? v : V(i,k)*v;
-	      }
-	  }
+        // Compute L_k(x_i)*L_k(y_i)*L_k(z_i) for each modal basis function k corresponding to the
+        // polynomial degree in ubdegs.
+        for (int j = 0; j < dim; j++)
+          {
+            mfem::Poly_1D::CalcLegendre(order, x[j], L);
+            for (int k = 0; k < npts; k++)
+              {
+                double v = L[ubdegs(k, j)];
+                V(i,k) = (j == 0) ? v : V(i,k)*v;
+              }
+          }
       }
 
     // Invert and store Vandermonde matrix
@@ -137,7 +142,7 @@ namespace Prandtl
   void ModalBasis::ComputeModes(const mfem::Vector &nodes)
   {
     MFEM_ASSERT(nodes.Size() == npts,
-		"Element-wise solution vector must be of same size as the modal basis.")
+                "Element-wise solution vector must be of same size as the modal basis.")
 
       V_inv.Mult(nodes, umc);
   }
@@ -145,7 +150,7 @@ namespace Prandtl
   void ModalBasis::ComputeModes(const mfem::Vector &nodes, mfem::Vector &modes)
   {
     MFEM_ASSERT(nodes.Size() == npts,
-		"Element-wise solution vector must be of same size as the modal basis.")
+                "Element-wise solution vector must be of same size as the modal basis.")
       V_inv.Mult(nodes, modes); 
   }
 
@@ -162,7 +167,7 @@ namespace Prandtl
   void ModalBasis::ComputeNodes(mfem::Vector &nodes)
   {
     MFEM_ASSERT(nodes.Size() == npts,
-		"Element-wise solution vector must be of same size as the modal basis.")
+                "Element-wise solution vector must be of same size as the modal basis.")
 
       V.Mult(umc, nodes);  
   }
@@ -176,29 +181,29 @@ namespace Prandtl
   mfem::real_t ModalBasis::Eval(mfem::Vector &x)
   {
     MFEM_ASSERT(x.Size() == dim,
-		"Modal basis can only be evaluated at one location at a time.")
+                "Modal basis can only be evaluated at one location at a time.")
 
       // Pre-compute L_i(x), L_i(y), L_i(z) for all degrees up to max polynomial order.
       mfem::Array2D<double> L(order + 1, dim);
     for (int i = 0; i < dim; i++)
       {
-	mfem::Poly_1D::CalcLegendre(order, x(i), Li);
-	for (int j = 0; j < order + 1; j++)
-	  {
-	    L(j, i) = Li[j];
-	  }
+        mfem::Poly_1D::CalcLegendre(order, x(i), Li);
+        for (int j = 0; j < order + 1; j++)
+          {
+            L(j, i) = Li[j];
+          }
       }
 
     // Compute u(x,y,z) as \sum L_i(x)*L_i(y)*L_i(z)
     double ux = 0;
     for (int i = 0; i < npts; i++)
       {
-	double v = umc(i);
-	for (int j = 0; j < dim; j++)
-	  {
-	    v *= L(ubdegs(i, j), j);
-	  }
-	ux += v;
+        double v = umc(i);
+        for (int j = 0; j < dim; j++)
+          {
+            v *= L(ubdegs(i, j), j);
+          }
+        ux += v;
       }
 
     return ux;
@@ -210,18 +215,18 @@ namespace Prandtl
     int indx = 0;
     for (const mfem::IntegrationPoint *ip = ir->begin(); ip != ir->end(); ++ip, ++indx)
       {
-	ip->Get(x, dim);
-	for (int j = 0; j < dim; j++)
-	  {
-	    mfem::Poly_1D::CalcLegendre(order, x[j], L);
+        ip->Get(x, dim);
+        for (int j = 0; j < dim; j++)
+          {
+            mfem::Poly_1D::CalcLegendre(order, x[j], L);
 
-	    for (int k = 0; k < npts; k++)
-	      {
-		double v = L[ubdegs(k, j)];
+            for (int k = 0; k < npts; k++)
+              {
+                double v = L[ubdegs(k, j)];
 
-		VDM(indx,k) = (j == 0) ? v : VDM(indx,k) * v;
-	      }
-	  }
+                VDM(indx,k) = (j == 0) ? v : VDM(indx,k) * v;
+              }
+          }
       }
     return VDM;
   }
@@ -230,19 +235,19 @@ namespace Prandtl
   mfem::Vector ModalBasis::EvalGrad(mfem::Vector &x)
   {
     MFEM_ASSERT(x.Size() == dim,
-		"Modal basis can only be evaluated at one location at a time.")
+                "Modal basis can only be evaluated at one location at a time.")
 
       // Pre-compute L_i(x), L_i(y), L_i(z) (and dL_i(x)/dx, etc.) for all degrees up to max polynomial order.
       mfem::Array2D<double> L(order + 1, dim);
     mfem::Array2D<double> D(order + 1, dim);
     for (int i = 0; i < dim; i++)
       {
-	mfem::Poly_1D::CalcLegendre(order, x(i), Li, Di);
-	for (int j = 0; j < order + 1; j++)
-	  {
-	    L(j, i) = Li[j];
-	    D(j, i) = Di[j];
-	  }
+        mfem::Poly_1D::CalcLegendre(order, x(i), Li, Di);
+        for (int j = 0; j < order + 1; j++)
+          {
+            L(j, i) = Li[j];
+            D(j, i) = Di[j];
+          }
       }
 
     // Compute du(x,y,z)/dx as \sum dL_i(x)/dx*L_i(y)*L_i(z)
@@ -251,17 +256,17 @@ namespace Prandtl
     mfem::Vector gradu(dim);
     for (int d = 0; d < dim; d++)
       {
-	double du = 0;
-	for (int i = 0; i < npts; i++)
-	  {
-	    double v = umc(i);
-	    for (int j = 0; j < dim; j++)
-	      {
-		v *= j == d ? D(ubdegs(i, j), j) : L(ubdegs(i, j), j);
-	      }
-	    du += v;
-	  }
-	gradu(d) = du;
+        double du = 0;
+        for (int i = 0; i < npts; i++)
+          {
+            double v = umc(i);
+            for (int j = 0; j < dim; j++)
+              {
+                v *= j == d ? D(ubdegs(i, j), j) : L(ubdegs(i, j), j);
+              }
+            du += v;
+          }
+        gradu(d) = du;
       }
 
     return gradu;

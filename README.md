@@ -63,6 +63,10 @@ scripts/run_theseus.sh -b "$(pwd)/build" -c TestCases/Euler/2D/IsentropicVortex/
 scripts/run_theseus.sh -b "$(pwd)/build" -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json -t "0.0001" -n 100
 ```
 
+## Documentation
+
+We're working on putting together more detailed documentation.  [Start here](docs/README.md)
+
 ## References
 
 1. Center for Hypersonics & Entry Systems Studies (CHESS), University of Illinois Urbana-Champaign. https://chess.grainger.illinois.edu/

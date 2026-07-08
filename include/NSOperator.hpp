@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "RHSOperator.hpp"
 
@@ -29,13 +34,13 @@ namespace Theseus
                std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u_,
                std::shared_ptr<Prandtl::Indicator> indicator_,
                std::shared_ptr<const Gas> gasModel_,
-	       const std::string &gasModelName_,
-	       const std::string &numFluxName_,
+               const std::string &gasModelName_,
+               const std::string &numFluxName_,
                std::shared_ptr<mfem::ParGridFunction> r_gf_ = nullptr,
                const mfem::real_t alpha_max=0.5, const mfem::real_t alpha_min=0.001)
     : RHSOperator<Physics>(vfes_, fes0_, pmesh_, eta_, alpha_,
                            indicator_, gasModel_, gasModelName_, numFluxName_,
-			   "NavierStokes", r_gf_, alpha_max, alpha_min),
+                           "NavierStokes", r_gf_, alpha_max, alpha_min),
       grad_u(grad_u_)
     {}
 
@@ -53,17 +58,17 @@ namespace Theseus
 
     // NavierStokes RHS Interface
     mfem::real_t MultCNS(const mfem::Vector &u,
-			 const std::vector<mfem::Vector *> &grad_prim,
-			 mfem::Vector &dudt) const;
+                         const std::vector<mfem::Vector *> &grad_prim,
+                         mfem::Vector &dudt) const;
     mfem::real_t MultCNS_Volume(const mfem::Vector &pu,
-				const std::vector<mfem::Vector *> &p_grad_prim,
-				mfem::Vector &pdudt) const;
+                                const std::vector<mfem::Vector *> &p_grad_prim,
+                                mfem::Vector &pdudt) const;
     mfem::real_t MultCNS_InteriorFaces(const mfem::Vector &pu,
-				       const std::vector<mfem::Vector *> &p_grad_prim,
-				       mfem::Vector &pdudt) const;
+                                       const std::vector<mfem::Vector *> &p_grad_prim,
+                                       mfem::Vector &pdudt) const;
     mfem::real_t MultCNS_BoundaryFaces(const mfem::Vector &pu,
-				       const std::vector<mfem::Vector *> &p_grad_prim,
-				       mfem::Vector &pdudt) const;
+                                       const std::vector<mfem::Vector *> &p_grad_prim,
+                                       mfem::Vector &pdudt) const;
   };
 
 }

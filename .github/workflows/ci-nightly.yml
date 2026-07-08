@@ -48,7 +48,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r ci-resources/requirements-ci.txt
 
-      - name: Build dependency submodules (HYPRE, METIS, MFEM)
+      - name: Configure SSH for private deps
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.PLATO_DEPLOY_KEY }}" > ~/.ssh/plato_key
+          echo "${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}" > ~/.ssh/database_key
+          chmod 600 ~/.ssh/plato_key
+          chmod 600 ~/.ssh/database_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<'EOF'
+          Host github-plato
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/plato_key
+            IdentitiesOnly yes
+
+          Host github-database
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/database_key
+            IdentitiesOnly yes
+          EOF
+
+          chmod 600 ~/.ssh/config
+
+      - name: Install TPL Packages (HYPRE, METIS, MFEM, PLATO)
+        env:
+          PLATO_REPO: git@github-plato:chess-uiuc/plato.git
+          THERMO_DATABASE_REPO: git@github-database:chess-uiuc/database.git
         run: |
           bash ./scripts/install-deps.sh
 
@@ -79,7 +107,8 @@ jobs:
             -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
             -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
             -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
-            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON
+            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
+            -DTHESEUS_WITH_PLATO=ON
 
       - name: Build Theseus
         run: |
@@ -100,6 +129,13 @@ jobs:
             -b "$(pwd)/build" \
             -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json \
             -t "0.0001" -n 100
+
+      - name: Example smoke test (LTE, LTEVortex)
+        run: |
+          scripts/run_theseus.sh \
+            -b "$(pwd)/build" \
+            -c TestCases/LTE/Euler/LTEVortex/config.json \
+            -t "1e-5" -n 100
 
       - name: Example regression test (Cyclic - IsentropicVortex)
         run: |
@@ -158,6 +194,17 @@ jobs:
             -c TestCases/Euler/2D/ForwardFacingStep/config.json \
             -o ./RegressionTests
           python scripts/compare_viz.py RegressionTests/ForwardFacingStep/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/ForwardFacingStep/Cycle000100/data.pvtu --atol 1e-13 --rtol 1e-13
+
+      - name: Example regression test (Gold standard - LTEVortex)
+        run: |
+          rm -rf RegressionTests/LTEVortex
+          scripts/run_theseus.sh \
+            -t "1e-5" \
+            -n "200" \
+            -b "$(pwd)/build" \
+            -c TestCases/LTE/Euler/LTEVortex/config.json \
+            -o ./RegressionTests
+          python scripts/compare_viz.py RegressionTests/LTEVortex/ParaView/Cycle000200/data.pvtu TestCases/GoldenData/LTEVortex/Cycle000200/data.pvtu --atol 1e-10 --rtol 1e-10
 
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure

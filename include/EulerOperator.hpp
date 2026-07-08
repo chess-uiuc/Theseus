@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "RHSOperator.hpp"
 
@@ -27,13 +32,13 @@ namespace Theseus
                   std::shared_ptr<mfem::ParGridFunction> alpha_,
                   std::shared_ptr<Prandtl::Indicator> indicator_,
                   std::shared_ptr<const Gas> gasModel_,
-		  const std::string &gasModelName_,
-		  const std::string &numFluxName_,
+                  const std::string &gasModelName_,
+                  const std::string &numFluxName_,
                   std::shared_ptr<mfem::ParGridFunction> r_gf_ = nullptr,
                   const mfem::real_t alpha_max = 0.5, const mfem::real_t alpha_min = 0.001)
     : RHSOperator<PhysicsT>(vfes_, fes0_, pmesh_, eta_, alpha_, indicator_,
                             gasModel_, gasModelName_, numFluxName_,
-			    "Euler", r_gf_, alpha_max, alpha_min)
+                            "Euler", r_gf_, alpha_max, alpha_min)
     {}
 
     ~EulerOperator() = default;

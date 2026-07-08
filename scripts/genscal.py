@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate structured tensor-product Gmsh meshes for Prandtl scalability cases.
+Generate structured tensor-product Gmsh meshes for Theseus scalability cases.
 
 This version is intended for weak-scaling studies where the requested scale
 factor S is a power of two.  Instead of isotropically scaling by S^(1/d), it
@@ -244,7 +244,7 @@ def default_stem(case: CaseSpec, scale: int, counts: tuple[int, ...], factors: t
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate power-of-two weak-scaling Gmsh meshes for Prandtl cases.",
+        description="Generate power-of-two weak-scaling Gmsh meshes for Theseus cases.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("case", choices=sorted(CASES), help="case name or alias")

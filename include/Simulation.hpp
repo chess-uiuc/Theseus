@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 #include "Theseus.hpp"
@@ -106,10 +111,10 @@ namespace Theseus
 
 #ifdef AXISYMMETRIC
     void ConservativeToPrimitive(const mfem::Vector &U_cons,
-				 mfem::ParGridFunction &rho_out,
-				 mfem::ParGridFunction &uz_out,
-				 mfem::ParGridFunction &ur_out,
-				 mfem::ParGridFunction &p_out) const;  
+                                 mfem::ParGridFunction &rho_out,
+                                 mfem::ParGridFunction &uz_out,
+                                 mfem::ParGridFunction &ur_out,
+                                 mfem::ParGridFunction &p_out) const;  
 #endif
   
     Simulation(std::string);

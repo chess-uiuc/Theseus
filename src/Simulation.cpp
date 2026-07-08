@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #include "Simulation.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
@@ -53,7 +58,7 @@ namespace Theseus
 #ifdef SUBCELL_FV_BLENDING
         std::cout << "Subcell Blending: ON" << std::endl;
 #else
-	std::cout << "Subcell Blending: OFF" << std::endl;
+        std::cout << "Subcell Blending: OFF" << std::endl;
 #endif
       }
   }
@@ -113,7 +118,7 @@ namespace Theseus
         vis_steps = runtime.value("vis_steps", 100);
         paraview = runtime["paraview"].get<bool>();
         visit = runtime["visit"].get<bool>();
-	paraview = !visit; // default to paraview
+        paraview = !visit; // default to paraview
       }
 
     nancheck = runtime["nancheck"].get<bool>();
@@ -178,23 +183,23 @@ namespace Theseus
     if (signature == 0)
       {
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition0(IC_key)());
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition0(IC_key)());
       }
     else if (signature == 1)
       {
         mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition1(IC_key)(x1));
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition1(IC_key)(x1));
       }
     else if (signature == 2)
       {
         mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
         mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition2(IC_key)(x1, x2));
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition2(IC_key)(x1, x2));
       }
     else if (signature == 3)
       {
@@ -202,8 +207,8 @@ namespace Theseus
         mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
         mfem::real_t x3 = runtime["conditions"]["initial_conditions"]["params"].value("x3", 0.0);
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition3(IC_key)(x1, x2, x3));
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition3(IC_key)(x1, x2, x3));
       }
     else if (signature == 4)
       {
@@ -212,8 +217,8 @@ namespace Theseus
         mfem::real_t x3 = runtime["conditions"]["initial_conditions"]["params"].value("x3", 0.0);
         mfem::real_t x4 = runtime["conditions"]["initial_conditions"]["params"].value("x4", 0.0);
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition4(IC_key)(x1, x2, x3, x4));
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition4(IC_key)(x1, x2, x3, x4));
       }
     else if (signature == 5)
       {
@@ -223,8 +228,8 @@ namespace Theseus
         mfem::real_t x4 = runtime["conditions"]["initial_conditions"]["params"].value("x4", 0.0);
         mfem::real_t x5 = runtime["conditions"]["initial_conditions"]["params"].value("x5", 0.0);
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-	  (num_equations,
-	   Prandtl::ConditionFactory::Instance().GetInitialCondition5(IC_key)(x1, x2, x3, x4, x5));
+          (num_equations,
+           Prandtl::ConditionFactory::Instance().GetInitialCondition5(IC_key)(x1, x2, x3, x4, x5));
       }
     else
       {
@@ -251,8 +256,8 @@ namespace Theseus
 
     if (dim == 1 && !periodic)
       {
-	mfem::Array<int> left;
-	mfem::Array<int> right;
+        mfem::Array<int> left;
+        mfem::Array<int> right;
         left.Append(1);
         right.Append(2);
         mesh->bdr_attribute_sets.SetAttributeSet("left", left);
@@ -385,7 +390,7 @@ namespace Theseus
             checkpoint_cycle = runtime.value("checkpoint_cycle", 0);
             MFEM_VERIFY(checkpoint_cycle > 0, "Invalid or missing cycle number in JSON");
             std::string meta_file = (checkpoints_folder + "/Cycle" + std::to_string(checkpoint_cycle) +
-				     "/checkpoint_cycle_" + std::to_string(checkpoint_cycle) + ".json");
+                                     "/checkpoint_cycle_" + std::to_string(checkpoint_cycle) + ".json");
 
             std::ifstream meta(meta_file);
             MFEM_VERIFY(meta, "Failed to open meta file " << meta_file);
@@ -394,7 +399,7 @@ namespace Theseus
             root_t = J.value("time", 0.0);
             root_ti = J.value("cycle", 0);
             MFEM_VERIFY(root_ti == checkpoint_cycle,
-			"Mismatch between provided cycle number and value in meta file");
+                        "Mismatch between provided cycle number and value in meta file");
           }
 
         MPI_Bcast(&root_t, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type, 0, pmesh->GetComm());
@@ -406,7 +411,7 @@ namespace Theseus
 
         std::ostringstream fname;
         fname << checkpoints_folder << "/Cycle" << ti << "/checkpoint_cycle_" << ti << "."
-	      << std::setw(8) << std::setfill('0') << myRank << ".chk";
+              << std::setw(8) << std::setfill('0') << myRank << ".chk";
         std::cout << fname.str() << std::endl;
         std::ifstream checkpoint_load(fname.str(), std::ios::binary);
         MFEM_VERIFY(checkpoint_load, "Failed to open checkpoint file for reading: " << fname.str());
@@ -469,7 +474,7 @@ namespace Theseus
 #endif
 
     rhsOp = Theseus::MakeRHSOperator(runtime, vfes, fes0, pmesh, eta, alpha, grad_u,
-				     indicator, r_gf, alpha_max);
+                                     indicator, r_gf, alpha_max);
 
     if(!rhsOp){
       std::cerr << "Failed to create RHS Operator." << std::endl;
@@ -479,9 +484,9 @@ namespace Theseus
     }
     if(myRank == 0){
       std::cout << "Theseus RHS Operator:" << std::endl
-		<< "FlowModel: " << rhsOp->FlowModelName() << std::endl
-		<< "GasModel:  " << rhsOp->GasModelName() << std::endl
-		<< "NumFlux:   " << rhsOp->NumFluxName() << std::endl; 
+                << "FlowModel: " << rhsOp->FlowModelName() << std::endl
+                << "GasModel:  " << rhsOp->GasModelName() << std::endl
+                << "NumFlux:   " << rhsOp->NumFluxName() << std::endl;
     }
 
     const auto &gasModel = rhsOp->GetGasModelInterface();
@@ -495,17 +500,17 @@ namespace Theseus
         mfem::real_t *sol_state = sol->GetData();
         Theseus::FieldStateView fields{sol_state};
         std::vector<std::pair<mfem::real_t, mfem::real_t>> zr(num_dofs_scalar, {0.0, 0.0});
-	
+
         std::cout << "\n === sol state rU values after weighting by r ===\n";
-	
+
         for (int e = 0; e < pmesh->GetNE(); e++)
           {
             const mfem::FiniteElement &fe = *fes->GetFE(e);
-	    mfem::ElementTransformation &Tr = *fes->GetElementTransformation(e);
-	    
-	    mfem::Array<int> ldofs;
+            mfem::ElementTransformation &Tr = *fes->GetElementTransformation(e);
+
+            mfem::Array<int> ldofs;
             fes->GetElementDofs(e, ldofs);
-	    
+
             const mfem::IntegrationRule &fe_nodes = fe.GetNodes();
             if (fe_nodes.GetNPoints() == fe.GetDof())
               {
@@ -558,7 +563,7 @@ namespace Theseus
                 // This rank has no faces with this boundary name; skip
                 continue;
               }
-	    mfem::Array<int> marker(max_bdr_attr);
+            mfem::Array<int> marker(max_bdr_attr);
             marker = 0;
             // bdr_marker_vector.push_back(Array<int>(max_bdr_attr));
             set_marker = pmesh->bdr_attribute_sets.GetAttributeSetMarker(boundaryName);
@@ -664,20 +669,20 @@ namespace Theseus
                     if (signature == 0)
                       {
                         velBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			  (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(velBC_key)());
+                          (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(velBC_key)());
                       }
                     else if (signature == 1)
                       {
                         mfem::real_t x1 = bc_props["velocity"]["params"].value("x1", 0.0);
                         velBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			  (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(velBC_key)(x1));
+                          (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(velBC_key)(x1));
                       }
                     else if (signature == 2)
                       {
                         mfem::real_t x1 = bc_props["velocity"]["params"].value("x1", 0.0);
                         mfem::real_t x2 = bc_props["velocity"]["params"].value("x2", 0.0);
                         velBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			  (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(velBC_key)(x1, x2));
+                          (dim, Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(velBC_key)(x1, x2));
                       }
                     else
                       {
@@ -691,12 +696,12 @@ namespace Theseus
                         if (td)
                           {
                             heatBC = std::make_shared<mfem::FunctionCoefficient>
-			      (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition0(heatBC_key)());
+                              (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition0(heatBC_key)());
                           }
                         else
                           {
                             heatBC = std::make_shared<mfem::FunctionCoefficient>
-			      (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition0(heatBC_key)());
+                              (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition0(heatBC_key)());
                           }
                       }
                     else if (signature == 1)
@@ -704,11 +709,11 @@ namespace Theseus
                         mfem::real_t x1 = bc_props["heat"]["params"].value("x1", 0.0);
                         if (td)
                           heatBC = std::make_shared<mfem::FunctionCoefficient>
-			    (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition1(heatBC_key)(x1));
+                            (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition1(heatBC_key)(x1));
                         else
                           {
                             heatBC = std::make_shared<mfem::FunctionCoefficient>
-			      (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition1(heatBC_key)(x1));
+                              (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition1(heatBC_key)(x1));
                           }
                       }
                     else if (signature == 2)
@@ -717,11 +722,11 @@ namespace Theseus
                         mfem::real_t x2 = bc_props["heat"]["params"].value("x2", 0.0);
                         if (td)
                           heatBC = std::make_shared<mfem::FunctionCoefficient>
-			    (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition2(heatBC_key)(x1, x2));
+                            (Prandtl::ConditionFactory::Instance().GetScalarTDFunctionBoundaryCondition2(heatBC_key)(x1, x2));
                         else
                           {
                             heatBC = std::make_shared<mfem::FunctionCoefficient>
-			      (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition2(heatBC_key)(x1, x2));
+                              (Prandtl::ConditionFactory::Instance().GetScalarFunctionBoundaryCondition2(heatBC_key)(x1, x2));
                           }
                       }
                     else
@@ -813,14 +818,14 @@ namespace Theseus
                         if (td)
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition0(state_key)());
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition0(state_key)());
                           }
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(state_key)());
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(state_key)());
                           }
 
                       }
@@ -829,13 +834,13 @@ namespace Theseus
                         mfem::real_t x1 = bc_props["params"].value("x1", 0.0);
                         if (td)
                           stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			    (num_equations,
-			     Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition1(state_key)(x1));
+                            (num_equations,
+                             Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition1(state_key)(x1));
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(state_key)(x1));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(state_key)(x1));
                           }
                       }
                     else if (signature == 2)
@@ -845,14 +850,14 @@ namespace Theseus
                         if (td)
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition2(state_key)(x1, x2));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition2(state_key)(x1, x2));
                           }
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(state_key)(x1, x2));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(state_key)(x1, x2));
                           }
 
                       }
@@ -893,14 +898,14 @@ namespace Theseus
                         if (td)
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition0(state_key)());
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition0(state_key)());
                           }
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(state_key)());
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition0(state_key)());
                           }
 
                       }
@@ -909,13 +914,13 @@ namespace Theseus
                         mfem::real_t x1 = bc_props["params"].value("x1", 0.0);
                         if (td)
                           stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			    (num_equations,
-			     Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition1(state_key)(x1));
+                            (num_equations,
+                             Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition1(state_key)(x1));
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(state_key)(x1));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition1(state_key)(x1));
                           }
                       }
                     else if (signature == 2)
@@ -925,14 +930,14 @@ namespace Theseus
                         if (td)
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition2(state_key)(x1, x2));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorTDFunctionBoundaryCondition2(state_key)(x1, x2));
                           }
                         else
                           {
                             stateBC = std::make_shared<mfem::VectorFunctionCoefficient>
-			      (num_equations,
-			       Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(state_key)(x1, x2));
+                              (num_equations,
+                               Prandtl::ConditionFactory::Instance().GetVectorFunctionBoundaryCondition2(state_key)(x1, x2));
                           }
 
                       }
@@ -1068,8 +1073,8 @@ namespace Theseus
     if (mfem::Mpi::Root())
       {
         std::cout << "================================================" << std::endl
-		  << "Theseus Simulation Running Now" << std::endl
-		  << "================================================" << std::endl;
+                  << "Theseus Simulation Running Now" << std::endl
+                  << "================================================" << std::endl;
       }
     const auto &gasModel = rhsOp->GetGasModelInterface();
     auto stateLayout = gasModel.layout();
@@ -1110,12 +1115,12 @@ namespace Theseus
       std::cout << "Found minimum cell size: " << hmin << std::endl;
     }
     MPI_Allreduce(MPI_IN_PLACE, &hmin, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
-		  MPI_MIN, pmesh->GetComm());
+                  MPI_MIN, pmesh->GetComm());
     // Asymptotically should be hmin / (p+1)^2 due to node clustering, but is pretty wrong at low
     // order.  This form attempts to smoothly transition to asymptotic form with increasing order
     mfem::real_t p1 = order + 1;
     mfem::real_t alpha1 = std::min(mfem::real_t(1.0),
-				   std::max(mfem::real_t(0.0), (p1 - 3.0) / 3.0));
+                                   std::max(mfem::real_t(0.0), (p1 - 3.0) / 3.0));
     heff = hmin / ((1.0 - alpha1) * p1 + alpha1 * p1 * p1);
 
     if (debug_simulation && mfem::Mpi::Root()){
@@ -1134,7 +1139,7 @@ namespace Theseus
         rhsOp->Mult(*sol, z);
         mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
         MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1,  mfem::MPITypeMap<mfem::real_t>::mpi_type,
-		      MPI_MAX, pmesh->GetComm());
+                      MPI_MAX, pmesh->GetComm());
         mfem::real_t dt_adv = heff / max_char_speed;
         dt = cfl / dim * dt_adv;
         if(debug_simulation && mfem::Mpi::Root()){
@@ -1165,8 +1170,8 @@ namespace Theseus
     // Clock the simulation?
     if (clock_simulation)
       {
-	mfem::tic_toc.Clear();
-	mfem::tic_toc.Start();
+        mfem::tic_toc.Clear();
+        mfem::tic_toc.Start();
       }
 
     if (mfem::Mpi::Root())
@@ -1198,7 +1203,7 @@ namespace Theseus
           }
         }
         std::cout << ">, p = " << std::round(pi*100)/100 << std::endl
-		  << "Total Mass:           " << diag0.mass << std::endl
+                  << "Total Mass:           " << diag0.mass << std::endl
                   << "Total Energy:         " << diag0.en << std::endl
                   << "Total Kinetic Energy: " << diag0.ke << std::endl;
       }
@@ -1208,7 +1213,7 @@ namespace Theseus
         if(mfem::Mpi::Root()){
           std::cout << "Writing initial soln..." << std::endl;
         }
-	Theseus::ScopedTimer timer("VisInit");
+        Theseus::ScopedTimer timer("VisInit");
 
 #ifdef AXISYMMETRIC
 
@@ -1268,11 +1273,11 @@ namespace Theseus
             MPI_Barrier(pmesh->GetComm());
             if(mfem::Mpi::Root()){
               std::cout << "############################################"
-			<< std::endl
-			<< "[TIME STEP = " << ti << ", TIME = " << t << "]"
-			<< std::endl
-			<< "############################################"
-			<< std::endl;
+                        << std::endl
+                        << "[TIME STEP = " << ti << ", TIME = " << t << "]"
+                        << std::endl
+                        << "############################################"
+                        << std::endl;
             }
           }
 
@@ -1281,7 +1286,7 @@ namespace Theseus
 
         // Perform the time step
         {
-	  Theseus::ScopedTimer timer("Timestep");
+          Theseus::ScopedTimer timer("Timestep");
           ode_solver->Step(*sol, t, dt_real);
         }
         ti++;
@@ -1302,7 +1307,7 @@ namespace Theseus
           {
             mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
             MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
-			  MPI_MAX, pmesh->GetComm());
+                          MPI_MAX, pmesh->GetComm());
             mfem::real_t dt_adv = heff / max_char_speed;
             mfem::real_t dt_est = dt_adv;
 #ifdef PARABOLIC
@@ -1320,16 +1325,16 @@ namespace Theseus
             if(debug_simulation && mfem::Mpi::Root()){
 #ifdef PARABOLIC
               std::cout << "DT(adv, diff, sim): (" << dt_adv << ", " << dt_diff
-			<< ", " << dt << ")" << std::endl
-			<< "Effective viscosity: " << nu_eff << std::endl;
+                        << ", " << dt << ")" << std::endl
+                        << "Effective viscosity: " << nu_eff << std::endl;
 #else
               std::cout << "DT(adv, sim): (" << dt_adv << ", " << dt << ")" << std::endl;
 #endif
-	      if(!variable_dt){
-		std::cout << "CFL: "<< cfl_rep << std::endl;
-	      }
+              if(!variable_dt){
+                std::cout << "CFL: "<< cfl_rep << std::endl;
+              }
               std::cout << "Max wavespeed: " << max_char_speed << std::endl
-			<< "Max specific volume: " << 1.0 / diag.min_dens << std::endl;
+                        << "Max specific volume: " << 1.0 / diag.min_dens << std::endl;
             }
 
           }
@@ -1346,7 +1351,7 @@ namespace Theseus
                 if (std::isnan(val) || std::isinf(val))
                   {
                     MFEM_ABORT("NaN/Inf Detected at Time Step " + std::to_string(ti) +
-			       " on Rank " + std::to_string(myRank));
+                               " on Rank " + std::to_string(myRank));
                     break;
                   }
               }
@@ -1405,14 +1410,14 @@ namespace Theseus
             std::error_code ec;
             std::filesystem::create_directories(cycle_dir, ec);
             MFEM_VERIFY(!ec, "Failed to create a directory " << cycle_dir
-			<< " : " << ec.message());
+                        << " : " << ec.message());
 
             std::ostringstream checkpoint_file;
             checkpoint_file << cycle_dir << "/checkpoint_cycle_" << ti << "."
-			    << std::setw(8) << std::setfill('0') << myRank << ".chk";
+                            << std::setw(8) << std::setfill('0') << myRank << ".chk";
             std::ofstream checkpoint_save(checkpoint_file.str(), std::ios::binary);
             MFEM_VERIFY(checkpoint_save, "Failed to open checkpoint file for writing: "
-			<< checkpoint_file.str());
+                        << checkpoint_file.str());
 
             sol->Save(checkpoint_save);
             checkpoint_save.close();
@@ -1497,13 +1502,13 @@ namespace Theseus
     // Stop the clock if enabled
     if (clock_simulation)
       {
-	mfem::tic_toc.Stop();
+        mfem::tic_toc.Stop();
         if (mfem::Mpi::Root())
           {
             std::cout << "================================================" << std::endl
-		      << "Theseus Simulation Completed in " << mfem::tic_toc.RealTime()
-		      << " [s]" << std::endl
-		      << "================================================" << std::endl;
+                      << "Theseus Simulation Completed in " << mfem::tic_toc.RealTime()
+                      << " [s]" << std::endl
+                      << "================================================" << std::endl;
           }
       }
     else
@@ -1511,8 +1516,8 @@ namespace Theseus
         if (mfem::Mpi::Root())
           {
             std::cout << "================================================" << std::endl
-		      << "Theseus Simulation Completed" << std::endl
-		      << "================================================" << std::endl;
+                      << "Theseus Simulation Completed" << std::endl
+                      << "================================================" << std::endl;
           }
       }
   }

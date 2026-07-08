@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 #include "Physics.hpp"
@@ -32,6 +37,12 @@ namespace Theseus
     GasModel(const PhysicsConstants &phys_in, const StateLayout &L_in)
       : phys(phys_in), L(L_in)
     { };
+
+    template<typename HostDataT>
+    MFEM_HOST_DEVICE GasModel<EOSImpl, TransportImpl> to_device(HostDataT &host_data) {
+      GasModel<EOSImpl, TransportImpl> retVal(phys,L,eos,transport);
+      return retVal;
+    }
 
     // Utilities and constants etc
     MFEM_HOST_DEVICE
@@ -184,6 +195,13 @@ namespace Theseus
       return eos.entropy_to_conserved(phys, L, Se, Sc);
     }
 
+    template<typename InStateView, typename OutStateView>
+    MFEM_HOST_DEVICE
+    inline void primitive_to_conserved(const InStateView &Sp, OutStateView &Sc) const
+    {
+      return eos.entropy_to_conserved(phys, L, Sp, Sc);
+    }
+ 
     // --- Transport -----------------------------------------------------------
 
     template<typename StateView>
@@ -221,7 +239,7 @@ namespace Theseus
       MFEM_ABORT("GasModelInterface::density called on base class.");
     }
     virtual mfem::real_t velocity(const Theseus::DofStateView &S,
-				  int d) const{
+                                  int d) const{
       MFEM_ABORT("GasModelInterface::velocity called on base class.");
     }
     virtual mfem::real_t pressure(const Theseus::DofStateView &S) const {

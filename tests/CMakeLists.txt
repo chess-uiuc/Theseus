@@ -1,5 +1,10 @@
+# Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+#
 # This file is part of the unit testing infrastructure for Theseus
 #
+# SPDX-License-Identifier: MIT
+#
+#################
 # Example on how to add unit tests
 # add_executable(suite_test_exe
 #     unit_test_main.cpp
@@ -72,3 +77,43 @@ target_include_directories(rflux_tests
 target_link_libraries(rflux_tests PRIVATE ${THESEUS_MFEM_TARGET})
 
 add_test(NAME RiemannTestingSuite COMMAND rflux_tests)
+
+if(THESEUS_WITH_PLATO)
+
+   # Table lookup unit testing suite
+   add_executable(table_lookup_tests
+      unit_test_main.cpp
+      table_lookup_test.cpp
+   )
+
+   target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
+
+   target_include_directories(table_lookup_tests
+         PRIVATE
+         ${PROJECT_SOURCE_DIR}/include
+         ${CMAKE_PREFIX_PATH}/include
+         ${PROJECT_BINARY_DIR}/generated
+   )
+
+   target_link_directories(table_lookup_tests
+         PUBLIC ${CMAKE_PREFIX_PATH}/lib
+   )
+
+   target_link_libraries(table_lookup_tests
+          PRIVATE
+          ${THESEUS_MFEM_TARGET}
+          plato
+        )
+   if(CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES)
+          target_link_libraries(table_lookup_tests PRIVATE
+            ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES}
+          )
+        endif()
+        if(CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES)
+          target_link_directories(table_lookup_tests PRIVATE
+          ${CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES}
+        )
+  endif()
+
+        add_test(NAME ThermoTableTestingSuite COMMAND table_lookup_tests)
+endif()

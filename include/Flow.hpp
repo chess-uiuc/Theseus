@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include <cassert>
 #include <cmath>
@@ -82,6 +87,9 @@ namespace Theseus {
       // state to the gasModel.R_gas function. Since we only have ideal atm with fixed R_gas, I am
       // skipping the unnecessary Entropy2Conservative conversion.  
       return (1.0 / (gasModel.R_gas(Se)*Tw));
+
+      // LTE Gas Model wants this one (because it uses dimensional entropy)
+      // return (1.0 / Tw);
     }
 
     struct TotalConditions {

@@ -1,3 +1,8 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus.
+//
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 #include "Indicator.hpp"
@@ -16,9 +21,9 @@ namespace Prandtl
   
   public:
     PerssonPeraireIndicator(std::shared_ptr<mfem::ParFiniteElementSpace> vfes,
-			    std::shared_ptr<mfem::ParFiniteElementSpace> fes0,
-			    std::shared_ptr<mfem::ParGridFunction> eta,
-			    std::shared_ptr<Prandtl::ModalBasis> modalBasis);
+                            std::shared_ptr<mfem::ParFiniteElementSpace> fes0,
+                            std::shared_ptr<mfem::ParGridFunction> eta,
+                            std::shared_ptr<Prandtl::ModalBasis> modalBasis);
     virtual void CheckIndicatorSmoothness(const mfem::Vector &indicator) override;
   };
 

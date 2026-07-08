@@ -1,0 +1,65 @@
+{
+    "compileTime":
+    {
+        "PARABOLIC": false,
+        "SUBCELL_FV_BLENDING": false,
+        "SUTHERLAND": false,
+        "USE_FILTER": false
+    },
+    "runTime":
+    {
+        "order": 3,
+        "dim" : 2,
+        "num_equations": 4,
+
+        "precision": 15,
+
+        "visualize": true,
+        "paraview": true,
+        "visit": false,
+        "vis_steps": 1000,
+        "output_file_path" : "LTE-Vortex",
+
+        "nancheck": false,
+
+        "clock_simulation": true,
+        "variable_dt": true,
+        "cfl": 0.05,
+        "final_time": 2.0,
+
+        "ser_ref_levels": 3,
+
+	"gas_model": "lte",
+        "gas_mixture": "air5",
+        "solver": "LTE_table_rhoT_(air5)",
+        "database_path": "../../tpl/install/database",
+        "N_rho": 101,
+        "N_T" : 101,
+        "rho_min":  0.01,
+        "rho_max": 1.1,
+        "T_min": 200.0,
+        "T_max": 350.0,
+        "rho_dist": "log",
+        "T_dist": "log",
+
+        "mesh_file": "../../TestCases/LTE/Euler/LTEVortex/LTEVortex.mesh",
+        "conditions":
+        {
+            "initial_conditions":
+            {
+                "signature": 5,
+                "params":
+                {
+                    "x1": 0.2,
+                    "x2": 10.0,
+                    "x3": 1.0,
+                    "x4": 0.1,
+                    "x5": 275.0
+                },
+                "function": "LTEVortexIC"
+            }
+        },
+        "numerical_flux": "lfr",
+        "ode_solver": "RK3SSP"
+    }
+}

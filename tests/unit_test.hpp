@@ -1,3 +1,9 @@
+// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
+//
+// This file is part of Theseus testing suites
+//
+// SPDX-License-Identifier: MIT
+//
 // This file (along with unit_test_main.cpp) is the unit testing
 // infrastructure for Theseus. Tests are arranged into "suites",
 // where every suite has its own executable with "main" provided
