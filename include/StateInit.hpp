@@ -239,8 +239,6 @@ namespace Prandtl
 
   // Lid-driven Cavity heat flow boundary condition scalar for adiabatic walls and lid
   const Prandtl::BC_Scalar LidDrivenCavityAdiaBCScalar = 0.0;
-  // Lid-driven Cavity heat flow boundary condition scalar for isothermal lid
-  const Prandtl::BC_Scalar LidDrivenCavityIsoBCScalar = 3.0;
 
   // Lid-driven Cavity velocity boundary condition function for walls
   std::function<void(const mfem::Vector&, mfem::Vector&)> LidDrivenCavityWallVelBCFunction()
@@ -251,7 +249,6 @@ namespace Prandtl
       vel(1) = 0.0;
     };
   }
-
   // Lid-driven Cavity velocity boundary condition vector for walls
   const Prandtl::BC_Vector LidDrivenCavityWallVelBCVector({0.0, 0.0});
 
@@ -283,14 +280,11 @@ namespace Prandtl
       Prandtl::ConditionFactory::Instance().RegisterVectorFunctionBoundaryCondition0("LidDrivenCavityWallVelBCFunction",
                                                                                      LidDrivenCavityWallVelBCFunction);
       Prandtl::ConditionFactory::Instance().RegisterVectorFunctionBoundaryCondition2("LidDrivenCavityLidVelBCFunction",
-										     LidDrivenCavityLidVelBCFunction);
+                                                                                     LidDrivenCavityLidVelBCFunction);
 
       // Register boundary conditions with constant scalars/vectors.
       Prandtl::ConditionFactory::Instance().RegisterScalarBoundaryCondition("LidDrivenCavityAdiaBCScalar",
-									    LidDrivenCavityAdiaBCScalar);
-      Prandtl::ConditionFactory::Instance().RegisterScalarBoundaryCondition("LidDrivenCavityIsoBCScalar",
-									    LidDrivenCavityIsoBCScalar);
-
+                                                                            LidDrivenCavityAdiaBCScalar);
       Prandtl::ConditionFactory::Instance().RegisterVectorBoundaryCondition("LidDrivenCavityWallVelBCVector",
                                                                             LidDrivenCavityWallVelBCVector);
       Prandtl::ConditionFactory::Instance().RegisterVectorBoundaryCondition("LidDrivenCavityLidVelBCVector",
@@ -994,8 +988,7 @@ namespace Prandtl
   {
     return [gamma](const mfem::Vector &x, mfem::Vector &y)
     {
-      // mfem::real_t density, velocity_x, pressure, energy, V;
-      mfem::real_t density, velocity_x, pressure, energy;
+      mfem::real_t density, velocity_x, pressure, energy, V;
       mfem::real_t a_inf, M_inf = 0.5, rho_inf = 1.225, p_inf = 1.0;
       a_inf = std::sqrt(gamma * p_inf / rho_inf);
       // MFEM_ASSERT(x.Size() == 1, "");
@@ -1023,8 +1016,7 @@ namespace Prandtl
   {
     return [gamma](const mfem::Vector &x, mfem::real_t t, mfem::Vector &y)
     {
-      // mfem::real_t density, velocity_x, pressure, energy, V, v_;
-      mfem::real_t density, velocity_x, pressure, energy;
+      mfem::real_t density, velocity_x, pressure, energy, V, v_;
       mfem::real_t a_inf, M_inf = 0.5, rho_inf = 1.225, p_inf = 1.0;
       a_inf = std::sqrt(gamma * p_inf / rho_inf);
       // MFEM_ASSERT(x.Size() == 1, "");
@@ -1264,7 +1256,7 @@ namespace Prandtl
   {
     return [gamma](const mfem::Vector &x, mfem::Vector &y)
     {
-      // mfem::real_t density, velocity_x, pressure, energy;
+      mfem::real_t density, velocity_x, pressure, energy;
       MFEM_ASSERT(x.Size() == 1, "");
 
       if (x(0) < 3.0)

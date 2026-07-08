@@ -69,6 +69,8 @@ namespace Theseus
     const int Np_x = dc.Np_x;
     const int Np_y = dc.Np_y;
     const int Np_z = dc.Np_z;
+    const int npe = Np_x * Np_y * Np_z;
+    const int ndofe = npe * neq;
     const int npe_metric_xi = (Np_x + 1)*Np_y*Np_z;
     const int npe_metric_eta = Np_x*(Np_y + 1)*Np_z;
     const int npe_metric_zeta = Np_x * Np_y * (Np_z + 1);
@@ -171,6 +173,8 @@ namespace Theseus
     const int nfp = dc.num_face_points;
     const int nval_restr = operator_cache.restr_f->Height();
     const int nfaces = nval_restr / (nfp * neq * 2); // (+/-)
+    const int face_stride = 2 * nfp * neq;
+    const int side_stride = nfp * neq;
     const int face_size = 2*nfp*neq;
     const int norm_size = nfp*dim;
   
