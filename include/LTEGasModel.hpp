@@ -44,7 +44,7 @@ namespace Theseus
     { };
 
     template<typename HostDataT>
-    MFEM_HOST_DEVICE LTEGasModel<EOSImpl, TransportImpl>  to_device(HostDataT &host_data) {
+    LTEGasModel<EOSImpl, TransportImpl>  to_device(HostDataT &host_data) {
       LTEGasModel<EOSImpl, TransportImpl> retVal(phys, L, T, eos, transport);
       T.tables = {
         host_data.lteTableData->lte_table.Read(),
