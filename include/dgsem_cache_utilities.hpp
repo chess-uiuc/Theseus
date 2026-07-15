@@ -853,10 +853,10 @@ namespace Theseus {
     // mfem::Vector rho_p, modes, modesM1, modesM2;
     // mfem::Array2D<int> ubdegs;
     // mfem::Array<int> ubdegs_row;
-    dim = c.dim;
-    order = c.p;
-    ndofs = c.ndof_scalar_el;
-    ne = c.num_elements;
+    int dim = c.dim;
+    int order = c.p;
+    int ndofs = c.ndof_scalar_el;
+    int ne = c.num_elements;
     const mfem::Array2D<int> ubdegs(modalBasis.GetPolyDegs());
 
     c.modal.SetSize(ndofs * ndofs);
@@ -864,10 +864,10 @@ namespace Theseus {
     c.keep_M2.SetSize(ndofs);
     c.eta.SetSize(ne);
 
-    c.modal.UseDevice(true);
-    c.keep_M1.UseDevice(true);
-    c.keep_M2.UseDevice(true);
-    c.eta.UseDevice(true);
+    c.modal.UseDevice();
+    c.keep_M1.UseDevice();
+    c.keep_M2.UseDevice();
+    c.eta.UseDevice();
 
     auto *modal_h = c.modal.HostWrite();
     auto *m1_h = c.keep_M1.HostWrite();
@@ -916,7 +916,8 @@ namespace Theseus {
     c.modal_d = c.modal.Read();
     c.keep_M1_d = c.keep_M1.Read();
     c.keep_M2_d = c.keep_M2.Read();
-    c.eta_d = c.eta.Write();
+    c.eta_d = c.eta.ReadWrite();
+
   }
 
   template<typename CacheT>

@@ -89,6 +89,12 @@ namespace Theseus
     
     // Eliminate redundant restr calls?
     bool urestr_ready = false;
+    bool u_vol_restr_ready = false;
+    bool u_bnd_restr_ready = false;
+    bool u_int_restr_ready = false;
+    bool grad_vol_restr_ready = false;
+    bool grad_bnd_restr_ready = false;
+    bool grad_int_restr_ready = false;
 
     std::vector<mfem::Vector> gradVol;
     std::vector<mfem::Vector> pGrad;
@@ -127,7 +133,7 @@ namespace Theseus
     mfem::Vector keep_M2;
     mfem::Vector dUfv;
     mfem::real_t *dUfv_d;
-    const mfem::real_t *alpha_d;
+    mfem::real_t *alpha_d;
     const mfem::real_t *modal_d;
     const mfem::real_t *keep_M1_d;
     const mfem::real_t *keep_M2_d;

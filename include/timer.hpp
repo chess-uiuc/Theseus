@@ -7,6 +7,9 @@
 #include <chrono>
 #include <cstdio>
 #include <mpi.h>
+#ifdef TIMER_SYNC_DEVICE
+#include "mfem.hpp"
+#endif
 
 namespace Theseus
 {
@@ -14,12 +17,27 @@ namespace Theseus
   {
   public:
 #ifdef ENABLE_TIMERS
+#ifndef TIMER_SYNC_DEVICE
     explicit ScopedTimer(const char *name)
       : name_(name),
-        start_(clock::now()) {}
+	start_(clock::now())
+    {}
+#else
+    explicit ScopedTimer(const char *name)
+      : name_(name)
+    {
+      MFEM_DEVICE_SYNC;
+	//      mfem::Device::Sync();
+      start_ = clock::now();
+    }
+#endif
 
     ~ScopedTimer()
     {
+#ifdef TIMER_SYNC_DEVICE
+      MFEM_DEVICE_SYNC;
+      // mfem::Device::Sync();
+#endif
       auto end = clock::now();
       double local_ms = std::chrono::duration<double, std::milli>(end - start_).count();
       double global_ms = local_ms;
@@ -30,17 +48,20 @@ namespace Theseus
 #ifdef TIMER_BARRIER
       MPI_Barrier(MPI_COMM_WORLD);
       end = clock::now();
-      global_ms = std::chrono::duration<double, std::milli>(end - start_).count();
+      if(rank == 0)
+          MPI_Reduce(MPI_IN_PLACE,&global_ms, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+      else
+	MPI_Reduce(&global_ms, NULL, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 #endif
 #ifdef TIMER_OUTPUT_ALLRANKS
       if(nranks > 1 && rank > 0)
-        std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
+	std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
 #endif
       if(rank == 0 ){
-        std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
+	std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
 #ifdef TIMER_BARRIER
-        if(nranks > 1)
-          std::printf("[TIMER(all)] %s : %.6f ms\n", name_, global_ms);
+	if(nranks > 1)
+	  std::printf("[TIMER(all)] %s : %.6f ms\n", name_, global_ms);
 #endif
       }
     }
