@@ -24,6 +24,7 @@ namespace Prandtl
                             std::shared_ptr<mfem::ParFiniteElementSpace> fes0,
                             std::shared_ptr<mfem::ParGridFunction> eta,
                             std::shared_ptr<Prandtl::ModalBasis> modalBasis);
+    Prandtl::ModalBasis &ModalBasis() { return *modalBasis; };
     virtual void CheckIndicatorSmoothness(const mfem::Vector &indicator) override;
   };
 

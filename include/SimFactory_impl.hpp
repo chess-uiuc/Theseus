@@ -31,7 +31,7 @@ namespace Theseus {
                        std::shared_ptr<mfem::ParGridFunction> eta,
                        std::shared_ptr<mfem::ParGridFunction> alpha,
                        std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u,
-                       std::shared_ptr<Prandtl::Indicator> indicator,
+                       std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator,
                        std::shared_ptr<mfem::ParGridFunction> r_gf,
                        mfem::real_t alpha_max,
                        std::shared_ptr<const GasModelT> gas_,
@@ -66,7 +66,7 @@ namespace Theseus {
                   std::shared_ptr<mfem::ParGridFunction> eta,
                   std::shared_ptr<mfem::ParGridFunction> alpha,
                   std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u,
-                  std::shared_ptr<Prandtl::Indicator> indicator,
+                  std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator,
                   std::shared_ptr<mfem::ParGridFunction> r_gf,
                   mfem::real_t alpha_max)
   {
@@ -180,7 +180,6 @@ namespace Theseus {
       mfem::real_t rho_max  = runtime.value("rho_max", 1.1);
       mfem::real_t T_min    = runtime.value("T_min", 250.0);
       mfem::real_t T_max    = runtime.value("T_max", 35.0);
-      mfem::real_t e_min, e_max;
       int num_properties = 9; // CL NOTE : Check LTE EOS
       auto lteData = std::make_unique<Theseus::LTETable::Data>();
       auto &lteTableData = *lteData;
@@ -216,6 +215,7 @@ namespace Theseus {
             std::cerr << "Plato Database (" << path << ") not found." << std::endl;
             return nullptr;
           }
+	  mfem::real_t e_min, e_max;
           std::string empty_str("empty");
           plato_initialize(solver.c_str(), mixture.c_str(), empty_str.c_str(), empty_str.c_str(), path.c_str());
           Theseus::LTETable::fill_table(lteTables.L, lteTableData.rho_grid.GetData(), lteTableData.T_grid.GetData(),

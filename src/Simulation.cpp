@@ -471,6 +471,7 @@ namespace Theseus
       {
         alpha_max = 0.5;
       }
+    *alpha = 0.0;
 #endif
 
     rhsOp = Theseus::MakeRHSOperator(runtime, vfes, fes0, pmesh, eta, alpha, grad_u,
