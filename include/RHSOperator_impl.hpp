@@ -30,6 +30,35 @@ namespace Theseus
     GetDeviceCache(operator_cache, device_cache);
   }
 
+  // pu should be prolongated
+  template<typename PhysicsT>
+  void RHSOperator<PhysicsT>::FetchRestrictions(const mfem::Vector &pu, mfem::Vector &uVol,
+						mfem::Vector &uInt, mfem::Vector &uBnd) const
+  {
+    Theseus::ScopedTimer timer("FetchRestrictions");
+    const int psize = operator_cache.restr_v->Height();
+    if(uVol.Size() != psize){
+      uVol.SetSize(psize);
+      uVol.UseDevice();
+    }
+    operator_cache.restr_v->Mult(pu, uVol);
+    const int int_restr_size = operator_cache.restr_f->Height();
+    if(uInt.Size() != int_restr_size){
+      uInt.SetSize(int_restr_size);
+      uInt.UseDevice();
+    }
+    operator_cache.restr_f->Mult(pu, uInt);
+    const int bnd_restr_size = operator_cache.restr_b->Height();
+    if(uBnd.Size() != bnd_restr_size){
+      uBnd.SetSize(bnd_restr_size);
+      uBnd.UseDevice();
+    }
+    operator_cache.restr_b->Mult(pu, uBnd);
+    operator_cache.u_vol_restr_ready = true;
+    operator_cache.u_bnd_restr_ready = true;
+    operator_cache.u_int_restr_ready = true;
+  }
+
 #ifdef SUBCELL_FV_BLENDING  
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::ComputeIndicatorField(const mfem::Vector &pu) const
@@ -52,7 +81,7 @@ namespace Theseus
     
     MFEM_ASSERT(nval_restr == ne*ndof*neq, "Unexpected size for volume restriction in indicator calc.");
     const int nval_ind = nval_restr / neq;
-    
+
     if(operator_cache.uVol.Size() != nval_restr){
       operator_cache.uVol.SetSize(nval_restr);
       operator_cache.uVol.UseDevice();
@@ -361,12 +390,15 @@ namespace Theseus
     operator_cache.u_vol_restr_ready = false;
     operator_cache.u_bnd_restr_ready = false;
     operator_cache.u_int_restr_ready = false;
-
-    const mfem::Vector &pu = this->Prolongate(u);
-    if (this->P)
-      {
-        operator_cache.pdudt.SetSize(this->P->Height());
-      }
+    {
+      Theseus::ScopedTimer rhsPrep("RHSRestriction");
+      const mfem::Vector &pu = this->Prolongate(u);
+      FetchRestrictions(pu, operator_cache.uVol, operator_cache.uInt, operator_cache.uBnd);
+      if (this->P)
+	{
+	  operator_cache.pdudt.SetSize(this->P->Height());
+	}
+    }
     mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;
 
     // This block is executed by the host
@@ -385,6 +417,7 @@ namespace Theseus
 #ifdef SUBCELL_FV_BLENDING
     {
       Theseus::ScopedTimer timer("SubcellBlendingStep");
+      const mfem::Vector &pu = this->Prolongate(u);
       ComputeIndicatorField(pu);
       CheckIndicatorSmoothness();
       ComputeBlendingCoefficient();
@@ -401,7 +434,11 @@ namespace Theseus
 
     // max_char_speed is consumed by external components
     // between steps
-    max_char_speed = FlowMult(pu, pdudt);
+    // max_char_speed = FlowMult(pu, pdudt);
+    {
+      Theseus::ScopedTimer timer("FlowMult");
+      max_char_speed = FlowMult(u, pdudt);
+    }
 
     if (this->Serial())
       {

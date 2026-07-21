@@ -368,7 +368,7 @@ namespace Theseus
 
   // Top level MULT for inviscid cases, called from DGSEMOperator
   template<typename PhysicsT>
-  mfem::real_t EulerOperator<PhysicsT>::FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const
+  mfem::real_t EulerOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("EulerMult");
     
@@ -382,6 +382,8 @@ namespace Theseus
     };
 
     mfem::real_t max_char_speed = 0.0;
+    const mfem::Vector &pu(this->Prolongate(u));
+
     // This step overwrites contents of pdudt
     max_char_speed = MultEuler_Volume(pu, pdudt);
 

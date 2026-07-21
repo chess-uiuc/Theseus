@@ -78,9 +78,11 @@ namespace Theseus
     mfem::Vector volAux;
     mfem::Vector rhsVol;
     mfem::Vector uInt;
+    mfem::Vector sInt;
     mfem::Vector rhsInt;
     mfem::Vector dudtInt;
     mfem::Vector uBnd;
+    mfem::Vector sBnd;
     mfem::Vector rhsBnd;
     mfem::Vector dudtBnd;
     mfem::Vector entropyState;

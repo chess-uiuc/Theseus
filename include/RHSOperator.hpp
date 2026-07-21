@@ -181,6 +181,8 @@ namespace Theseus
     {
       return *gas_interface;
     }
+    void FetchRestrictions(const mfem::Vector &pu, mfem::Vector &uVol,
+			   mfem::Vector &uInt, mfem::Vector &uBnd) const;
   };
 
 }
