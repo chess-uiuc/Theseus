@@ -33,6 +33,7 @@ namespace Theseus
       mfem::real_t f[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
       mfem::real_t state1[Theseus::MAXEQ];
       mfem::real_t state2[Theseus::MAXEQ];
+      mfem::real_t J = 0.0;
       mfem::real_t max_char_speed = 0.0;
 
       { // X-direction (metric row 0)
@@ -44,6 +45,7 @@ namespace Theseus
               {
                 int id1 = k * Np_y * Np_x + j * Np_x + i;
                 Kernels::el_gather_state(el_u, dof, neq, id1, state1);
+                J = elJac_d[id1];
                 const mfem::real_t *met1 = elMetric_d+id1*dim*dim;
                 for (int m = i + 1; m < Np_x; m++)
                   {
@@ -126,11 +128,11 @@ namespace Theseus
     MFEM_HOST_DEVICE static mfem::real_t AssembleElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
                                                              const mfem::real_t *nor_face,const mfem::real_t *w_minus,
                                                              const mfem::real_t *w_plus, mfem::real_t *rhs_face)
-    {
+    { // TODO: Fix hard-coded sizes (5)
       mfem::real_t max_char_speed = 0.0;
-      mfem::real_t point_flux[Theseus::MAXEQ];
-      mfem::real_t qMinus[Theseus::MAXEQ];
-      mfem::real_t qPlus[Theseus::MAXEQ];
+      mfem::real_t point_flux[5];
+      mfem::real_t qMinus[5];
+      mfem::real_t qPlus[5];
       const int nfp = ctx.num_face_points;
       const int neq = ctx.num_equations;
       const int dim = ctx.dim;
@@ -171,7 +173,7 @@ namespace Theseus
                                                                     const mfem::real_t *w_plus, const mfem::real_t *dprim_face_x,
                                                                     const mfem::real_t *dprim_face_y, const mfem::real_t*dprim_face_z,
                                                                     mfem::real_t *rhs_face)
-    {
+    { // TODO: Fix hard-coded sizes (5)
       mfem::real_t max_char_speed = 0.0;
       mfem::real_t point_flux[Theseus::MAXEQ];
       mfem::real_t vflux_minus[Theseus::MAXEQ][Theseus::MAXDIM];
@@ -264,6 +266,7 @@ namespace Theseus
       const int Np_z = ctx.Np_z;
       const int neq = ctx.num_equations;
       const int npe = Np_x * Np_y * Np_z;
+      const int ndofe = npe * neq;
       const mfem::real_t *qWgt = ctx.subcell_weights_d;
 
       mfem::real_t max_char_speed = 0.0;
@@ -433,6 +436,7 @@ namespace Theseus
       mfem::real_t dqz  [Theseus::MAXEQ] = {0., 0., 0., 0., 0.};
 
       // flux(eq,dir)
+      mfem::real_t flux_eq_dir[Theseus::MAXEQ][Theseus::MAXDIM] = {{0.}};
       // one transformed reference-direction flux vector
       mfem::real_t f_ref[Theseus::MAXEQ] = {0., 0., 0., 0., 0.};
 

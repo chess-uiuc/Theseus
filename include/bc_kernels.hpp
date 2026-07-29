@@ -46,7 +46,7 @@ namespace Theseus {
             const mfem::real_t v = -gas.energy(S);
 
             // Build the same provisional "boundary" state as legacy, then subtract state1.
-            F.set_mass(gas.L, gas.mass(S)); // Is this really correct? v+ != v- so.. hrm.
+            F.set_mass(gas.L, gas.mass(S));
             for(int idim = 0;idim < dim;idim++){
               F.set_momentum(gas.L, idim, Vwall[idim] * v);
             }
@@ -57,51 +57,6 @@ namespace Theseus {
               }
             return;
           }
-
-	case Theseus::BCType::NoSlipIso:
-	  {
-	    const mfem::real_t *bc_data = dc.bc_vector_d + bc.data_index;
-	    const mfem::real_t *Vwall  = bc_data;
-	    const mfem::real_t Twall   = bc_data[dim];
-
-	    // state1 is entropy state
-	    Theseus::PointStateView S{state1};
-	    Theseus::PointStateViewRW F{fluxN};
-
-	    /*
-	     * Need the entropy state / beta corresponding to Twall and Vwall.
-	     *
-	     * Legacy Prandtl does this (roughly):
-	     *   beta = isothermal_wall_beta(S, Twall, gas);
-	     *   F[mom] = Vwall * beta;
-	     *   F[energy] = -beta;
-	     *
-	     * So this method should return the same quantity that -gas.energy(S)
-	     * returns for the adiabatic case, but evaluated at Twall. I am going
-	     * to match legacy-like behavior here - but I'm skeptical of it.
-	     *
-	     * Note:
-	     * Strictly speaking, shouldn't we form the (+) entropy state by prescribing
-	     * Twall, and Vwall? In that case, I think at least the mass component is off
-	     *
-	     */
-
-	    const mfem::real_t beta_like = Theseus::Flow::isothermal_wall_beta(S, Twall, gas);
-
-	    F.set_mass(gas.L, gas.mass(S));
-	    for (int idim = 0; idim < dim; ++idim)
-	      {
-		F.set_momentum(gas.L, idim, Vwall[idim] * beta_like);
-	      }
-	    F.set_energy(gas.L, -beta_like);
-
-	    for (int q = 0; q < neq; ++q)
-	      {
-		fluxN[q] -= state1[q];
-	      }
-
-	    return;
-	  }
 
         default:
           {
@@ -152,6 +107,7 @@ namespace Theseus {
                                      const mfem::real_t *nor, const mfem::real_t vWall[Theseus::MAXDIM],
                                      const mfem::real_t qWall, mfem::real_t *fluxN)
     {
+      
       mfem::real_t unit_nor[Theseus::MAXDIM];
       mfem::real_t state2[Theseus::MAXEQ];
       mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM];
@@ -168,7 +124,6 @@ namespace Theseus {
         state2[ieq] = state1[ieq];
         fluxN[ieq] = 0.0;
       }
-      // Inviscid part is just like slipwall
       Theseus::Kernels::Normalize(dim, unit_nor);
       Theseus::PointStateViewRW S{state2};
       Theseus::Flow::RotateState(gasModel.L, unit_nor, S);
@@ -178,7 +133,6 @@ namespace Theseus {
       const int mom_eq = gasModel.L.eq_mom0;
       for(int idim = 0;idim < dim;idim++)
         fluxN[mom_eq+idim] = p_star * nor[idim];
-
       // Inviscid part is done, now for the viscous part
       mfem::real_t qn = qWall * normag;
       NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x, gradPrim_y,
@@ -200,95 +154,6 @@ namespace Theseus {
       }
       return std::abs(v) + c;
     }
-
-    template<typename GasModelT>
-    MFEM_HOST_DEVICE
-    mfem::real_t NoSlipIsothWallFluxKernel(const GasModelT &gasModel,
-					   const mfem::real_t *state1,
-					   const mfem::real_t *gradPrim_x,
-					   const mfem::real_t *gradPrim_y,
-					   const mfem::real_t *gradPrim_z,
-					   const mfem::real_t *nor,
-					   const mfem::real_t vWall[Theseus::MAXDIM],
-					   const mfem::real_t tWall,
-					   mfem::real_t *fluxN)
-    {
-      mfem::real_t unit_nor[Theseus::MAXDIM];
-      mfem::real_t state2[Theseus::MAXEQ];
-      mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM];
-
-      const int dim = gasModel.L.dim;
-      const int neq = gasModel.L.nequations();
-      const int mom_eq = gasModel.L.eq_mom0;
-      const int ener_eq = gasModel.L.eq_energy;
-
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  unit_nor[idim] = nor[idim];
-	}
-
-      for (int ieq = 0; ieq < neq; ++ieq)
-	{
-	  state2[ieq] = state1[ieq];
-	  fluxN[ieq] = 0.0;
-	}
-
-      // Inviscid part - same as slipwall
-      Theseus::Kernels::Normalize(dim, unit_nor);
-      Theseus::PointStateViewRW Srot{state2};
-      Theseus::Flow::RotateState(gasModel.L, unit_nor, Srot);
-
-      const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(Srot, gasModel);
-      const mfem::real_t vn = gasModel.velocity(Srot, 0);
-      const mfem::real_t c  = gasModel.sound_speed(Srot);
-
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  fluxN[mom_eq + idim] = p_star * nor[idim];
-	}
-
-      // Viscous part
-      Theseus::NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x,
-							  gradPrim_y, gradPrim_z, visc_flux);
-
-      mfem::real_t vflux_n[Theseus::MAXEQ];
-      for (int eq = 0; eq < neq; ++eq)
-	{
-	  vflux_n[eq] = 0.0;
-	  for (int idim = 0; idim < dim; ++idim)
-	    {
-	      vflux_n[eq] += nor[idim] * visc_flux[eq][idim];
-	    }
-	}
-
-      // Recover just the heat flux part so we can adjust
-      // the mechanical part
-      Theseus::PointStateView S{state1};
-      mfem::real_t conductive_n = vflux_n[ener_eq];
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  const mfem::real_t u_trace = gasModel.velocity(S, idim);
-	  conductive_n -= u_trace * vflux_n[mom_eq + idim];
-	}
-
-      // reinsert heat flux and adjust mechanical work for Vwall
-      vflux_n[ener_eq] = conductive_n;
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  vflux_n[ener_eq] += vWall[idim] * vflux_n[mom_eq + idim];
-	}
-
-      // Same sign convention as adiabatic kernel:
-      // Ultimately we want F_visc - F_inv, note
-      // that this result is negated at the top level (sigh)
-      for (int eq = 0; eq < neq; ++eq)
-	{
-	  fluxN[eq] -= vflux_n[eq];
-	}
-
-      return std::abs(vn) + c;
-    }
-
 
     template <typename DeviceCacheT>
     MFEM_HOST_DEVICE
@@ -376,17 +241,6 @@ namespace Theseus {
             const mfem::real_t qWall = bc_vec_data[dim];
             return NoSlipAdiabWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
                                              gradPrim_z, nor, vWall, qWall, fluxN);
-          }
-        case Theseus::BCType::NoSlipIso:
-          {
-            const mfem::real_t *bc_vec_data = vector_data + bc.data_index;
-            mfem::real_t vWall[Theseus::MAXDIM];
-            for(int idim=0;idim < dim;idim++){
-              vWall[idim] = bc_vec_data[idim];
-            }
-            const mfem::real_t tWall = bc_vec_data[dim];
-            return NoSlipIsothWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
-                                             gradPrim_z, nor, vWall, tWall, fluxN);
           }
         default:
           {
