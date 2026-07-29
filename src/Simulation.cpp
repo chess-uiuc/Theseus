@@ -975,13 +975,13 @@ namespace Theseus
         std::cout << "The Number of Equations being Solved: " << num_equations << std::endl
 		  << "The Total Number of Order " << order << " Elements in the Simulation: "
 		  << num_elements_total << std::endl
-		  << "The Total Number of DOFs per Equation per Element: "
+		  << "The Number of Nodes per Element: "
 		  << points_per_element << std::endl
 		  << "The Total Number of DOFs in the Simulation (All Eqns/All Ranks): "
                   << num_elements_total*points_per_element*num_equations << std::endl
 		  << "Per Rank Averages:" << std::endl
-                  << "  Number of Elements:     " << num_elements_total / numProcs << std::endl
-                  << "  Number of DOFs per Enq: " << num_dofs_scalar << std::endl
+                  << "  Number of elements:     " << num_elements_total / numProcs << std::endl
+                  << "  Number of nodes:        " << num_dofs_scalar << std::endl
                   << "  Total DOFs (all eqns):  " << num_dofs_system << std::endl;
       }
 

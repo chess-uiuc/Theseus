@@ -825,7 +825,7 @@ namespace Theseus
         vol_grad_prim[idim].UseDevice();
       }
     }
-    
+
     if(!operator_cache.u_vol_restr_ready){
       operator_cache.restr_v->Mult(pu, vol_u);
       operator_cache.u_vol_restr_ready = true;

@@ -42,7 +42,7 @@ namespace Theseus
     int num_face_points = 0;
     int num_interior_faces = 0;
 
-    // Host Only: Integration rules, operators, restrictions 
+    // Host Only: Integration rules, operators, restrictions
     mfem::IntegrationRules GLIntRules{0, mfem::Quadrature1D::GaussLobatto};
     const mfem::IntegrationRule *ir = nullptr;
     const mfem::IntegrationRule *ir_face = nullptr;
@@ -88,7 +88,7 @@ namespace Theseus
     mfem::Vector entropyState;
     mfem::Vector duBnd;
     mfem::Vector duInt;
-    
+
     // Eliminate redundant restr calls?
     bool urestr_ready = false;
     bool u_vol_restr_ready = false;
@@ -102,7 +102,7 @@ namespace Theseus
     std::vector<mfem::Vector> pGrad;
     std::vector<mfem::Vector> gradInt;
     std::vector<mfem::Vector> gradBnd;
-    
+
     // Domain boundary device arrays
     mfem::Vector bnd_normals;
     mfem::Vector bnd_wt;
@@ -206,7 +206,7 @@ namespace Theseus
     // Physics parts
     mfem::real_t *elWaveSpeed_d = nullptr;
     mfem::real_t *ifWaveSpeed_d = nullptr;
-    mfem::real_t *bndWaveSpeed_d = nullptr; 
+    mfem::real_t *bndWaveSpeed_d = nullptr;
     Gas gas;
     InviscidFlux iflux;
 

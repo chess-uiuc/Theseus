@@ -25,7 +25,7 @@ namespace Theseus
     operator_cache.bc_descriptors = bc_descriptors;
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
-    
+
     BuildPerssonDeviceCache(operator_cache, indicator->ModalBasis());
     GetDeviceCache(operator_cache, device_cache);
   }
@@ -59,17 +59,17 @@ namespace Theseus
     operator_cache.u_int_restr_ready = true;
   }
 
-#ifdef SUBCELL_FV_BLENDING  
+#ifdef SUBCELL_FV_BLENDING
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::ComputeIndicatorField(const mfem::Vector &pu) const
   {
     Theseus::ScopedTimer timer("ComputeIndicator");
-    
+
     // This block is executed by the host
     const int nval_restr = operator_cache.restr_v->Height();
     // Copy the device cache so that it is not member data
     auto dc = device_cache;
-    
+
     // Device cache parameters
     const int dim = dc.dim;
     const int ne = dc.num_elements;
@@ -78,7 +78,7 @@ namespace Theseus
     const int Np_x = dc.Np_x;
     const int Np_y = dc.Np_y;
     const int Np_z = dc.Np_z;
-    
+
     MFEM_ASSERT(nval_restr == ne*ndof*neq, "Unexpected size for volume restriction in indicator calc.");
     const int nval_ind = nval_restr / neq;
 
@@ -92,7 +92,7 @@ namespace Theseus
       operator_cache.u_vol_restr_ready = true;
     }
     const mfem::real_t *Ue_d = Ue.Read();
-    
+
     mfem::Vector &indicator_field(operator_cache.indicatorField);
     if(indicator_field.Size() != nval_ind){
       indicator_field.SetSize(nval_ind);
@@ -101,7 +101,7 @@ namespace Theseus
     mfem::real_t *ifield_d = indicator_field.Write();
 
     const int estride = ndof*neq;
-    
+
     // Inside the FORALL below, executed on device
     mfem::forall(nval_ind, [=] MFEM_HOST_DEVICE (int vind)
     {
@@ -174,7 +174,7 @@ namespace Theseus
 	   {
 	     mode += modal_d[m * ndofs + q] * u[q];
 	   }
-	 
+
 	 const mfem::real_t m1 = keep_M1_d[m] * mode;
 	 const mfem::real_t m2 = keep_M2_d[m] * mode;
 
@@ -204,13 +204,13 @@ namespace Theseus
   void RHSOperator<PhysicsT>::ComputeIntegralMeasures(const mfem::Vector &u, Theseus::IntegralMeasures &diag) const
   {
     Theseus::ScopedTimer timer("ComputeIntegralMeasures");
-    
+
     // This block is executed by the host
     const int nval_restr = operator_cache.restr_v->Height();
-    
+
     // Copy the device cache so that it is not member data
     auto dc = device_cache;
-    
+
     // Device cache parameters
     const int ne = dc.num_elements;
     const int ndof = dc.ndof_scalar_el;
@@ -267,7 +267,7 @@ namespace Theseus
     {
       const mfem::real_t *u_el = Ue_d + e * estride;
       const mfem::real_t *qWgt = qWts_d + e * ndof;
-   
+
       mfem::real_t mass_int = 0.0;
       mfem::real_t ke_int = 0.0;
       mfem::real_t en_int = 0.0;
@@ -382,7 +382,7 @@ namespace Theseus
     }
 
   }
-  
+
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::Mult(const mfem::Vector &u, mfem::Vector &dudt) const
   {
