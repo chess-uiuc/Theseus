@@ -347,20 +347,22 @@ namespace Theseus
     std::int64_t ndofscalar = fes->GetNDofs();
     std::int64_t ndofsys = vfes->GetVSize();
     int points_per_element = std::pow(order+1, dim);
-    std::int64_t num_elements = ndofscalar / points_per_element;
-    MPI_Allreduce(MPI_IN_PLACE, &num_elements, 1, MPI_LONG_LONG, MPI_SUM, pmesh->GetComm());
-    if(debug_simulation && numProcs > 1){
+    std::int64_t num_elements_local = ndofscalar / points_per_element;
+    std::int64_t num_elements_total = num_elements_local;
+
+    //    if(debug_simulation && numProcs > 1){
+    if(numProcs > 1){
       for(int irank = 0;irank < numProcs;irank++){
        if(myRank == irank){
          std::cout << "Rank(" << myRank << ") Number of elements: "
-                   << num_elements << std::endl;
+                   << num_elements_local << std::endl;
        }
        MPI_Barrier(pmesh->GetComm());
       }
     }
     if(numProcs > 1){
-      std::int64_t max_nel = num_elements;
-      std::int64_t  min_nel = num_elements;
+      std::int64_t max_nel = num_elements_local;
+      std::int64_t  min_nel = num_elements_local;
       MPI_Allreduce(MPI_IN_PLACE, &max_nel, 1, MPI_LONG_LONG, MPI_MAX, pmesh->GetComm());
       MPI_Allreduce(MPI_IN_PLACE, &min_nel, 1, MPI_LONG_LONG, MPI_MIN, pmesh->GetComm());
       if(myRank == 0){
@@ -368,7 +370,7 @@ namespace Theseus
                  << ")" << std::endl;
       }
     }
-    MPI_Allreduce(MPI_IN_PLACE, &num_elements, 1, MPI_LONG_LONG, MPI_SUM, pmesh->GetComm());
+    MPI_Allreduce(MPI_IN_PLACE, &num_elements_total, 1, MPI_LONG_LONG, MPI_SUM, pmesh->GetComm());
 
     if(myRank == 0 && debug_simulation){
       std::cout << "Initial exchanges complete." << std::endl;
@@ -744,7 +746,38 @@ namespace Theseus
               }
             else if (type == "no-slip-isothermal")
               {
+                bc_descr.type = int(Theseus::BCType::NoSlipIso);
+                bc_descr.data_kind = int(Theseus::BCDataKind::VectorAndScalarConstant);
+                if (bc_props["velocity"].contains("vector"))
+                  {
+                    std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
+                    std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
+                    // std::string state_key = bc_props["vector"].get<std::string>();
+                    auto vel_bc = Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(velBC_key);
+                    auto temp_bc = Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(tempBC_key);
 
+                    mfem::Vector bc_data(vel_bc.Size() + 1);
+                    std::ostringstream Ostr;
+                    Ostr << "Wall velocity: < ";
+                    for(int ivec = 0;ivec < vel_bc.Size();ivec++){
+                      bc_data[ivec] = vel_bc[ivec];
+                      Ostr << vel_bc[ivec] << " ";
+                    }
+                    Ostr << ">" << std::endl;
+                    Ostr << "Wall temperature: " << temp_bc << std::endl;
+                    bc_data[vel_bc.Size()] = temp_bc;
+                    bc_descr.data_index = Theseus::AppendBCVectorPayload(bc_vector_data, bc_data);
+                    Ostr << "bc_vector_data index: " << bc_descr.data_index << std::endl
+                         << "BC Data So Far: [";
+                    for(int ivec=0;ivec < bc_vector_data.Size();ivec++){
+                      Ostr << bc_vector_data[ivec] << " ";
+                    }
+                    Ostr << "]" << std::endl;
+		    if(debug_simulation && mfem::Mpi::Root()){
+		      std::cout << Ostr.str();
+		    }
+                    rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
+                  }
               }
             else if (type == "supersonic-outflow")
               {

@@ -516,14 +516,14 @@ namespace Theseus {
     for (int fslot = 0; fslot < ninterior_faces; ++fslot)
       {
         const int face_id = int_faces[fslot];  
-        bool face_is_flipped = false;
-        for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
-          {
-            const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
-            if (fp_geom != fp_restr){
-              face_is_flipped = true;
-            }
-          }
+        // bool face_is_flipped = false;
+        // for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
+        //   {
+        //     const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
+        //     if (fp_geom != fp_restr){
+        //       face_is_flipped = true;
+        //     }
+        //   }
         auto *tr = mesh->GetInteriorFaceTransformations(face_id);
         if (tr){ // Do interior face caching
           //          MFEM_VERIFY(tr, "expected interior face");
