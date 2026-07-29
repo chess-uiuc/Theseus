@@ -51,10 +51,13 @@ MESH_OVERRIDE=0
 ORDER="default"
 ORDER_OVERRIDE=0
 CHECKOUT=1
+MSHREF_OVERRIDE=0
+MSHREF_LVL="default"
+DISABLE_VIZ=0
 
 usage() {
   cat <<EOF
-Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-y ORDER] [-k] (-c CONFIG.json | -l LIST.txt)
+Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-z] (-c CONFIG.json | -l LIST.txt)
 
   -n STEPS      Number of steps to run (default: None, use case default)
   -t TIMESTEP   Fixed timestep size (default: None, use case default)
@@ -70,7 +73,9 @@ Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p
   -k            Disable output check
   -l LIST       List file with one config.json path per line (comments (#) allowed)
   -m MESHNAME   Replace the meshname with this one
+  -x REFLEVEL   Mesh refinement level
   -y ORDER      Polynomial order for spatial discretization
+  -z            Disable visualization output
 Examples:
   $0 -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json
   $0 -l examples.txt
@@ -78,7 +83,7 @@ EOF
 }
 
 # ---- Parse args
-while getopts ":ky:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
+while getopts ":zkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
   case $opt in
       n) NSTEPS="${OPTARG}"; NSTEPS_OVERRIDE=1;;
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
@@ -91,8 +96,10 @@ while getopts ":ky:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       r) DEVICE="${OPTARG}";;
       c) ONECFG="${OPTARG}";;
       k) CHECKOUT=0;;
+      z) DISABLE_VIZ=1; CHECKOUT=0;;
       l) LISTFILE="${OPTARG}";;
       m) MESHNAME="${OPTARG}"; MESH_OVERRIDE=1;;
+      x) MSHREF_LVL="${OPTARG}"; MSHREF_OVERRIDE=1;;
       y) ORDER="${OPTARG}"; ORDER_OVERRIDE=1;;
       h) usage; exit 0;;
       \?) echo "Unknown option -$OPTARG" >&2; usage; exit 2;;
@@ -158,13 +165,13 @@ run_one() {
       nsteps=100
   fi
 
-  python3 - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" \
-      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" << 'PY'
+  python3 - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
+      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" << 'PY'
 import json
 import sys
 import os
 
-src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s = sys.argv[1:]
+src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s = sys.argv[1:]
 
 nsteps = int(nsteps_s)
 dt = float(dt_s)
@@ -173,12 +180,17 @@ cfl_override = int(cfl_override_s)
 dt_override = int(dt_override_s)
 mesh_override = int(mesh_override_s)
 order_override = int(order_override_s)
+ref_override = int(ref_override_s)
+disable_viz = int(disable_viz_s)
 with open(src, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 
 rt = cfg.setdefault("runTime", {})
 
-rt["visualize"] = True
+if disable_viz > 0:
+    rt["visualize"] = False
+else:
+    rt["visualize"] = True
 rt["paraview"] = True
 rt["visit"] = False
 rt["nancheck"] = True
@@ -193,6 +205,10 @@ if mesh_override:
     current_file = rt["mesh_file"]
     current_dir = os.path.dirname(current_file)
     rt["mesh_file"] = os.path.join(current_dir, meshname) if current_dir else meshname
+
+if ref_override:
+    ref_lvl = int(reflvl_s)
+    rt["par_ref_levels"] = ref_lvl
 
 if dt_override:
     rt["variable_dt"] = False
@@ -209,6 +225,9 @@ with open(dst, "w", encoding="utf-8") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
 PY
+
+printf "Theseus configuration:\n"
+cat "${patched}"
 
 local -a MPI_LAUNCHER="mpiexec -n ${NMPIRANKS}"
 local -a LAUNCH_UTIL=""

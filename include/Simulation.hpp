@@ -7,7 +7,6 @@
 
 #include "Theseus.hpp"
 #include "RHSOperator.hpp"
-#include "Indicator.hpp"
 
 namespace Theseus
 {
@@ -84,7 +83,7 @@ namespace Theseus
     // Subcell blending : nullptr if OFF
     std::shared_ptr<mfem::ParGridFunction> eta;
     std::shared_ptr<mfem::ParGridFunction> alpha;
-    std::shared_ptr<Prandtl::Indicator> indicator;
+    std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator;
 
     std::vector<std::shared_ptr<mfem::VectorFunctionCoefficient>> BC_coeff;
   

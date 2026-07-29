@@ -6,6 +6,7 @@
 #pragma once
 #include "mfem.hpp"
 #include "dgsem_cache.hpp"
+#include "ModalBasis.hpp"
 #include "timer.hpp"
 
 namespace Theseus {
@@ -515,14 +516,14 @@ namespace Theseus {
     for (int fslot = 0; fslot < ninterior_faces; ++fslot)
       {
         const int face_id = int_faces[fslot];  
-        bool face_is_flipped = false;
-        for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
-          {
-            const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
-            if (fp_geom != fp_restr){
-              face_is_flipped = true;
-            }
-          }
+        // bool face_is_flipped = false;
+        // for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
+        //   {
+        //     const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
+        //     if (fp_geom != fp_restr){
+        //       face_is_flipped = true;
+        //     }
+        //   }
         auto *tr = mesh->GetInteriorFaceTransformations(face_id);
         if (tr){ // Do interior face caching
           //          MFEM_VERIFY(tr, "expected interior face");
@@ -841,6 +842,81 @@ namespace Theseus {
     device_cache.subcell_metric_zeta_d = cache.subcellMetricZeta.Read();
     device_cache.subcell_weights_d = cache.subcellWeights.Read();
 #endif
+
+  }
+
+  template<typename CacheT>
+  void BuildPerssonDeviceCache(CacheT &c,
+			       Prandtl::ModalBasis &modalBasis)
+  {
+    // std::shared_ptr<Prandtl::ModalBasis> modalBasis;
+    // mfem::Vector rho_p, modes, modesM1, modesM2;
+    // mfem::Array2D<int> ubdegs;
+    // mfem::Array<int> ubdegs_row;
+    int dim = c.dim;
+    int order = c.p;
+    int ndofs = c.ndof_scalar_el;
+    int ne = c.num_elements;
+    const mfem::Array2D<int> ubdegs(modalBasis.GetPolyDegs());
+
+    c.modal.SetSize(ndofs * ndofs);
+    c.keep_M1.SetSize(ndofs);
+    c.keep_M2.SetSize(ndofs);
+    c.eta.SetSize(ne);
+
+    c.modal.UseDevice();
+    c.keep_M1.UseDevice();
+    c.keep_M2.UseDevice();
+    c.eta.UseDevice();
+
+    auto *modal_h = c.modal.HostWrite();
+    auto *m1_h = c.keep_M1.HostWrite();
+    auto *m2_h = c.keep_M2.HostWrite();
+
+    mfem::Vector nodal(ndofs), modes(ndofs);
+
+    for (int q = 0; q < ndofs; ++q)
+      {
+	nodal = 0.0;
+	nodal(q) = 1.0;
+
+	modalBasis.ComputeModes(nodal, modes);
+
+	for (int m = 0; m < ndofs; ++m)
+	  {
+	    modal_h[m * ndofs + q] = modes(m);
+	  }
+      }
+
+    mfem::Array<int> row;
+    for (int m = 0; m < ndofs; ++m)
+      {
+	ubdegs.GetRow(m, row);
+
+	bool keep1 = true;
+	bool keep2 = true;
+
+	for (int d = 0; d < dim; ++d)
+	  {
+	    if (row[d] > order - 2)
+	      {
+		keep2 = false;
+	      }
+
+	    if (row[d] > order - 1)
+	      {
+		keep1 = false;
+	      }
+	  }
+
+	m1_h[m] = keep1 ? 1.0 : 0.0;
+	m2_h[m] = keep2 ? 1.0 : 0.0;
+      }
+
+    c.modal_d = c.modal.Read();
+    c.keep_M1_d = c.keep_M1.Read();
+    c.keep_M2_d = c.keep_M2.Read();
+    c.eta_d = c.eta.ReadWrite();
 
   }
 

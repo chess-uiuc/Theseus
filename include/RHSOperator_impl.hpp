@@ -22,21 +22,49 @@ namespace Theseus
     }
 #endif
 
-    // operator_cache.gas = gasModel; // gasModel *must* be POD
-    // operator_cache.alpha = alpha; // Alpha is a driver-owned gridfunc
     operator_cache.bc_descriptors = bc_descriptors;
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
 
+#ifdef SUBCELL_FV_BLENDING
+    MFEM_VERIFY(indicator, "SUBCELL_FV_BLENDING enabled but indicator is null.");
+    BuildPerssonDeviceCache(operator_cache, indicator->ModalBasis());
+#endif
     GetDeviceCache(operator_cache, device_cache);
-    //nonlinearForm->SetOperatorCache(&operator_cache);
-    //integrator->SetOperatorCache(&operator_cache); 
   }
 
-#ifdef SUBCELL_FV_BLENDING  
+  // pu should be prolongated
   template<typename PhysicsT>
-  void RHSOperator<PhysicsT>::ComputeIndicatorField(const mfem::Vector &u,
-                                                    mfem::Vector &indicator_field) const
+  void RHSOperator<PhysicsT>::FetchRestrictions(const mfem::Vector &pu, mfem::Vector &uVol,
+						mfem::Vector &uInt, mfem::Vector &uBnd) const
+  {
+    Theseus::ScopedTimer timer("FetchRestrictions");
+    const int psize = operator_cache.restr_v->Height();
+    if(uVol.Size() != psize){
+      uVol.SetSize(psize);
+      uVol.UseDevice();
+    }
+    operator_cache.restr_v->Mult(pu, uVol);
+    const int int_restr_size = operator_cache.restr_f->Height();
+    if(uInt.Size() != int_restr_size){
+      uInt.SetSize(int_restr_size);
+      uInt.UseDevice();
+    }
+    operator_cache.restr_f->Mult(pu, uInt);
+    const int bnd_restr_size = operator_cache.restr_b->Height();
+    if(uBnd.Size() != bnd_restr_size){
+      uBnd.SetSize(bnd_restr_size);
+      uBnd.UseDevice();
+    }
+    operator_cache.restr_b->Mult(pu, uBnd);
+    operator_cache.u_vol_restr_ready = true;
+    operator_cache.u_bnd_restr_ready = true;
+    operator_cache.u_int_restr_ready = true;
+  }
+
+#ifdef SUBCELL_FV_BLENDING
+  template<typename PhysicsT>
+  void RHSOperator<PhysicsT>::ComputeIndicatorField(const mfem::Vector &pu) const
   {
     Theseus::ScopedTimer timer("ComputeIndicator");
 
@@ -61,19 +89,22 @@ namespace Theseus
       operator_cache.uVol.SetSize(nval_restr);
       operator_cache.uVol.UseDevice();
     }
+    mfem::Vector &Ue(operator_cache.uVol);
+    if(!operator_cache.u_vol_restr_ready){
+      operator_cache.restr_v->Mult(pu, Ue);
+      operator_cache.u_vol_restr_ready = true;
+    }
+    const mfem::real_t *Ue_d = Ue.Read();
 
+    mfem::Vector &indicator_field(operator_cache.indicatorField);
     if(indicator_field.Size() != nval_ind){
       indicator_field.SetSize(nval_ind);
       indicator_field.UseDevice();
     }
-
-    mfem::Vector &Ue(operator_cache.uVol);
     mfem::real_t *ifield_d = indicator_field.Write();
 
-    operator_cache.restr_v->Mult(u, Ue);
-    const mfem::real_t *Ue_d = Ue.Read();
     const int estride = ndof*neq;
-    
+
     // Inside the FORALL below, executed on device
     mfem::forall(nval_ind, [=] MFEM_HOST_DEVICE (int vind)
     {
@@ -89,29 +120,86 @@ namespace Theseus
   }
 
   template<typename PhysicsT>
-  void RHSOperator<PhysicsT>::ComputeBlendingCoefficientFromIndicator(const mfem::Vector &indicator_field) const
+  void RHSOperator<PhysicsT>::ComputeBlendingCoefficient() const
   {
-    {
-      Theseus::ScopedTimer timer("CheckIndicatorSmoothness_Host");
-      // This is a HOST-only routine.  Make sure the input is host-readable
-      indicator->CheckIndicatorSmoothness(indicator_field);
-    }
-    Theseus::ScopedTimer timer("ComputeAlpha_Host");
-    mfem::real_t *alpha_h = operator_cache.alpha->HostWrite();
-    const mfem::real_t *eta_h = eta->HostRead();
-    for (int el = 0; el < num_elements; el++)
-      {
-        alpha_dof = 1.0 / (1.0 + std::exp(-sharpness_fac * (eta_h[el] - modalThreshold) / modalThreshold));
-        if (alpha_dof < alpha_min)
-          {
-            alpha_dof = 0.0;
-          }
-        else if (alpha_dof > (1.0 - alpha_min))
-          {
-            alpha_dof = 1.0;
-          }
-        alpha_h[el] = std::min(alpha_dof, alpha_max);
-      }
+    ScopedTimer timer("ComputeBlendingCoeff");
+    const mfem::real_t *eta_d = operator_cache.eta.Read();
+    mfem::real_t *alpha_d = operator_cache.alpha->Write();
+    // operator_cache.alpha_d;
+    int ne = operator_cache.num_elements;
+    mfem::real_t mthresh = modalThreshold;
+    mfem::real_t sharp_fac = sharpness_fac;
+    mfem::real_t alpmin = alpha_min;
+    mfem::real_t alpmax = alpha_max;
+    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+   {
+     mfem::real_t alpha_dof = \
+       1.0 / (1.0 + std::exp(-sharp_fac * (eta_d[e] - mthresh) / mthresh));
+     if (alpha_dof < alpmin)
+       {
+	 alpha_dof = 0.0;
+       }
+     else if (alpha_dof > (1.0 - alpmin))
+       {
+	 alpha_dof = 1.0;
+       }
+     alpha_d[e] = std::min(alpha_dof, alpmax);
+   });
+  }
+
+  template<typename PhysicsT>
+  void RHSOperator<PhysicsT>::CheckIndicatorSmoothness() const
+  {
+    Theseus::ScopedTimer timer("CheckIndicatorSmoothness");
+
+    const int ne = operator_cache.num_elements;
+    const int ndofs = operator_cache.ndof_scalar_el;
+
+    const mfem::real_t *indicator_d = operator_cache.indicatorField.Read();
+    const mfem::real_t *modal_d = operator_cache.modal.Read();
+    const mfem::real_t *keep_M1_d = operator_cache.keep_M1.Read();
+    const mfem::real_t *keep_M2_d = operator_cache.keep_M2.Read();
+    mfem::real_t *eta_d = operator_cache.eta.ReadWrite();
+
+    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+   {
+     const mfem::real_t *u = indicator_d + e * ndofs;
+
+     mfem::real_t mm = 0.0;
+     mfem::real_t m1m1 = 0.0;
+     mfem::real_t m2m2 = 0.0;
+
+     for (int m = 0; m < ndofs; ++m)
+       {
+	 mfem::real_t mode = 0.0;
+
+	 for (int q = 0; q < ndofs; ++q)
+	   {
+	     mode += modal_d[m * ndofs + q] * u[q];
+	   }
+
+	 const mfem::real_t m1 = keep_M1_d[m] * mode;
+	 const mfem::real_t m2 = keep_M2_d[m] * mode;
+
+	 mm += mode * mode;
+	 m1m1 += m1 * m1;
+	 m2m2 += m2 * m2;
+       }
+
+     const mfem::real_t eps = 1.0e-30;
+     mfem::real_t val = 0.0;
+
+     if(mm > eps) {
+       val = 1.0 - m1m1 / mm;
+       if (m1m1 > eps){
+	 val = Theseus::Kernels::rmax(val, 1.0 - m2m2 / m1m1);
+       } else {
+	 val = 1.0;
+       }
+     }
+     eta_d[e] = Theseus::Kernels::rmin(Theseus::Kernels::rmax(val, 0.0), 1.0);
+   });
+
   }
 #endif
 
@@ -119,13 +207,13 @@ namespace Theseus
   void RHSOperator<PhysicsT>::ComputeIntegralMeasures(const mfem::Vector &u, Theseus::IntegralMeasures &diag) const
   {
     Theseus::ScopedTimer timer("ComputeIntegralMeasures");
-    
+
     // This block is executed by the host
     const int nval_restr = operator_cache.restr_v->Height();
-    
+
     // Copy the device cache so that it is not member data
     auto dc = device_cache;
-    
+
     // Device cache parameters
     const int ne = dc.num_elements;
     const int ndof = dc.ndof_scalar_el;
@@ -138,8 +226,11 @@ namespace Theseus
       operator_cache.uVol.UseDevice();
     }
     mfem::Vector &Ue(operator_cache.uVol);
+    if(!operator_cache.u_vol_restr_ready){
+      operator_cache.restr_v->Mult(u, Ue);
+      operator_cache.u_vol_restr_ready = true;
+    }
 
-    operator_cache.restr_v->Mult(u, Ue);
     const mfem::real_t *Ue_d = Ue.Read();
     const int estride = ndof*neq;
 
@@ -179,7 +270,7 @@ namespace Theseus
     {
       const mfem::real_t *u_el = Ue_d + e * estride;
       const mfem::real_t *qWgt = qWts_d + e * ndof;
-   
+
       mfem::real_t mass_int = 0.0;
       mfem::real_t ke_int = 0.0;
       mfem::real_t en_int = 0.0;
@@ -294,29 +385,80 @@ namespace Theseus
     }
 
   }
-  
+
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::Mult(const mfem::Vector &u, mfem::Vector &dudt) const
   {
     Theseus::ScopedTimer timer("RHSMult");
-    
+    operator_cache.u_vol_restr_ready = false;
+    operator_cache.u_bnd_restr_ready = false;
+    operator_cache.u_int_restr_ready = false;
+    {
+      Theseus::ScopedTimer rhsPrep("RHSRestriction");
+      const mfem::Vector &pu = this->Prolongate(u);
+      FetchRestrictions(pu, operator_cache.uVol, operator_cache.uInt, operator_cache.uBnd);
+      if (this->P)
+	{
+	  operator_cache.pdudt.SetSize(this->P->Height());
+	}
+    }
+    mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;
+
+    // This block is executed by the host
+    int nval_restr = operator_cache.restr_v->Height();
+    if(operator_cache.uVol.Size() != nval_restr){
+      operator_cache.uVol.SetSize(nval_restr);
+      operator_cache.uVol.UseDevice();
+    }
+    mfem::Vector &Ue(operator_cache.uVol);
+    if(operator_cache.rhsVol.Size() != nval_restr){
+      operator_cache.rhsVol.SetSize(nval_restr);
+      operator_cache.rhsVol.UseDevice();
+    }
+    mfem::Vector &dUe(operator_cache.rhsVol);
+
 #ifdef SUBCELL_FV_BLENDING
     {
       Theseus::ScopedTimer timer("SubcellBlendingStep");
-      mfem::Vector indicator_field;
-      // Since the CV are on-device, and computing
-      // the indicator requires the CV, we compute
-      // the indicator on-device and xfer only it and
-      // alpha (the blending coeff) from host/device.
-      ComputeIndicatorField(u, indicator_field);
-      ComputeBlendingCoefficientFromIndicator(indicator_field);
+      const mfem::Vector &pu = this->Prolongate(u);
+      ComputeIndicatorField(pu);
+      CheckIndicatorSmoothness();
+      ComputeBlendingCoefficient();
     }
 #endif
 
+    // Zero on-device
+    int psize = pdudt.Size();
+    mfem::real_t *pdudt_d = pdudt.Write();
+    {
+      Theseus::ScopedTimer zerotim("ZeroRHS");
+      mfem::forall(psize, [=] MFEM_HOST_DEVICE (int i) { pdudt_d[i] = 0.0; });
+    }
+
     // max_char_speed is consumed by external components
     // between steps
-    max_char_speed = FlowMult(u, dudt);
+    {
+      Theseus::ScopedTimer timer("FlowMult");
+      max_char_speed = FlowMult(u, pdudt);
+    }
 
+    if (this->Serial())
+      {
+        if(this->cP) this->cP->MultTranspose(pdudt, dudt);
+      }
+    else
+      {
+        if(this->P) this->P->MultTranspose(pdudt, dudt);
+      }
+
+    const int N = this->ess_tdof_list.Size();
+    const auto idx = this->ess_tdof_list.Read();
+    auto DU_RW = dudt.ReadWrite();
+    mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DU_RW[idx[i]] = 0.0; });
+
+    // reset restriction readiness
+    operator_cache.u_vol_restr_ready = false;
+    operator_cache.u_bnd_restr_ready = false;
+    operator_cache.u_int_restr_ready = false;
   }
-
 }

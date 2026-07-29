@@ -42,7 +42,7 @@ namespace Theseus
     int num_face_points = 0;
     int num_interior_faces = 0;
 
-    // Host Only: Integration rules, operators, restrictions 
+    // Host Only: Integration rules, operators, restrictions
     mfem::IntegrationRules GLIntRules{0, mfem::Quadrature1D::GaussLobatto};
     const mfem::IntegrationRule *ir = nullptr;
     const mfem::IntegrationRule *ir_face = nullptr;
@@ -78,20 +78,31 @@ namespace Theseus
     mfem::Vector volAux;
     mfem::Vector rhsVol;
     mfem::Vector uInt;
+    mfem::Vector sInt;
     mfem::Vector rhsInt;
     mfem::Vector dudtInt;
     mfem::Vector uBnd;
+    mfem::Vector sBnd;
     mfem::Vector rhsBnd;
     mfem::Vector dudtBnd;
     mfem::Vector entropyState;
     mfem::Vector duBnd;
     mfem::Vector duInt;
 
+    // Eliminate redundant restr calls?
+    bool urestr_ready = false;
+    bool u_vol_restr_ready = false;
+    bool u_bnd_restr_ready = false;
+    bool u_int_restr_ready = false;
+    bool grad_vol_restr_ready = false;
+    bool grad_bnd_restr_ready = false;
+    bool grad_int_restr_ready = false;
+
     std::vector<mfem::Vector> gradVol;
     std::vector<mfem::Vector> pGrad;
     std::vector<mfem::Vector> gradInt;
     std::vector<mfem::Vector> gradBnd;
-    
+
     // Domain boundary device arrays
     mfem::Vector bnd_normals;
     mfem::Vector bnd_wt;
@@ -116,9 +127,22 @@ namespace Theseus
     mfem::Vector subcellMetricXi;
     mfem::Vector subcellMetricEta;
     mfem::Vector subcellMetricZeta;
-    mfem::Vector subcellWeights;    
+    mfem::Vector subcellWeights;
     mfem::Vector indicatorField;
+    mfem::Vector eta;
+    mfem::Vector modal;
+    mfem::Vector keep_M1;
+    mfem::Vector keep_M2;
+    mfem::Vector dUfv;
+    mfem::real_t *dUfv_d = NULL;
+    mfem::real_t *alpha_d = NULL;
+    const mfem::real_t *modal_d = NULL;
+    const mfem::real_t *keep_M1_d = NULL;
+    const mfem::real_t *keep_M2_d = NULL;
+    mfem::real_t *eta_d = NULL;
+    mfem::real_t *indicator_d = NULL;
 #endif
+
     // nullptr if subcell blending is OFF
     std::shared_ptr<mfem::ParGridFunction> alpha;
 
@@ -182,7 +206,7 @@ namespace Theseus
     // Physics parts
     mfem::real_t *elWaveSpeed_d = nullptr;
     mfem::real_t *ifWaveSpeed_d = nullptr;
-    mfem::real_t *bndWaveSpeed_d = nullptr; 
+    mfem::real_t *bndWaveSpeed_d = nullptr;
     Gas gas;
     InviscidFlux iflux;
 

@@ -39,8 +39,8 @@ namespace Theseus
     { };
 
     template<typename HostDataT>
-    MFEM_HOST_DEVICE GasModel<EOSImpl, TransportImpl> to_device(HostDataT &host_data) {
-      GasModel<EOSImpl, TransportImpl> retVal(phys,L,eos,transport);
+    GasModel<EOSImpl, TransportImpl> to_device(HostDataT &host_data) {
+      GasModel<EOSImpl, TransportImpl> retVal(phys, L, eos, transport);
       return retVal;
     }
 

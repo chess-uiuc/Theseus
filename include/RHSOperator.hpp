@@ -7,7 +7,7 @@
 
 #include "DGSEMIntegrator.hpp"
 #include "ModalBasis.hpp"
-#include "Indicator.hpp"
+#include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_cache_utilities.hpp"
@@ -24,7 +24,7 @@ namespace Theseus
     std::shared_ptr<mfem::ParMesh> pmesh;
     std::shared_ptr<mfem::ParGridFunction> eta;
     std::shared_ptr<mfem::ParGridFunction> r_gf;
-    std::shared_ptr<Prandtl::Indicator> indicator;
+    std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator;
 
     const int num_equations, dim, order, num_elements;
     const int num_dofs_scalar;
@@ -48,7 +48,7 @@ namespace Theseus
                     std::shared_ptr<mfem::ParMesh> pmesh_,
                     std::shared_ptr<mfem::ParGridFunction> eta_,
                     std::shared_ptr<mfem::ParGridFunction> alpha_,
-                    std::shared_ptr<Prandtl::Indicator> indicator_,
+                    std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator_,
                     std::shared_ptr<mfem::ParGridFunction> r_gf_ = nullptr,
                     const mfem::real_t alpha_max = 0.5, const mfem::real_t alpha_min = 0.001)
     : mfem::TimeDependentOperator(vfes_->GetTrueVSize()),
@@ -140,7 +140,7 @@ namespace Theseus
                 std::shared_ptr<mfem::ParMesh> pmesh_,
                 std::shared_ptr<mfem::ParGridFunction> eta_,
                 std::shared_ptr<mfem::ParGridFunction> alpha_,
-                std::shared_ptr<Prandtl::Indicator> indicator_,
+                std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator_,
                 std::shared_ptr<const Gas> gas_,
                 const std::string &gasModelName_,
                 const std::string &numFluxName_,
@@ -163,9 +163,9 @@ namespace Theseus
     void Finalize(mfem::real_t time = 0) override;
 
 #ifdef SUBCELL_FV_BLENDING
-    void ComputeBlendingCoefficient(const mfem::Vector &u) const;
-    void ComputeBlendingCoefficientFromIndicator(const mfem::Vector &indicator_field) const;
-    void ComputeIndicatorField(const mfem::Vector &u, mfem::Vector &indicator_field) const;
+    void ComputeBlendingCoefficient() const;
+    void CheckIndicatorSmoothness() const;
+    void ComputeIndicatorField(const mfem::Vector &u) const;
 #endif
 
     void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override;
@@ -181,6 +181,8 @@ namespace Theseus
     {
       return *gas_interface;
     }
+    void FetchRestrictions(const mfem::Vector &pu, mfem::Vector &uVol,
+			   mfem::Vector &uInt, mfem::Vector &uBnd) const;
   };
 
 }

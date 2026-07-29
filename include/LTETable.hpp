@@ -106,8 +106,8 @@ namespace Theseus
                            mfem::real_t* lte_table, mfem::real_t &e_min, mfem::real_t &e_max)
     {
 
-      mfem::real_t UKB = 1.380649e-23;
 #ifdef USE_PLATO
+      mfem::real_t UKB = 1.380649e-23;
       int nb_comp = plato_get_nb_comp();
       int nb_spec = plato_get_nb_species();
       int nb_temp = plato_get_nb_temp();

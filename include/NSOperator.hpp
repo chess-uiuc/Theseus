@@ -32,7 +32,7 @@ namespace Theseus
                std::shared_ptr<mfem::ParGridFunction> eta_,
                std::shared_ptr<mfem::ParGridFunction> alpha_,
                std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u_,
-               std::shared_ptr<Prandtl::Indicator> indicator_,
+               std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator_,
                std::shared_ptr<const Gas> gasModel_,
                const std::string &gasModelName_,
                const std::string &numFluxName_,
@@ -44,11 +44,8 @@ namespace Theseus
       grad_u(grad_u_)
     {}
 
+    // Top level RHS routine
     mfem::real_t FlowMult(const mfem::Vector &u, mfem::Vector &dudt) const override;
-
-    void ComputeEntropyState(const mfem::Vector &u, mfem::Vector &e) const;
-    void ComputeGradPrimFromGradEntropy(const mfem::Vector &u,
-                                        std::vector<mfem::Vector *> &gradEntropy) const;
 
     // Gradient Operator Interface (BR1 aux rhs)
     void GradOperator(const mfem::Vector &u, std::vector<mfem::Vector *> &grad_u) const;
@@ -56,10 +53,14 @@ namespace Theseus
     void GradOperator_InteriorFaces(const mfem::Vector &pu, std::vector<mfem::Vector *> &p_grad_u) const;
     void GradOperator_BoundaryFaces(const mfem::Vector &pu, std::vector<mfem::Vector *> &p_grad_u) const;
 
+    void ComputeEntropyState(const mfem::Vector &u, mfem::Vector &e) const;
+    void ComputeGradPrimFromGradEntropy(const mfem::Vector &u,
+                                        std::vector<mfem::Vector *> &gradEntropy) const;
+
     // NavierStokes RHS Interface
     mfem::real_t MultCNS(const mfem::Vector &u,
                          const std::vector<mfem::Vector *> &grad_prim,
-                         mfem::Vector &dudt) const;
+                         mfem::Vector &pdudt) const;
     mfem::real_t MultCNS_Volume(const mfem::Vector &pu,
                                 const std::vector<mfem::Vector *> &p_grad_prim,
                                 mfem::Vector &pdudt) const;

@@ -39,16 +39,19 @@ namespace Theseus
       operator_cache.uVol.UseDevice();
     }
     mfem::Vector &Ue(operator_cache.uVol);
+    if(!operator_cache.u_vol_restr_ready){
+      Theseus::ScopedTimer timer("VolRestrict");
+      operator_cache.restr_v->Mult(pu, Ue);
+      operator_cache.u_vol_restr_ready = true;
+    }
     if(operator_cache.rhsVol.Size() != nval_restr){
       operator_cache.rhsVol.SetSize(nval_restr);
       operator_cache.rhsVol.UseDevice();
     }
     mfem::Vector &dUe(operator_cache.rhsVol);
-
-    operator_cache.restr_v->Mult(pu, Ue);
-  
-    // Zero the array on-device
+    // Zero the array on-device (*needed for now*)
     {
+      Theseus::ScopedTimer zerotim("ZeroRHSStorage");
       mfem::real_t *d = dUe.Write();
       mfem::forall(dUe.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
     }
@@ -64,13 +67,10 @@ namespace Theseus
     const int ne = dc.num_elements;
     const int ndof = dc.ndof_scalar_el;
     const int neq = dc.num_equations;
-
 #ifdef SUBCELL_FV_BLENDING
     const int Np_x = dc.Np_x;
     const int Np_y = dc.Np_y;
     const int Np_z = dc.Np_z;
-    const int npe = Np_x * Np_y * Np_z;
-    const int ndofe = npe * neq;
     const int npe_metric_xi = (Np_x + 1)*Np_y*Np_z;
     const int npe_metric_eta = Np_x*(Np_y + 1)*Np_z;
     const int npe_metric_zeta = Np_x * Np_y * (Np_z + 1);
@@ -78,18 +78,17 @@ namespace Theseus
     const mfem::real_t *metric_eta_d = (dim > 1 ? dc.subcell_metric_eta_d : nullptr);
     const mfem::real_t *metric_zeta_d = (dim > 2 ? dc.subcell_metric_zeta_d : nullptr);
 
-    mfem::Vector dUfv(operator_cache.restr_v->Height());
-    dUfv.UseDevice();
-    mfem::real_t *dUfv_d = dUfv.Write();
-    // zero the array on-device
-    {
-      mfem::real_t *d = dUfv_d;
-      mfem::forall(dUfv.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
+    mfem::Vector &dUfv(operator_cache.dUfv);
+    if(dUfv.Size() == 0){
+      dUfv.SetSize(nval_restr);
+      dUfv.UseDevice();
+      operator_cache.dUfv_d = dUfv.Write();
     }
+    mfem::real_t *dUfv_d = operator_cache.dUfv_d;  // zeroing not needed, kernel does it
 
     const mfem::real_t *alpha_d = operator_cache.alpha->Read();
-#endif
 
+#endif
     // Derived parameters
     const int metric_stride = ndof * dim * dim;
     const int jac_stride    = ndof;
@@ -120,6 +119,7 @@ namespace Theseus
       const mfem::real_t *u_el = Ue_d + eoff;
       mfem::real_t *du_el = dUe_d + eoff;
 
+      // Additive on du_el (*zero first if needed*)
       mfem::real_t cs_el = \
         DGSEMIntegrator::AssembleElementVolumeKernel(dc, u_el,
                                                      jac_el, metric_el, du_el);
@@ -133,8 +133,9 @@ namespace Theseus
                                              nullptr);
         const mfem::real_t *el_metric_zeta = (dim > 2 ? metric_zeta_d + e * npe_metric_zeta * dim :
                                               nullptr);
-        const mfem::real_t cs_fv =                                              \
-          DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta, el_metric_zeta, du_fv);
+        const mfem::real_t cs_fv = \
+          DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta,
+						 el_metric_zeta, du_fv);
       
         for(int ipt = 0;ipt < estride;ipt++){
           du_el[ipt] = alpha_inv * du_el[ipt] + alpha_fv * du_fv[ipt];
@@ -151,7 +152,7 @@ namespace Theseus
     // Scatter RHS back to storage
     operator_cache.restr_v->AddMultTranspose(dUe, pdudt);
 
-    // Finish up on the host:
+    // Finish up on the host: (not sure how to reduce on-device)
     //  - Reduce for rank-local max_char_speed
     const mfem::real_t *ws = operator_cache.elWaveSpeed.HostRead();
     mfem::real_t max_char_speed = 0.0;
@@ -173,34 +174,29 @@ namespace Theseus
     const int nfp = dc.num_face_points;
     const int nval_restr = operator_cache.restr_f->Height();
     const int nfaces = nval_restr / (nfp * neq * 2); // (+/-)
-    const int face_stride = 2 * nfp * neq;
-    const int side_stride = nfp * neq;
     const int face_size = 2*nfp*neq;
     const int norm_size = nfp*dim;
   
     if(operator_cache.uInt.Size() != nval_restr){
       operator_cache.uInt.SetSize(nval_restr);
-      operator_cache.uInt.UseDevice();
-    }
-    if(operator_cache.rhsInt.Size() != nval_restr){
-      operator_cache.rhsInt.SetSize(nval_restr);
-      operator_cache.rhsInt.UseDevice();
+      operator_cache.uInt.UseDevice(true);
     }
     mfem::Vector &u_faces(operator_cache.uInt);
+    if(!operator_cache.u_int_restr_ready){
+      operator_cache.restr_f->Mult(pu, u_faces);
+      operator_cache.u_int_restr_ready = true;
+    }
+
+    if(operator_cache.rhsInt.Size() != nval_restr){
+      operator_cache.rhsInt.SetSize(nval_restr);
+      operator_cache.rhsInt.UseDevice(true);
+    }
     mfem::Vector &rhs_faces(operator_cache.rhsInt);
 
     // For now, just keep this copy - i think it is device-friendly
     mfem::Vector faces_dudt(pdudt);
-    faces_dudt.UseDevice();
-
-    // If zeroed before accumulation, do it explicitly on device:
-    // Potentially, this is not needed at all since I think we overwrite everything
-    {
-      mfem::real_t *d = rhs_faces.Write();
-      mfem::forall(rhs_faces.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
-    }
-
-    operator_cache.restr_f->Mult(pu, u_faces);
+    // Zeroing unneeded: we clobber anything there on assignment
+    faces_dudt.UseDevice(true);
 
     const mfem::real_t *u_d = u_faces.Read();
     mfem::real_t *rhs_d = rhs_faces.Write();
@@ -268,31 +264,31 @@ namespace Theseus
         operator_cache.uBnd.SetSize(restr_size);
         operator_cache.uBnd.UseDevice();
       }
+    mfem::Vector &u_faces(operator_cache.uBnd);
+    if(!operator_cache.u_bnd_restr_ready){
+      operator_cache.restr_b->Mult(pu, u_faces);
+      operator_cache.u_bnd_restr_ready = true;
+    }
     if(operator_cache.rhsBnd.Size() != restr_size){
       operator_cache.rhsBnd.SetSize(restr_size);
-      operator_cache.rhsBnd.UseDevice();
+      operator_cache.rhsBnd.UseDevice(true);
     }
     if(operator_cache.dudtBnd.Size() != restr_size){
       operator_cache.dudtBnd.SetSize(pdudt.Size());
-      operator_cache.dudtBnd.UseDevice();
+      operator_cache.dudtBnd.UseDevice(true);
     }
 
-    mfem::Vector &u_faces(operator_cache.uBnd);
     mfem::Vector &rhs_faces(operator_cache.rhsBnd);
     mfem::Vector faces_dudt(pdudt);
+    faces_dudt.UseDevice(true);
 
-    // If zeroed before accumulation, do it explicitly on device:
-    // Potentially, this is not needed at all since I think we overwrite everything
+    // Zero on device:
     {
       mfem::real_t *rd = rhs_faces.Write();
       mfem::forall(rhs_faces.Size(), [=] MFEM_HOST_DEVICE (int i)
       { rd[i] = mfem::real_t(0);});
-      mfem::real_t *fd = faces_dudt.Write();
-      mfem::forall(faces_dudt.Size(), [=] MFEM_HOST_DEVICE (int i)
-      { fd[i] = mfem::real_t(0);});
     }
 
-    operator_cache.restr_b->Mult(pu, u_faces);
 
     const mfem::real_t *u_d = u_faces.Read();
     mfem::real_t *rhs_d = rhs_faces.Write();
@@ -372,7 +368,7 @@ namespace Theseus
 
   // Top level MULT for inviscid cases, called from DGSEMOperator
   template<typename PhysicsT>
-  mfem::real_t EulerOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &dudt) const
+  mfem::real_t EulerOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("EulerMult");
     
@@ -385,23 +381,13 @@ namespace Theseus
         }
     };
 
-    // Theseus::ScopedTimer timer("MultInviscid");
-    const mfem::Vector &pu = this->Prolongate(u);
-    if (this->P)
-      {
-        operator_cache.pdudt.SetSize(this->P->Height());
-      }
-
-    mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;
-    int psize = pdudt.Size();
-
-    // Zero on-device
-    mfem::real_t *pdudt_d = pdudt.Write();
-    mfem::forall(psize, [=] MFEM_HOST_DEVICE (int i) { pdudt_d[i] = 0.0; });
-
     mfem::real_t max_char_speed = 0.0;
+
+    const mfem::Vector &pu(this->Prolongate(u));
+
     // This step overwrites contents of pdudt
     max_char_speed = MultEuler_Volume(pu, pdudt);
+
     mfem::real_t max_char_speed_facial = 0.0;
     max_char_speed_facial = MultEuler_InteriorFaces(pu, pdudt);
     // report_bad("int rhs", pdudt);
@@ -411,23 +397,8 @@ namespace Theseus
     max_char_speed_bnd = MultEuler_BoundaryFaces(pu, pdudt);
     // report_bad("bnd rhs", pdudt);
 
-    max_char_speed = std::max(max_char_speed, max_char_speed_bnd);
+    return std::max(max_char_speed, max_char_speed_bnd);
 
-    if (this->Serial())
-      {
-        if(this->cP) this->cP->MultTranspose(pdudt, dudt);
-      }
-    else
-      {
-        if(this->P) this->P->MultTranspose(pdudt, dudt);
-      }
-
-    const int N = this->ess_tdof_list.Size();
-    const auto idx = this->ess_tdof_list.Read();
-    auto DU_RW = dudt.ReadWrite();
-    mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DU_RW[idx[i]] = 0.0; });
-
-    return max_char_speed;
   }
   
 }

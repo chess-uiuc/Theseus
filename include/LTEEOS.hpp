@@ -227,7 +227,6 @@ namespace Theseus
 
       E.set_mass(L, ent_1);
       int dim = L.dim;
-      int num_scalars = L.num_scalars;
       for(int idim = 0;idim < dim;idim++){
         E.set_momentum(L, idim, beta * S.velocity(L, idim));
       }

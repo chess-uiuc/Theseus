@@ -8,6 +8,7 @@ cmake_minimum_required(VERSION 3.15)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(EXTRA_LINK_LIBRARIES "" CACHE STRING "Extra libraries to append to final executable link")
 
 project(Theseus)
 
@@ -18,6 +19,7 @@ option(SUTHERLAND "Enable Sutherland transport model" OFF)
 option(ENABLE_TIMERS "Enable performance timers." OFF)
 option(ENABLE_TIMER_BARRIER "MPI_BARRIER in performance timers." OFF)
 option(ENABLE_TIMER_OUTPUT_ALLRANKS "Output timers on all ranks." OFF)
+option(ENABLE_TIMER_SYNC_DEVICE "Fence timers with device sync." OFF)
 option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
 ## NOTE: PLATO_DB_PATH can be specified at build-time to customize
@@ -152,6 +154,10 @@ if(ENABLE_TIMERS)
     message(STATUS " - Timing output on all ranks")
     target_compile_definitions(theseus PRIVATE TIMER_OUTPUT_ALLRANKS)
   endif()
+  if(ENABLE_TIMER_SYNC_DEVICE)
+    message(STATUS " - Timing device sync enabled")
+    target_compile_definitions(theseus PRIVATE TIMER_SYNC_DEVICE)
+  endif()
 endif()
 
 if(SUBCELL_FV_BLENDING)
@@ -247,6 +253,7 @@ target_link_libraries(theseus
     ${THESEUS_MFEM_TARGET}
     MPI::MPI_CXX
 )
+target_link_libraries(theseus PRIVATE ${EXTRA_LINK_LIBRARIES})
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TheseusConfig.hpp.in

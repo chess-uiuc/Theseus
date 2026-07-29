@@ -38,14 +38,19 @@ namespace Theseus
       operator_cache.uVol.SetSize(nval_restr);
       operator_cache.uVol.UseDevice();
     }
-    mfem::Vector &restrE(operator_cache.uVol);
+    mfem::Vector &restrE(operator_cache.sVol);
+    if(restrE.Size() != nval_restr){
+      restrE.SetSize(nval_restr);
+      restrE.UseDevice();
+    }
+    mfem::real_t *eState_d = restrE.Write();
+    operator_cache.restr_v->Mult(u, restrU);
+
     if(e.Size() != u.Size()){
       e.SetSize(u.Size());
       e.UseDevice();
     }
 
-    mfem::real_t *eState_d = restrE.Write();
-    operator_cache.restr_v->Mult(u, restrU);
     const mfem::real_t *restrU_d = restrU.Read();
     const int estride = ndof*neq;
 
@@ -100,8 +105,10 @@ namespace Theseus
       operator_cache.uVol.UseDevice();
     }
     mfem::Vector &restr_state(operator_cache.uVol);
-    operator_cache.restr_v->Mult(u, restr_state);
-
+    if(!operator_cache.u_vol_restr_ready){
+      operator_cache.restr_v->Mult(u, restr_state);
+      operator_cache.u_vol_restr_ready = true;
+    }
     const mfem::real_t *restr_state_d = restr_state.Read();
     const int estride = ndof*neq;
 
@@ -149,26 +156,22 @@ namespace Theseus
   }
 
   template<typename PhysicsT>
-  mfem::real_t NSOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &dudt) const
+  mfem::real_t NSOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("NSRHS");
 
-    const mfem::Vector &Ustate = u;
     const int dim = operator_cache.dim;
     {
-      Theseus::ScopedTimer timer_step("Step");
       mfem::Vector &entropyState(operator_cache.entropyState);
       {
-        Theseus::ScopedTimer etime("EntropyPlumbing");
-        if (entropyState.Size() != Ustate.Size()){
-          entropyState.SetSize(Ustate.Size());
+        if (entropyState.Size() != u.Size()){
+          entropyState.SetSize(u.Size());
           entropyState.UseDevice();
         }
-        ComputeEntropyState(Ustate, entropyState);
+        ComputeEntropyState(u, entropyState);
       }
       std::vector<mfem::Vector *> gradPrim(dim);
       {
-        Theseus::ScopedTimer gtime("GradientPlumbing");
         // grad_u is a vector of parallel grid functions
         // this bit grabs an mfem::Vector ref.
         // Note that incoming grad_u is really grad of entropy,
@@ -179,9 +182,9 @@ namespace Theseus
           gradPrim[idim] = &(*grad_u[idim]);
         }
         GradOperator(entropyState, gradPrim);
-        ComputeGradPrimFromGradEntropy(Ustate, gradPrim);
+        ComputeGradPrimFromGradEntropy(u, gradPrim);
       }
-      max_char_speed = MultCNS(Ustate, gradPrim, dudt);
+      max_char_speed = MultCNS(u, gradPrim, pdudt);
     }
     return max_char_speed;
   }
@@ -195,11 +198,11 @@ namespace Theseus
     const int dim = operator_cache.dim;
     const int restr_size = operator_cache.restr_v->Height();
 
-    if(operator_cache.uVol.Size() != restr_size){
-      operator_cache.uVol.SetSize(restr_size);
-      operator_cache.uVol.UseDevice();
+    if(operator_cache.sVol.Size() != restr_size){
+      operator_cache.sVol.SetSize(restr_size);
+      operator_cache.sVol.UseDevice();
     }
-    mfem::Vector &Ue(operator_cache.uVol);
+    mfem::Vector &Ue(operator_cache.sVol);
     mfem::real_t *dU_d[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
     mfem::real_t *pgrad_d[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
     if (operator_cache.gradVol.size() != dim){
@@ -280,7 +283,7 @@ namespace Theseus
       return;
     }
 
-    mfem::Vector &u_faces(operator_cache.uBnd);
+    mfem::Vector &u_faces(operator_cache.sBnd);
     if(u_faces.Size() != restr_size){
       u_faces.SetSize(restr_size);
       u_faces.UseDevice();
@@ -395,7 +398,7 @@ namespace Theseus
     const int face_size = 2 * nfp * neq;
     const int norm_size = nfp * dim;
 
-    mfem::Vector &u_faces(operator_cache.uInt);
+    mfem::Vector &u_faces(operator_cache.sInt);
     if(u_faces.Size() != restr_size){
       u_faces.SetSize(restr_size);
       u_faces.UseDevice();
@@ -525,9 +528,10 @@ namespace Theseus
 
     const int N = this->ess_tdof_list.Size();
     const auto idx = this->ess_tdof_list.Read();
+    // std::cout << "N ZERO = " << N << std::endl;
     for(int idim = 0;idim < dim;idim++){
-      auto gradu_dim_d = grad_u[idim]->ReadWrite();
-      mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { gradu_dim_d[idx[i]] = 0.0; });
+       auto gradu_dim_d = grad_u[idim]->ReadWrite();
+       mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { gradu_dim_d[idx[i]] = 0.0; });
     }
   }
 
@@ -543,8 +547,6 @@ namespace Theseus
     const int neq = dc.num_equations;
     const int nfp = dc.num_face_points;
     const int nfaces = operator_cache.restr_f->Height() / (nfp * neq * 2); // (+/-)
-    const int face_stride = 2 * nfp * neq;
-    const int side_stride = nfp * neq;
     const int face_size = 2*nfp*neq;
     const int norm_size = nfp*dim;
 
@@ -591,7 +593,10 @@ namespace Theseus
       mfem::forall(rhs_faces.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
     }
 
-    operator_cache.restr_f->Mult(pu, int_u);
+    if(!operator_cache.u_int_restr_ready){
+      operator_cache.restr_f->Mult(pu, int_u);
+      operator_cache.u_int_restr_ready = true;
+    }
 
     const mfem::real_t *u_d = int_u.Read();
     mfem::real_t *rhs_d = rhs_faces.Write();
@@ -704,7 +709,10 @@ namespace Theseus
       { fd[i] = mfem::real_t(0);});
     }
 
-    operator_cache.restr_b->Mult(pu, bnd_u);
+    if(!operator_cache.u_bnd_restr_ready){
+      operator_cache.restr_b->Mult(pu, bnd_u);
+      operator_cache.u_bnd_restr_ready = true;
+    }
 
     const mfem::real_t *u_d = bnd_u.Read();
     mfem::real_t *rhs_d = rhs_faces.Write();
@@ -818,7 +826,10 @@ namespace Theseus
       }
     }
 
-    operator_cache.restr_v->Mult(pu, vol_u);
+    if(!operator_cache.u_vol_restr_ready){
+      operator_cache.restr_v->Mult(pu, vol_u);
+      operator_cache.u_vol_restr_ready = true;
+    }
     for(int idim = 0;idim < dim;idim++){
       operator_cache.restr_v->Mult(*p_grad_prim[idim], vol_grad_prim[idim]);
     }
@@ -848,8 +859,6 @@ namespace Theseus
     const int Np_x = dc.Np_x;
     const int Np_y = dc.Np_y;
     const int Np_z = dc.Np_z;
-    const int npe = Np_x * Np_y * Np_z;
-    const int ndofe = npe * neq;
     const int npe_metric_xi = (Np_x + 1)*Np_y*Np_z;
     const int npe_metric_eta = Np_x*(Np_y + 1)*Np_z;
     const int npe_metric_zeta = Np_x * Np_y * (Np_z + 1);
@@ -873,7 +882,7 @@ namespace Theseus
     const int metric_stride = ndof * dim * dim;
     const int jac_stride    = ndof;
     const int estride = ndof*neq;
-  
+
     // Device cache data/arrays
     const int *elem_attr_d = dc.elem_attr_d;
     const int *attr_marker_d = dc.attr_marker_d;
@@ -915,11 +924,11 @@ namespace Theseus
                                               nullptr);
         const mfem::real_t cs_fv =                                              \
           Theseus::DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta, el_metric_zeta, du_fv);
-      
+
         for(int ipt = 0;ipt < estride;ipt++){
           du_el[ipt] = alpha_dg * du_el[ipt] + alpha_fv * du_fv[ipt];
         }
-      
+
         cs_el = Kernels::rmax(cs_el, cs_fv);
       }
 #endif
@@ -957,10 +966,9 @@ namespace Theseus
 
   template<typename PhysicsT>
   mfem::real_t NSOperator<PhysicsT>::MultCNS(const mfem::Vector &u, const std::vector<mfem::Vector *> &grad_prim,
-                                             mfem::Vector &dudt) const
+                                             mfem::Vector &pdudt) const
   {
     const int dim = operator_cache.dim;
-    const mfem::Vector &pu = this->Prolongate(u);
     std::vector<mfem::Vector *> p_grad_(dim);
     if (this->P)
       {
@@ -982,34 +990,14 @@ namespace Theseus
         }
       }
     const std::vector<mfem::Vector *> &pGradPrim = this->P ? p_grad_ : grad_prim;
-    mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;
-    pdudt = 0.0;
   
-    mfem::real_t max_char_speed = MultCNS_Volume(pu, pGradPrim, pdudt);
+    mfem::real_t max_char_speed = MultCNS_Volume(u, pGradPrim, pdudt);
 
-    mfem::real_t max_char_speed_faces = MultCNS_InteriorFaces(pu, pGradPrim, pdudt);
+    mfem::real_t max_char_speed_faces = MultCNS_InteriorFaces(u, pGradPrim, pdudt);
     max_char_speed = std::max(max_char_speed, max_char_speed_faces);
 
-    mfem::real_t max_char_speed_bnd = MultCNS_BoundaryFaces(pu, pGradPrim, pdudt);
+    mfem::real_t max_char_speed_bnd = MultCNS_BoundaryFaces(u, pGradPrim, pdudt);
     max_char_speed = std::max(max_char_speed, max_char_speed_bnd);
-  
-    if (this->Serial())
-      {
-        if (this->cP)
-          {
-            this->cP->MultTranspose(pdudt, dudt);
-          }
-
-      }
-    else
-      {
-        this->P->MultTranspose(pdudt, dudt);
-      }
-
-    const int N = this->ess_tdof_list.Size();
-    const auto idx = this->ess_tdof_list.Read();
-    auto DU_RW = dudt.ReadWrite();
-    mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DU_RW[idx[i]] = 0.0; });
 
     return max_char_speed;
   }

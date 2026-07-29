@@ -156,7 +156,7 @@ build_thermo_database() {
     local asrc="$(pwd)"
 
     cd "$PREFIX"
-    ln -s "${asrc}/database" .
+    ln -sf "${asrc}/database" .
     cd - >/dev/null
 }
 
@@ -176,7 +176,7 @@ build_hypre() {
     cpu)
       ;;
     cuda)
-      opts+=("--with-cuda" "--with-gpu-arch=$CUDA_ARCH")
+      opts+=("--with-cuda" "--with-gpu-arch=$CUDA_ARCH" "--with-umpire-include=${PREFIX}/include" "--with-umpire-lib-dirs=${PREFIX}/lib" "--with-umpire-libs=\"umpire camp\"")
       ;;
     hip)
       opts+=("--with-hip" "--enable-mixedint")

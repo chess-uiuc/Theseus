@@ -30,7 +30,7 @@ namespace Theseus
                   std::shared_ptr<mfem::ParMesh> pmesh_,
                   std::shared_ptr<mfem::ParGridFunction> eta_,
                   std::shared_ptr<mfem::ParGridFunction> alpha_,
-                  std::shared_ptr<Prandtl::Indicator> indicator_,
+                  std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator_,
                   std::shared_ptr<const Gas> gasModel_,
                   const std::string &gasModelName_,
                   const std::string &numFluxName_,
