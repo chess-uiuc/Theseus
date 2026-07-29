@@ -39,8 +39,8 @@ namespace Theseus
       operator_cache.uVol.UseDevice();
     }
     mfem::Vector &restrE(operator_cache.sVol);
-    if(restrE.Size() != u.Size()){
-      restrE.SetSize(u.Size());
+    if(restrE.Size() != nval_restr){
+      restrE.SetSize(nval_restr);
       restrE.UseDevice();
     }
     mfem::real_t *eState_d = restrE.Write();
@@ -528,7 +528,7 @@ namespace Theseus
 
     const int N = this->ess_tdof_list.Size();
     const auto idx = this->ess_tdof_list.Read();
-    std::cout << "N ZERO = " << N << std::endl;
+    // std::cout << "N ZERO = " << N << std::endl;
     for(int idim = 0;idim < dim;idim++){
        auto gradu_dim_d = grad_u[idim]->ReadWrite();
        mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { gradu_dim_d[idx[i]] = 0.0; });

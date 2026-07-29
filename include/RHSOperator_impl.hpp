@@ -26,7 +26,10 @@ namespace Theseus
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
 
+#ifdef SUBCELL_FV_BLENDING
+    MFEM_VERIFY(indicator, "SUBCELL_FV_BLENDING enabled but indicator is null.");
     BuildPerssonDeviceCache(operator_cache, indicator->ModalBasis());
+#endif
     GetDeviceCache(operator_cache, device_cache);
   }
 

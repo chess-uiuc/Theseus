@@ -227,7 +227,7 @@ with open(dst, "w", encoding="utf-8") as f:
 PY
 
 printf "Theseus configuration:\n"
-cat ${patched}
+cat "${patched}"
 
 local -a MPI_LAUNCHER="mpiexec -n ${NMPIRANKS}"
 local -a LAUNCH_UTIL=""

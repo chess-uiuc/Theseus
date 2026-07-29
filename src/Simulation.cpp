@@ -350,8 +350,7 @@ namespace Theseus
     std::int64_t num_elements_local = ndofscalar / points_per_element;
     std::int64_t num_elements_total = num_elements_local;
 
-    //    if(debug_simulation && numProcs > 1){
-    if(numProcs > 1){
+if (debug_simulation && numProcs > 1) {
       for(int irank = 0;irank < numProcs;irank++){
        if(myRank == irank){
          std::cout << "Rank(" << myRank << ") Number of elements: "
@@ -748,8 +747,10 @@ namespace Theseus
               {
                 bc_descr.type = int(Theseus::BCType::NoSlipIso);
                 bc_descr.data_kind = int(Theseus::BCDataKind::VectorAndScalarConstant);
-                if (bc_props["velocity"].contains("vector"))
-                  {
+if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &&
+      bc_props.contains("temperature") && bc_props["temperature"].contains("scalar")))
+  { std::cerr << "Error: no-slip-isothermal requires velocity.vector and temperature.scalar." << std::endl; return 1; }
+{
                     std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
                     std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
                     // std::string state_key = bc_props["vector"].get<std::string>();
