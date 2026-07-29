@@ -437,7 +437,6 @@ namespace Theseus
 
     // max_char_speed is consumed by external components
     // between steps
-    // max_char_speed = FlowMult(pu, pdudt);
     {
       Theseus::ScopedTimer timer("FlowMult");
       max_char_speed = FlowMult(u, pdudt);

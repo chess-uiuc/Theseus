@@ -382,6 +382,7 @@ namespace Theseus
     };
 
     mfem::real_t max_char_speed = 0.0;
+
     const mfem::Vector &pu(this->Prolongate(u));
 
     // This step overwrites contents of pdudt

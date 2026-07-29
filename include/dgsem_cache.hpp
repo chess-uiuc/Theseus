@@ -134,13 +134,13 @@ namespace Theseus
     mfem::Vector keep_M1;
     mfem::Vector keep_M2;
     mfem::Vector dUfv;
-    mfem::real_t *dUfv_d;
-    mfem::real_t *alpha_d;
-    const mfem::real_t *modal_d;
-    const mfem::real_t *keep_M1_d;
-    const mfem::real_t *keep_M2_d;
-    mfem::real_t *eta_d;
-    mfem::real_t *indicator_d;
+    mfem::real_t *dUfv_d = NULL;
+    mfem::real_t *alpha_d = NULL;
+    const mfem::real_t *modal_d = NULL;
+    const mfem::real_t *keep_M1_d = NULL;
+    const mfem::real_t *keep_M2_d = NULL;
+    mfem::real_t *eta_d = NULL;
+    mfem::real_t *indicator_d = NULL;
 #endif
 
     // nullptr if subcell blending is OFF
