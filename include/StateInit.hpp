@@ -240,7 +240,8 @@ namespace Prandtl
   // Lid-driven Cavity heat flow boundary condition scalar for adiabatic walls and lid
   const Prandtl::BC_Scalar LidDrivenCavityAdiaBCScalar = 0.0;
   // Lid-driven Cavity heat flow boundary condition scalar for isothermal lid
-  const Prandtl::BC_Scalar LidDrivenCavityIsoBCScalar = 3.0;
+  // ~(2.0 / Rgas)
+  const Prandtl::BC_Scalar LidDrivenCavityIsoBCScalar = 0.007;
 
   // Lid-driven Cavity velocity boundary condition function for walls
   std::function<void(const mfem::Vector&, mfem::Vector&)> LidDrivenCavityWallVelBCFunction()
