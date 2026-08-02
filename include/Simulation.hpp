@@ -6,7 +6,10 @@
 #pragma once
 
 #include "Theseus.hpp"
+#include "CheckpointConfig.hpp"
 #include "RHSOperator.hpp"
+#include "RunControl.hpp"
+#include "VisualizationConfig.hpp"
 
 namespace Theseus
 {
@@ -27,7 +30,6 @@ namespace Theseus
     int print_interval;
     int ti;
     int nsteps_max;
-    int checkpoint_cycle;
   
     bool done = false;
     bool variable_dt = false;
@@ -36,12 +38,11 @@ namespace Theseus
     bool visualize = true;
     bool visit = false;
     bool paraview = true;
-    bool checkpoint_load = false;
-    bool checkpoint_save = false;
+    CheckpointConfig checkpoint_config;
+    VisualizationConfig visualization_config;
   
     std::string output_file_path;
     std::string paraview_folder;
-    std::string checkpoints_folder;
   
     mfem::real_t t, t_final, dt, dt_real;
     mfem::real_t cfl;
@@ -53,7 +54,6 @@ namespace Theseus
     mfem::real_t trigger_t;
     mfem::real_t save_dt;
     mfem::real_t next_checkpoint_t;
-    mfem::real_t checkpoint_dt;
   
     mfem::real_t V_sq;
   
@@ -91,7 +91,7 @@ namespace Theseus
   
     mfem::ParGridFunction rho, mom, energy;
   
-    std::unique_ptr<mfem::ParGridFunction> u, v, w;
+    std::unique_ptr<mfem::ParGridFunction> velocity;
     std::unique_ptr<mfem::ParGridFunction> p, rho_axi;
   
     std::unique_ptr<mfem::ParaViewDataCollection> pd;
@@ -111,10 +111,15 @@ namespace Theseus
 #ifdef AXISYMMETRIC
     void ConservativeToPrimitive(const mfem::Vector &U_cons,
                                  mfem::ParGridFunction &rho_out,
-                                 mfem::ParGridFunction &uz_out,
-                                 mfem::ParGridFunction &ur_out,
+                                 mfem::ParGridFunction &velocity_out,
                                  mfem::ParGridFunction &p_out) const;  
 #endif
+
+    void UpdateVisualizationFields();
+    void SaveVisualization();
+    CheckpointCompatibility CurrentCheckpointCompatibility() const;
+    void LoadCheckpoint();
+    void SaveCheckpoint();
   
     Simulation(std::string);
   

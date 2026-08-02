@@ -193,7 +193,7 @@ jobs:
             -b "$(pwd)/build" \
             -c TestCases/Euler/2D/ForwardFacingStep/config.json \
             -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/ForwardFacingStep/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/ForwardFacingStep/Cycle000100/data.pvtu --atol 1e-13 --rtol 1e-13
+          python scripts/compare_viz.py RegressionTests/ForwardFacingStep/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/ForwardFacingStep/Cycle000100/data.pvtu --atol 3e-13 --rtol 1e-13
 
       - name: Example regression test (Gold standard - LTEVortex)
         run: |

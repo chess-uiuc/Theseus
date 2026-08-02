@@ -17,14 +17,42 @@ fmt_cycle() {
   printf "%06d" "${1:-0}"
 }
 
-# Verify expected ParaView outputs exist for N steps under out/ParaView
-# Requires ParaView.pvd and both Cycle000000 and Cycle00NNNN
+# Verify expected ParaView outputs under out/ParaView. Explicit step-count
+# runs require Cycle00NNNN. Final-time runs require distinct first and last
+# datasets referenced by ParaView.pvd.
 check_outputs() {
-  local outdir="$1" ; local nsteps="$2"
+  local outdir="$1" ; local nsteps_override="$2" ; local nsteps="$3"
   local pv="${outdir}/ParaView/ParaView.pvd"
   local c0="${outdir}/ParaView/Cycle$(fmt_cycle 0)"
-  local cN="${outdir}/ParaView/Cycle$(fmt_cycle "${nsteps}")"
-  [[ -f "${pv}" && -d "${c0}" && -d "${cN}" ]]
+
+  [[ -f "${pv}" && -d "${c0}" ]] || return 1
+
+  if [[ "${nsteps_override}" -eq 1 ]]; then
+    [[ -d "${outdir}/ParaView/Cycle$(fmt_cycle "${nsteps}")" ]]
+    return
+  fi
+
+  "${PYTHON}" - "${pv}" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+pvd = sys.argv[1]
+datasets = ET.parse(pvd).getroot().findall(".//DataSet")
+if len(datasets) < 2:
+    raise SystemExit(1)
+
+first = datasets[0].attrib.get("file")
+last = datasets[-1].attrib.get("file")
+if not first or not last or first == last:
+    raise SystemExit(1)
+
+base = os.path.dirname(pvd)
+if not os.path.exists(os.path.join(base, first)):
+    raise SystemExit(1)
+if not os.path.exists(os.path.join(base, last)):
+    raise SystemExit(1)
+PY
 }
 
 
@@ -54,10 +82,11 @@ CHECKOUT=1
 MSHREF_OVERRIDE=0
 MSHREF_LVL="default"
 DISABLE_VIZ=0
+ALLOW_RESTART=0
 
 usage() {
   cat <<EOF
-Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-z] (-c CONFIG.json | -l LIST.txt)
+Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-R] [-z] (-c CONFIG.json | -l LIST.txt)
 
   -n STEPS      Number of steps to run (default: None, use case default)
   -t TIMESTEP   Fixed timestep size (default: None, use case default)
@@ -76,6 +105,7 @@ Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p
   -x REFLEVEL   Mesh refinement level
   -y ORDER      Polynomial order for spatial discretization
   -z            Disable visualization output
+  -R            Preserve checkpoint_load from the input configuration
 Examples:
   $0 -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json
   $0 -l examples.txt
@@ -83,7 +113,7 @@ EOF
 }
 
 # ---- Parse args
-while getopts ":zkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
+while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
   case $opt in
       n) NSTEPS="${OPTARG}"; NSTEPS_OVERRIDE=1;;
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
@@ -97,6 +127,7 @@ while getopts ":zkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       c) ONECFG="${OPTARG}";;
       k) CHECKOUT=0;;
       z) DISABLE_VIZ=1; CHECKOUT=0;;
+      R) ALLOW_RESTART=1;;
       l) LISTFILE="${OPTARG}";;
       m) MESHNAME="${OPTARG}"; MESH_OVERRIDE=1;;
       x) MSHREF_LVL="${OPTARG}"; MSHREF_OVERRIDE=1;;
@@ -165,13 +196,13 @@ run_one() {
       nsteps=100
   fi
 
-  python3 - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
-      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" << 'PY'
+  "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
+      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" << 'PY'
 import json
 import sys
 import os
 
-src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s = sys.argv[1:]
+src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s = sys.argv[1:]
 
 nsteps = int(nsteps_s)
 dt = float(dt_s)
@@ -182,6 +213,7 @@ mesh_override = int(mesh_override_s)
 order_override = int(order_override_s)
 ref_override = int(ref_override_s)
 disable_viz = int(disable_viz_s)
+allow_restart = int(allow_restart_s)
 with open(src, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 
@@ -195,7 +227,8 @@ rt["paraview"] = True
 rt["visit"] = False
 rt["nancheck"] = True
 rt["output_file_path"] = "./"
-rt["checkpoint_load"] = False
+if not allow_restart:
+    rt["checkpoint_load"] = False
 
 if order_override:
    order = int(order_s)
@@ -229,8 +262,7 @@ PY
 printf "Theseus configuration:\n"
 cat "${patched}"
 
-local -a MPI_LAUNCHER="mpiexec -n ${NMPIRANKS}"
-local -a LAUNCH_UTIL=""
+local -a run_command=(mpiexec -n "${NMPIRANKS}")
 
 # if [[ "${DEVICE}" != "cpu" ]]; then
 # fi
@@ -239,36 +271,39 @@ local -a LAUNCH_UTIL=""
 case "${HOST_SHORT}" in
     tuo*)
         # Tuolumne@LC
-        MPI_LAUNCHER="flux run --exclusive -N ${NHOSTS} -n ${NMPIRANKS}"
+        run_command=(flux run --exclusive -N "${NHOSTS}" -n "${NMPIRANKS}")
         ;;
     front*)
         # Frontera@TACC
-        MPI_LAUNCHER="ibrun -n ${NMPIRANKS}"
+        run_command=(ibrun -n "${NMPIRANKS}")
 	# Determine if any launcher is required ...
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
-	LAUNCH_UTIL="../device_launcher.sh"
+	run_command+=(../device_launcher.sh)
         ;;
     c[0-9]*-[0-9]*)
         # Frontera@TACC compute nodes
-        MPI_LAUNCHER="ibrun -n ${NMPIRANKS}"
+        run_command=(ibrun -n "${NMPIRANKS}")
 	# Determine if any launcher is required ...
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
-	LAUNCH_UTIL="../device_launcher.sh"
+	run_command+=(../device_launcher.sh)
         ;;
 esac
-echo "mpi launcher: ${MPI_LAUNCHER} ${LAUNCH_UTIL}"
+run_command+=(../theseus -d "${DEVICE}" -c "${patched}")
+printf 'run command:'
+printf ' %q' "${run_command[@]}"
+printf '\n'
 # Run from the per-example dir; keep your “two levels down” invariant
 # Run example (isolate failures; do NOT exit on first error)
 # mpiexec -n "${NMPIRANKS}" 
 set +e
-( cd "${work}" && eval ${MPI_LAUNCHER} ${LAUNCH_UTIL} ../theseus -d "${DEVICE}" -c "${patched}" )
+( cd "${work}" && "${run_command[@]}" )
 local run_rc=$?
 set -e
 
 # Basic regression: require ParaView.pvd + Cycle000000 + Cycle00NNNN
 CHECK=1
 if [[ ${CHECKOUT} -eq 1 ]]; then
-    if check_outputs "${outdir}" "${NSTEPS}"; then
+    if check_outputs "${outdir}" "${NSTEPS_OVERRIDE}" "${NSTEPS}"; then
         CHECK=1
     else
         CHECK=0
@@ -296,6 +331,8 @@ else
 	if [[ ${NSTEPS_OVERRIDE} -eq 1 ]]; then
             [[ ! -d "${outdir}/ParaView/Cycle$(fmt_cycle "${NSTEPS}")" ]] && \
 		echo "  - missing: ${outdir}/ParaView/Cycle$(fmt_cycle "${NSTEPS}")"
+	else
+	    echo "  - ParaView.pvd must reference distinct first and last datasets that exist"
 	fi
     fi
 

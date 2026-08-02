@@ -1,14 +1,20 @@
 # Theseus Documentation
 
-Documentation is a work-in-progress
+Documentation is a work in progress.
 
-## User Guide: See [README](../README.md)
+## Using Theseus
 
-### Coming soon
+The top-level [README](../README.md) covers dependency installation, building,
+and quick smoke runs. Simulation behavior is controlled by each test case's
+`config.json` input file.
 
-- Building
-- Running
-- Input files
+### Runtime and input configuration
+
+- [Visualization output](visualization.md): enable visualization, select output
+  fields, and understand the available field names.
+- General input-file reference (coming soon)
+- [Checkpoints and restarts](checkpoints.md): save solution state, validate
+  restart compatibility, and resume a run through the standard helper
 
 ## Theory
 

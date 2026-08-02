@@ -1,0 +1,17 @@
+# Local builds and third-party dependencies
+/build/
+/tpl/
+
+# Simulation and regression outputs
+/RegressionTests/
+/RunTests/
+/RunTheseus/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Editor and operating-system files
+*~
+\#*\#
+.DS_Store
