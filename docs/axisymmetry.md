@@ -96,11 +96,13 @@ The permanent axisymmetric regression suite currently exercises:
 - Euler and CNS uniform axial flow, both serial and two-rank MPI;
 - an Euler entropy-wave convergence study using the cylindrical norm;
 - axisymmetric checkpoint/restart equivalence and ParaView output equivalence;
+- Mach 2 inviscid flow over a sphere in serial and two-rank MPI;
+- Mach 0.3, `Re_D=100` viscous flow over a sphere in serial and two-rank MPI;
 - the CPU MFEM backend.
 
-The uniform-flow integration test accepts a configurable MFEM backend through
-the CMake cache variable `AXISYMMETRIC_TEST_DEVICE`. Accelerator builds can
-qualify the same Euler and CNS cases, for example:
+The uniform-flow and sphere integration tests accept a configurable MFEM
+backend through the CMake cache variable `AXISYMMETRIC_TEST_DEVICE`.
+Accelerator builds can qualify the same Euler and CNS paths, for example:
 
 ```sh
 cmake -S . -B build-axis-gpu \
@@ -108,7 +110,8 @@ cmake -S . -B build-axis-gpu \
   -DAXISYMMETRIC_TEST_DEVICE=cuda
 cmake --build build-axis-gpu
 ctest --test-dir build-axis-gpu \
-  -R AxisymmetricUniformFlowIntegration --output-on-failure
+  -R 'Axisymmetric(UniformFlow|InviscidSphere|ViscousSphere)Integration' \
+  --output-on-failure
 ```
 
 Use `hip` instead of `cuda` for an MFEM HIP build. CUDA and HIP execution paths
@@ -116,6 +119,9 @@ are device-oriented and are not disabled by axisymmetry, but they remain
 unqualified until this regression is run on corresponding accelerator hardware.
 Other gas-model and numerical-flux combinations likewise remain available but
 unqualified unless covered by additional tests.
+
+See the [verification and CI matrix](verification.md) for the exact integration
+assertions, direct smoke cases, and golden-data tolerances.
 
 ## Output and restart semantics
 

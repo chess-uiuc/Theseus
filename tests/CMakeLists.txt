@@ -161,7 +161,7 @@ if(AXISYMMETRIC)
                 --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
     )
     add_test(
-        NAME AxisymmetricFlowOverSphereIntegration
+        NAME AxisymmetricInviscidSphereIntegration
         COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_flow_over_sphere_integration_test.py
                 --executable $<TARGET_FILE:theseus>
@@ -169,6 +169,18 @@ if(AXISYMMETRIC)
                 --mpiexec ${MPIEXEC_EXECUTABLE}
                 --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
                 --device ${AXISYMMETRIC_TEST_DEVICE}
+                --case inviscid
+    )
+    add_test(
+        NAME AxisymmetricViscousSphereIntegration
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_flow_over_sphere_integration_test.py
+                --executable $<TARGET_FILE:theseus>
+                --source ${PROJECT_SOURCE_DIR}
+                --mpiexec ${MPIEXEC_EXECUTABLE}
+                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+                --device ${AXISYMMETRIC_TEST_DEVICE}
+                --case viscous
     )
 endif()
 

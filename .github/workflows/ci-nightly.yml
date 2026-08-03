@@ -115,6 +115,41 @@ jobs:
           cmake --build build -- -k 0
           ldd build/theseus || true
 
+      - name: Configure axisymmetric integration build
+        env:
+          CC: ${{ env.CC }}
+          CXX: ${{ env.CXX }}
+          FC: ${{ env.FC }}
+          MFEM_DIR: ${{ github.workspace }}/tpl/install
+        run: |
+          cmake -S . -B build-axisymmetric -G Ninja \
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
+            -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
+            -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
+            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
+            -DAXISYMMETRIC=ON \
+            -DTHESEUS_WITH_PLATO=ON
+
+      - name: Build axisymmetric integration executable
+        run: cmake --build build-axisymmetric -- -k 0
+
+      - name: Integration test (restart)
+        run: >-
+          ctest --test-dir build-axisymmetric
+          -R '^CheckpointRestartIntegration$' --output-on-failure
+
+      - name: Integration test (inviscid axisymmetry)
+        run: >-
+          ctest --test-dir build-axisymmetric
+          -R '^AxisymmetricInviscidSphereIntegration$' --output-on-failure
+
+      - name: Integration test (viscous axisymmetry)
+        run: >-
+          ctest --test-dir build-axisymmetric
+          -R '^AxisymmetricViscousSphereIntegration$' --output-on-failure
+
       - name: Example smoke test (Euler, IsentropicVortex)
         run: |
           scripts/run_theseus.sh \
@@ -216,8 +251,11 @@ jobs:
           name: theseus-quick-logs
           path: |
             build/Testing/**/Test.xml
+            build-axisymmetric/Testing/**/Test.xml
             build/CMakeCache.txt
+            build-axisymmetric/CMakeCache.txt
             build/**/*.log
+            build-axisymmetric/**/*.log
             RegressionTests
             RunTheseus
             RunTests

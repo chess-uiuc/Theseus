@@ -71,25 +71,28 @@ def main() -> None:
     parser.add_argument("--mpiexec", required=True, type=Path)
     parser.add_argument("--numproc-flag", required=True)
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--case", choices=("inviscid", "viscous"),
+                        required=True)
     args = parser.parse_args()
 
-    cases = (
-        Path("TestCases/Axisymmetric/Euler/FlowOverSphere"),
-        Path("TestCases/Axisymmetric/NavierStokes/ViscousFlowOverSphere"),
-    )
-    for case in cases:
-        serial = run_case(
-            args.executable.resolve(), args.source.resolve(),
-            args.mpiexec.resolve(), args.numproc_flag, case, 1, args.device)
-        parallel = run_case(
-            args.executable.resolve(), args.source.resolve(),
-            args.mpiexec.resolve(), args.numproc_flag, case, 2, args.device)
-        for index, (one, two) in enumerate(zip(serial, parallel)):
-            if not math.isclose(one, two, rel_tol=0.0, abs_tol=1.0e-5):
-                raise RuntimeError(
-                    f"{case.name} serial/MPI range component {index} "
-                    f"differs: {one} vs {two}"
-                )
+    cases = {
+        "inviscid": Path("TestCases/Axisymmetric/Euler/FlowOverSphere"),
+        "viscous": Path(
+            "TestCases/Axisymmetric/NavierStokes/ViscousFlowOverSphere"),
+    }
+    case = cases[args.case]
+    serial = run_case(
+        args.executable.resolve(), args.source.resolve(),
+        args.mpiexec.resolve(), args.numproc_flag, case, 1, args.device)
+    parallel = run_case(
+        args.executable.resolve(), args.source.resolve(),
+        args.mpiexec.resolve(), args.numproc_flag, case, 2, args.device)
+    for index, (one, two) in enumerate(zip(serial, parallel)):
+        if not math.isclose(one, two, rel_tol=0.0, abs_tol=1.0e-5):
+            raise RuntimeError(
+                f"{case.name} serial/MPI range component {index} "
+                f"differs: {one} vs {two}"
+            )
 
 
 if __name__ == "__main__":
