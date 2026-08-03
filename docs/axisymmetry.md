@@ -131,5 +131,5 @@ in compatibility metadata. Restarts reject ambiguous legacy axisymmetric
 checkpoints that cannot establish whether they contain $\mathbf{U}$ or $r\mathbf{U}$.
 
 Mass, total energy, and kinetic-energy diagnostics use the revolved-domain
-cylindrical measure $2\pi~r~dA$. Visualization fields remain local physical
+cylindrical measure ${2}{\pi}{r}{dA}$. Visualization fields remain local physical
 density, velocity, and pressure; they are not radius-weighted.
