@@ -11,8 +11,8 @@ coordinate 0 is the axial coordinate, `z`, and mesh coordinate 1 is the radial
 coordinate, `r`:
 
 ```text
-x[0] = z
-x[1] = r >= 0
+X => x[0] = z
+Y => x[1] = r >= 0
 ```
 
 An axisymmetric mesh must have topological and spatial dimension 2. Negative
@@ -23,9 +23,7 @@ boundary condition.
 Swirl is outside the initial scope. The four-equation state is ordered using the
 normal `StateLayout` convention:
 
-\[
-U = [\rho,\; \rho u_z,\; \rho u_r,\; \rho E]^T.
-\]
+$$U = \left[\rho,\; \rho u_z,\; \rho u_r,\; \rho E\right]^T$$
 
 ## State invariant
 
@@ -44,7 +42,7 @@ the solution vector.
 Away from the axis, the swirl-free Euler equations are written as the existing
 Cartesian-like divergence in `(z,r)` plus a geometric source:
 
-\[
+$$
 \partial_t U + \partial_z F_z(U) + \partial_r F_r(U)
 = -\frac{1}{r}
 \begin{bmatrix}
@@ -53,7 +51,7 @@ Cartesian-like divergence in `(z,r)` plus a geometric source:
 \rho u_r^2\\
 (\rho E+p)u_r
 \end{bmatrix}.
-\]
+$$
 
 The discrete operator adds this contribution exactly once. It does not
 simultaneously radius-weight Cartesian fluxes or the evolved state.
@@ -131,5 +129,5 @@ in compatibility metadata. Restarts reject ambiguous legacy axisymmetric
 checkpoints that cannot establish whether they contain `U` or `rU`.
 
 Mass, total energy, and kinetic-energy diagnostics use the revolved-domain
-cylindrical measure `2*pi*r*dA`. Visualization fields remain local physical
+cylindrical measure $$2\pi~r~dA$$. Visualization fields remain local physical
 density, velocity, and pressure; they are not radius-weighted.
