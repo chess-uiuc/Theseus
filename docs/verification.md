@@ -31,7 +31,7 @@ The sphere tests accept the MFEM device selected by the CMake cache variable
 not rejected by the implementation.
 
 The viscous sphere test qualifies execution of the axisymmetric CNS body-flow
-path. It is not yet a validation of Tulio's reported wake separation distance;
+path. It is not yet a validation of wake separation distance;
 that requires suitable subsonic characteristic boundaries, steady-state and
 mesh-convergence studies, and automated separation-point extraction.
 

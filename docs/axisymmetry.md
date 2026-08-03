@@ -62,10 +62,59 @@ $$
 The discrete operator adds this contribution exactly once. It does not
 simultaneously radius-weight Cartesian fluxes or the evolved state.
 
-For CNS, the Cartesian viscous flux uses the cylindrical velocity divergence,
-including $u_r/r$, and the operator adds the remaining swirl-free cylindrical
-viscous source. Both inviscid and viscous singular-looking terms use analytic
-axis limits.
+## Viscous geometric terms
+
+For CNS, let $\mathbf{u}=(u_z,u_r)$ and use the swirl-free cylindrical velocity
+divergence
+
+$$
+\nabla\!\cdot\mathbf{u}
+= \frac{\partial u_z}{\partial z}
++ \frac{\partial u_r}{\partial r}
++ \frac{u_r}{r}.
+$$
+
+With the Stokes hypothesis used by Theseus, the stress components needed by the
+meridional operator are
+
+$$
+\begin{aligned}
+\tau_{zz} &= \mu\left(2\frac{\partial u_z}{\partial z}
+- \frac{2}{3}\nabla\!\cdot\mathbf{u}\right), \\
+\tau_{rr} &= \mu\left(2\frac{\partial u_r}{\partial r}
+- \frac{2}{3}\nabla\!\cdot\mathbf{u}\right), \\
+\tau_{\theta\theta} &= \mu\left(2\frac{u_r}{r}
+- \frac{2}{3}\nabla\!\cdot\mathbf{u}\right), \\
+\tau_{zr}=\tau_{rz} &= \mu\left(
+\frac{\partial u_z}{\partial r}+\frac{\partial u_r}{\partial z}\right).
+\end{aligned}
+$$
+
+The radial heat flux is $q_r=-\kappa\,\partial_r T$. The Cartesian-like
+viscous divergence uses the meridional viscous fluxes in the $z$ and $r$
+directions. The remaining cylindrical contribution added to the right-hand
+side is
+
+$$
+S_{\mathrm{axi}}^{V}
+= \frac{1}{r}
+\begin{bmatrix}
+0 \\
+\tau_{zr} \\
+\tau_{rr}-\tau_{\theta\theta} \\
+u_z\tau_{zr}+u_r\tau_{rr}-q_r
+\end{bmatrix}.
+$$
+
+The full CNS geometric source is the inviscid source above plus
+$S_{\mathrm{axi}}^{V}$. The operator adds these terms once; it does not also
+radius-weight the evolved state or meridional flux divergence.
+
+These source terms are volume terms and do not depend on a boundary normal. On
+an off-axis curved or oblique boundary, the numerical flux uses the actual
+meridional normal $\mathbf{n}=(n_z,n_r)$ through
+$F_n=F_z n_z+F_r n_r$; no additional source correction involving
+$\hat{\mathbf r}\!\cdot\mathbf{n}$ is needed.
 
 ## Axis regularity
 
@@ -117,8 +166,6 @@ ctest --test-dir build-axis-gpu \
 Use `hip` instead of `cuda` for an MFEM HIP build. CUDA and HIP execution paths
 are device-oriented and are not disabled by axisymmetry, but they remain "officially"
 untested until this regression is run on corresponding accelerator hardware.
-Other gas-model and numerical-flux combinations likewise remain available but
-unqualified unless covered by additional tests.
 
 See the [verification and CI matrix](verification.md) for the exact integration
 assertions, direct smoke cases, and golden-data tolerances.
