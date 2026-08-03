@@ -1,13 +1,12 @@
-# Axisymmetric formulation contract
+# Axisymmetric formulation
 
-Theseus implements a two-dimensional, swirl-free axisymmetric formulation for
+Theseus implements a two-dimensional axisymmetric formulation for
 Euler and compressible Navier-Stokes (CNS) operators. This document defines the
 formulation, configuration contract, and current verification status.
 
 ## Scope and coordinates
 
-The initial axisymmetric formulation is two-dimensional and swirl-free. Mesh
-coordinate 0 is the axial coordinate, `z`, and mesh coordinate 1 is the radial
+Mesh coordinate 0 is the axial coordinate, `z`, and mesh coordinate 1 is the radial
 coordinate, `r`:
 
 ```text
@@ -17,20 +16,27 @@ Y => x[1] = r >= 0
 
 An axisymmetric mesh must have topological and spatial dimension 2. Negative
 radial coordinates are invalid. A domain is not required to include the axis;
-when it does, the axis is the boundary `r = 0` and uses the dedicated `axis`
+when it does, the axis is the boundary $r = 0$ and uses the dedicated `axis`
 boundary condition.
 
-Swirl is outside the initial scope. The four-equation state is ordered using the
-normal `StateLayout` convention:
+The state is ordered using the normal `StateLayout` convention:
 
-$$U = \left[\rho,\; \rho u_z,\; \rho u_r,\; \rho E\right]^T$$
+$$
+U =
+\begin{bmatrix}
+\rho \\
+\rho u_z \\
+\rho u_r \\
+\rho E
+\end{bmatrix}
+$$
 
 ## State invariant
 
-The evolved state is ordinary physical conservative state `U`, not the
-radius-weighted state `rU`. Initial conditions, gas models, numerical fluxes,
+The evolved state is ordinary physical conservative state $\mathbf{U}$, not the
+radius-weighted state $r\mathbf{U}$. Initial conditions, gas models, numerical fluxes,
 CFL calculations, visualization, and checkpoints must all consume or store
-`U` with the same meaning as in a Cartesian simulation.
+$\mathbf{U}$ with the same meaning as in a Cartesian simulation.
 
 Axisymmetry is represented by explicit geometric terms in the spatial
 operator. Radius weighting is used only where the mathematical measure requires
@@ -39,8 +45,8 @@ the solution vector.
 
 ## Governing inviscid equations
 
-Away from the axis, the swirl-free Euler equations are written as the existing
-Cartesian-like divergence in `(z,r)` plus a geometric source:
+Away from the axis, the Euler equations are written as the existing
+Cartesian-like divergence in $\left(z,r\right)$ plus a geometric source:
 
 $$
 \partial_t U + \partial_z F_z(U) + \partial_r F_r(U)
@@ -57,14 +63,14 @@ The discrete operator adds this contribution exactly once. It does not
 simultaneously radius-weight Cartesian fluxes or the evolved state.
 
 For CNS, the Cartesian viscous flux uses the cylindrical velocity divergence,
-including `u_r/r`, and the operator adds the remaining swirl-free cylindrical
+including $u_r/r$, and the operator adds the remaining swirl-free cylindrical
 viscous source. Both inviscid and viscous singular-looking terms use analytic
 axis limits.
 
 ## Axis regularity
 
-At `r = 0`, radial velocity is odd and vanishes. Density, pressure, energy, and
-axial velocity are even in radius. Singular-looking `f/r` terms must use their
+At $r = 0$, radial velocity is odd and vanishes. Density, pressure, energy, and
+axial velocity are even in radius. Singular-looking $f/r$ terms must use their
 analytic parity/L'Hopital limits at axis nodes; clipping radius to a small
 positive value is not an acceptable regularization.
 
@@ -78,17 +84,13 @@ Axisymmetric configurations require:
 - `runTime.num_equations = 4`
 - a two-dimensional mesh with `x[1] >= 0`
 
-An `axis` boundary must lie on `r = 0`; Theseus validates its boundary
+An `axis` boundary must lie on $r = 0$; Theseus validates its boundary
 quadrature points before starting the simulation. Axis boundaries are invalid
 in Cartesian builds.
 
-## Qualification status
+## Testing coverage
 
-The implementation does not reject a gas model, numerical flux, or compute
-device merely because that combination has not yet been tested. Qualification
-describes available evidence, not a runtime allow-list.
-
-The permanent axisymmetric regression suite currently exercises:
+The axisymmetric regression suite currently exercises:
 
 - ideal/CPG gas with the Chandrashekar numerical flux;
 - Euler and CNS uniform axial flow, both serial and two-rank MPI;
@@ -113,8 +115,8 @@ ctest --test-dir build-axis-gpu \
 ```
 
 Use `hip` instead of `cuda` for an MFEM HIP build. CUDA and HIP execution paths
-are device-oriented and are not disabled by axisymmetry, but they remain
-unqualified until this regression is run on corresponding accelerator hardware.
+are device-oriented and are not disabled by axisymmetry, but they remain "officially"
+untested until this regression is run on corresponding accelerator hardware.
 Other gas-model and numerical-flux combinations likewise remain available but
 unqualified unless covered by additional tests.
 
@@ -123,11 +125,11 @@ assertions, direct smoke cases, and golden-data tolerances.
 
 ## Output and restart semantics
 
-Local output fields are physical quantities recovered directly from `U`.
-Checkpoints store `U` and record the axisymmetric geometry and state convention
+Local output fields are physical quantities recovered directly from $\mathbf{U}$.
+Checkpoints store $\mathbf{U}$ and record the axisymmetric geometry and state convention
 in compatibility metadata. Restarts reject ambiguous legacy axisymmetric
-checkpoints that cannot establish whether they contain `U` or `rU`.
+checkpoints that cannot establish whether they contain $\mathbf{U}$ or $r\mathbf{U}$.
 
 Mass, total energy, and kinetic-energy diagnostics use the revolved-domain
-cylindrical measure $$2\pi~r~dA$$. Visualization fields remain local physical
+cylindrical measure $2\pi~r~dA$. Visualization fields remain local physical
 density, velocity, and pressure; they are not radius-weighted.
