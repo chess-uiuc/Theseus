@@ -35,10 +35,16 @@ total cycle at which the run stops, not the number of additional steps. For
 example, restarting cycle 200 with `nsteps_max` set to 300 advances 100 more
 steps.
 
-New checkpoints record the MPI and discretization layout. Theseus rejects a
-restart when that metadata does not match the current run. Older checkpoints
-containing only `time` and `cycle` remain readable, but Theseus warns that
-their compatibility cannot be verified.
+New checkpoints record the MPI and discretization layout, geometry, and state
+representation. The stored solution is ordinary physical conservative state
+`U` in both Cartesian and axisymmetric runs. Theseus rejects a restart when
+that metadata does not match the current run.
+
+Older Cartesian checkpoints containing only `time` and `cycle` remain
+readable, but Theseus warns that their compatibility cannot be verified.
+Axisymmetric checkpoints without explicit `state_representation` metadata are
+rejected because Theseus cannot safely determine whether they contain `U` or
+the obsolete radius-weighted `rU` representation.
 
 The run helper disables restart loading by default so smoke and regression
 runs do not accidentally consume old files. Pass `-R` to preserve

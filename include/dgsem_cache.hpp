@@ -6,6 +6,7 @@
 #pragma once
 
 #include "mfem.hpp"
+#include "AxisymmetricGeometry.hpp"
 #include "GasModel.hpp"
 #include "LTEGasModel.hpp"
 #include "bc_cache_utilities.hpp"
@@ -41,6 +42,7 @@ namespace Theseus
     int ndof_scalar_el = 0;
     int num_face_points = 0;
     int num_interior_faces = 0;
+    bool axisymmetric = AxisymmetricGeometry::enabled;
 
     // Host Only: Integration rules, operators, restrictions
     mfem::IntegrationRules GLIntRules{0, mfem::Quadrature1D::GaussLobatto};
@@ -64,12 +66,14 @@ namespace Theseus
     mfem::Vector elJac;
     mfem::Vector elMetric;
     mfem::Vector elQuadratureWeights;
+    mfem::Vector elRadius; // element-major, then lexicographic volume point
     mfem::Vector D;
     mfem::Vector Dhat;
     mfem::Vector Dhat2;
     mfem::Vector face_normals;
     mfem::Vector face_wt_minus;
     mfem::Vector face_wt_plus;
+    mfem::Vector face_radius; // restriction-face order, shared by both sides
 
     // Temporaries/aux storage
     mfem::Vector pdudt;
@@ -177,6 +181,7 @@ namespace Theseus
     int Np = 0;
     int num_attr = 0;
     int num_bcs = 0;
+    bool axisymmetric = AxisymmetricGeometry::enabled;
 
     // Volume elements
     const int *elem_attr_d = nullptr;    // size ne, values are 1-based attributes
@@ -187,15 +192,18 @@ namespace Theseus
     const mfem::real_t *Dhat_d = nullptr;
     const mfem::real_t *Dhat2_d = nullptr;
     const mfem::real_t *elQWgts_d = nullptr;
+    const mfem::real_t *elRadius_d = nullptr;
 
     // Internal faces
     const mfem::real_t *nor_d = nullptr;
     const mfem::real_t *fw_minus_d = nullptr;
     const mfem::real_t *fw_plus_d = nullptr;
+    const mfem::real_t *face_radius_d = nullptr;
 
     // Boundary faces
     const mfem::real_t *bnd_nor_d = nullptr;
     const mfem::real_t *bnd_wt_d = nullptr;
+    const mfem::real_t *bnd_radius_d = nullptr;
     const int *bnd_attr_d = nullptr;
     const int *bnd_marker_index_d = nullptr;
     const Theseus::BCDescriptor *bc_descr_d = nullptr;

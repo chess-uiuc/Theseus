@@ -15,6 +15,8 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 - General input-file reference (coming soon)
 - [Checkpoints and restarts](checkpoints.md): save solution state, validate
   restart compatibility, and resume a run through the standard helper
+- [Axisymmetric formulation](axisymmetry.md): configure swirl-free cylindrical
+  Euler/CNS runs and understand their verification status
 
 ## Theory
 

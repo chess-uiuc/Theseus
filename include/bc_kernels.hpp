@@ -13,6 +13,21 @@ namespace Theseus {
 
   namespace BC {
 
+    template<typename GasModelT>
+    MFEM_HOST_DEVICE inline void ReflectAxisState(
+      const GasModelT &gas, const mfem::real_t *interior,
+      mfem::real_t *exterior)
+    {
+      const int equations = gas.L.nequations();
+      for (int equation = 0; equation < equations; ++equation)
+        {
+          exterior[equation] = interior[equation];
+        }
+      const int radial_momentum =
+        gas.L.eq_mom[AxisymmetricGeometry::radial_coordinate];
+      exterior[radial_momentum] = -interior[radial_momentum];
+    }
+
 
     template <typename DeviceCacheT>
     MFEM_HOST_DEVICE inline
@@ -103,6 +118,17 @@ namespace Theseus {
 	    return;
 	  }
 
+        case Theseus::BCType::Axis:
+          {
+            mfem::real_t exterior[Theseus::MAXEQ];
+            ReflectAxisState(gas, state1, exterior);
+            for (int equation = 0; equation < neq; ++equation)
+              {
+                fluxN[equation] = exterior[equation] - state1[equation];
+              }
+            return;
+          }
+
         default:
           {
             // Conservative placeholder for unsupported BCs.
@@ -150,7 +176,8 @@ namespace Theseus {
                                      const mfem::real_t *gradPrim_x, const mfem::real_t *gradPrim_y,
                                      const mfem::real_t *gradPrim_z,
                                      const mfem::real_t *nor, const mfem::real_t vWall[Theseus::MAXDIM],
-                                     const mfem::real_t qWall, mfem::real_t *fluxN)
+                                     const mfem::real_t qWall, bool axisymmetric,
+                                     mfem::real_t radius, mfem::real_t *fluxN)
     {
       mfem::real_t unit_nor[Theseus::MAXDIM];
       mfem::real_t state2[Theseus::MAXEQ];
@@ -182,7 +209,7 @@ namespace Theseus {
       // Inviscid part is done, now for the viscous part
       mfem::real_t qn = qWall * normag;
       NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x, gradPrim_y,
-                                                 gradPrim_z, visc_flux);
+                                                 gradPrim_z, visc_flux, axisymmetric, radius);
       mfem::real_t vflux_n[Theseus::MAXEQ];
       for(int j = 0;j < neq;j++){
         vflux_n[j] = 0.0;
@@ -211,6 +238,7 @@ namespace Theseus {
 					   const mfem::real_t *nor,
 					   const mfem::real_t vWall[Theseus::MAXDIM],
 					   const mfem::real_t tWall,
+					   bool axisymmetric, mfem::real_t radius,
 					   mfem::real_t *fluxN)
     {
       mfem::real_t unit_nor[Theseus::MAXDIM];
@@ -249,7 +277,8 @@ namespace Theseus {
 
       // Viscous part
       Theseus::NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x,
-							  gradPrim_y, gradPrim_z, visc_flux);
+							  gradPrim_y, gradPrim_z, visc_flux,
+							  axisymmetric, radius);
 
       mfem::real_t vflux_n[Theseus::MAXEQ];
       for (int eq = 0; eq < neq; ++eq)
@@ -339,6 +368,12 @@ namespace Theseus {
             }
             return dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
           }
+        case Theseus::BCType::Axis:
+          {
+            mfem::real_t bc_state[Theseus::MAXEQ];
+            ReflectAxisState(gas, state1, bc_state);
+            return dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+          }
         default:
           {
             const int neq = dc.num_equations;
@@ -358,6 +393,7 @@ namespace Theseus {
                                          const mfem::real_t *gradPrim_y,
                                          const mfem::real_t *gradPrim_z,
                                          const mfem::real_t *nor,
+                                         mfem::real_t radius,
                                          mfem::real_t *fluxN)
     {
       const auto &gas = dc.gas;
@@ -366,6 +402,13 @@ namespace Theseus {
       const mfem::real_t *vector_data = dc.bc_vector_d;
       switch (static_cast<Theseus::BCType>(bc.type))
         {
+        case Theseus::BCType::SlipWall:
+        case Theseus::BCType::SupersonicInflow:
+        case Theseus::BCType::SupersonicOutflow:
+        case Theseus::BCType::Symmetry:
+          return ApplyBoundaryConditionInviscid(
+            dc, bc, state1, nor, fluxN);
+
         case Theseus::BCType::NoSlipAdiab:
           {
             const mfem::real_t *bc_vec_data = vector_data + bc.data_index;
@@ -375,7 +418,8 @@ namespace Theseus {
             }
             const mfem::real_t qWall = bc_vec_data[dim];
             return NoSlipAdiabWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
-                                             gradPrim_z, nor, vWall, qWall, fluxN);
+                                             gradPrim_z, nor, vWall, qWall,
+                                             dc.axisymmetric, radius, fluxN);
           }
         case Theseus::BCType::NoSlipIso:
           {
@@ -386,7 +430,26 @@ namespace Theseus {
             }
             const mfem::real_t tWall = bc_vec_data[dim];
             return NoSlipIsothWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
-                                             gradPrim_z, nor, vWall, tWall, fluxN);
+                                             gradPrim_z, nor, vWall, tWall,
+                                             dc.axisymmetric, radius, fluxN);
+          }
+        case Theseus::BCType::Axis:
+          {
+            const mfem::real_t wave_speed = ApplyBoundaryConditionInviscid(
+              dc, bc, state1, nor, fluxN);
+            mfem::real_t viscous_flux[Theseus::MAXEQ][Theseus::MAXDIM];
+            NavierStokesFlux::ComputeViscousFluxKernel(
+              gas, state1, gradPrim_x, gradPrim_y, gradPrim_z,
+              viscous_flux, dc.axisymmetric, radius);
+            for (int equation = 0; equation < dc.num_equations; ++equation)
+              {
+                for (int direction = 0; direction < dim; ++direction)
+                  {
+                    fluxN[equation] -=
+                      nor[direction] * viscous_flux[equation][direction];
+                  }
+              }
+            return wave_speed;
           }
         default:
           {

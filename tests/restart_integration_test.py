@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-end checkpoint save/restart equivalence test."""
+"""End-to-end checkpoint, restart, and visualization equivalence test."""
 
 from __future__ import annotations
 
@@ -20,7 +20,12 @@ def run(executable: Path, config: Path, cwd: Path, mpiexec: Path, numproc_flag: 
         check=False,
     ).stdout
     launcher = [str(mpiexec)]
-    if "Open MPI" in version or "OpenRTE" in version:
+    try:
+        launcher_script = mpiexec.read_text(errors="ignore")
+    except (OSError, UnicodeError):
+        launcher_script = ""
+    supplies_placement = "--map-by" in launcher_script
+    if ("Open MPI" in version or "OpenRTE" in version) and not supplies_placement:
         launcher.extend(
             ["--host", "localhost:2", "--map-by", "slot:OVERSUBSCRIBE", "--bind-to", "none"]
         )
@@ -45,7 +50,10 @@ def write_config(base: dict, path: Path, output: Path, *, load: bool) -> None:
         {
             "mesh_file": str(Path(runtime["mesh_file"]).resolve()),
             "output_file_path": str(output),
-            "visualize": False,
+            "visualize": True,
+            "paraview": True,
+            "visit": False,
+            "vis_steps": 1,
             "checkpoint_save": True,
             "checkpoint_load": load,
             "checkpoint_cycle": 1,
@@ -59,19 +67,50 @@ def write_config(base: dict, path: Path, output: Path, *, load: bool) -> None:
     path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
+def compare_output_trees(continuous: Path, restarted: Path) -> None:
+    continuous_files = {
+        path.relative_to(continuous): path
+        for path in continuous.rglob("*") if path.is_file()
+    }
+    restarted_files = {
+        path.relative_to(restarted): path
+        for path in restarted.rglob("*") if path.is_file()
+    }
+    if continuous_files.keys() != restarted_files.keys():
+        raise RuntimeError(
+            "Restarted visualization file set differs from uninterrupted run: "
+            f"{sorted(continuous_files)} != {sorted(restarted_files)}"
+        )
+    for relative, continuous_file in continuous_files.items():
+        if continuous_file.read_bytes() != restarted_files[relative].read_bytes():
+            raise RuntimeError(
+                f"Restarted visualization file differs at {relative}"
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--mpiexec", required=True, type=Path)
     parser.add_argument("--numproc-flag", required=True)
+    parser.add_argument("--axisymmetric", action="store_true")
     args = parser.parse_args()
 
-    case = args.source / "TestCases/Euler/2D/IsentropicVortex"
+    case = args.source / (
+        "TestCases/Axisymmetric/Euler/UniformFlow"
+        if args.axisymmetric else "TestCases/Euler/2D/IsentropicVortex"
+    )
     base = json.loads((case / "config.json").read_text(encoding="utf-8"))
     # Make the case mesh independent of this test's temporary working directory.
     original_mesh = base["runTime"]["mesh_file"]
-    base["runTime"]["mesh_file"] = str((case / Path(original_mesh).name).resolve())
+    mesh_name = Path(original_mesh).name
+    mesh_matches = list((args.source / "TestCases").rglob(mesh_name))
+    if len(mesh_matches) != 1:
+        raise RuntimeError(
+            f"Expected one test mesh named {mesh_name}, found {mesh_matches}"
+        )
+    base["runTime"]["mesh_file"] = str(mesh_matches[0].resolve())
 
     with tempfile.TemporaryDirectory(prefix="theseus-restart-") as tempdir:
         root = Path(tempdir)
@@ -110,6 +149,8 @@ def main() -> None:
         required = {
             "format_version",
             "state_format",
+            "state_representation",
+            "geometry",
             "real_bytes",
             "mpi_ranks",
             "order",
@@ -121,6 +162,16 @@ def main() -> None:
         missing = required.difference(metadata)
         if missing:
             raise RuntimeError(f"Restart metadata is missing: {sorted(missing)}")
+        expected_geometry = "axisymmetric" if args.axisymmetric else "cartesian"
+        if metadata["geometry"] != expected_geometry:
+            raise RuntimeError(
+                f"Restart geometry is {metadata['geometry']}, expected {expected_geometry}"
+            )
+
+        compare_output_trees(
+            continuous / "ParaView/Cycle000002",
+            restarted / "ParaView/Cycle000002",
+        )
 
 
 if __name__ == "__main__":

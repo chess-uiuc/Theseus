@@ -6,6 +6,7 @@
 #pragma once
 
 #include "mfem.hpp"
+#include "AxisymmetricSource.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_kernels.hpp"
 
@@ -156,12 +157,6 @@ namespace Theseus
             rhs_face[ctx.iface_idx(1, i, j)] = wplus * point_flux[j];
           }
         }
-      // #ifdef AXISYMMETRIC
-      //        mfem::Vector phys(dim);
-      //        Tr.Transform(ip, phys);
-      //        mfem::real_t r = phys[1]; 
-      //        flux_num *= r;
-      // #endif
       return max_char_speed;
     }
 
@@ -170,6 +165,7 @@ namespace Theseus
                                                                     const mfem::real_t *nor_face,const mfem::real_t *w_minus,
                                                                     const mfem::real_t *w_plus, const mfem::real_t *dprim_face_x,
                                                                     const mfem::real_t *dprim_face_y, const mfem::real_t*dprim_face_z,
+                                                                    const mfem::real_t *face_radius,
                                                                     mfem::real_t *rhs_face)
     {
       mfem::real_t max_char_speed = 0.0;
@@ -214,11 +210,15 @@ namespace Theseus
           NavierStokesFlux::ComputeViscousFluxKernel(ctx.gas, qMinus,
                                                      gradPrim_minus[0],
                                                      gradPrim_minus[1],
-                                                     gradPrim_minus[2], vflux_minus);
+                                                     gradPrim_minus[2], vflux_minus,
+                                                     ctx.axisymmetric,
+                                                     ctx.axisymmetric ? face_radius[i] : 0.0);
           NavierStokesFlux::ComputeViscousFluxKernel(ctx.gas, qPlus,
                                                      gradPrim_plus[0],
                                                      gradPrim_plus[1],
-                                                     gradPrim_plus[2], vflux_plus);
+                                                     gradPrim_plus[2], vflux_plus,
+                                                     ctx.axisymmetric,
+                                                     ctx.axisymmetric ? face_radius[i] : 0.0);
 
           // Now we have vflux(+) and vflux(-)
           // In this loop:
@@ -240,12 +240,6 @@ namespace Theseus
             rhs_face[ctx.iface_idx(1, i, j)] = wplus * point_flux[j];
           }
         }
-      // #ifdef AXISYMMETRIC
-      //        mfem::Vector phys(dim);
-      //        Tr.Transform(ip, phys);
-      //        mfem::real_t r = phys[1]; 
-      //        flux_num *= r;
-      // #endif
       return max_char_speed;
     }
 
@@ -413,6 +407,7 @@ namespace Theseus
                                                    const mfem::real_t *el_u,
                                                    const mfem::real_t *elJac_d,
                                                    const mfem::real_t *elMetric_d,
+                                                   const mfem::real_t *elRadius_d,
                                                    const mfem::real_t *el_gradprim_x,
                                                    const mfem::real_t *el_gradprim_y,
                                                    const mfem::real_t *el_gradprim_z,
@@ -460,8 +455,10 @@ namespace Theseus
                                                     dqx, dqy, dqz);
 
                       const mfem::real_t *adj_row = elMetric_d + idl * dim * dim + 0 * dim;
-                      Theseus::NavierStokesFlux::compute_ref_viscous_flux(ctx.gas, dim, neq, state, dqx, dqy, dqz,
-                                                                          adj_row, f_ref);
+                      Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+                        ctx.gas, dim, neq, state, dqx, dqy, dqz, adj_row,
+                        f_ref, ctx.axisymmetric,
+                        ctx.axisymmetric ? elRadius_d[idl] : 0.0);
                       for (int q = 0; q < neq; ++q)
                         {
                           dU_viscous[q] += c * f_ref[q];
@@ -482,9 +479,10 @@ namespace Theseus
                                                         dqx, dqy, dqz);
 
                           const mfem::real_t *adj_row = elMetric_d + idl * dim * dim + 1 * dim;
-                          Theseus::NavierStokesFlux::compute_ref_viscous_flux(ctx.gas, dim, neq, state,
-                                                                              dqx, dqy, dqz,
-                                                                              adj_row, f_ref);
+                          Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+                            ctx.gas, dim, neq, state, dqx, dqy, dqz, adj_row,
+                            f_ref, ctx.axisymmetric,
+                            ctx.axisymmetric ? elRadius_d[idl] : 0.0);
 
                           for (int q = 0; q < neq; ++q)
                             {
@@ -507,9 +505,10 @@ namespace Theseus
                                                         dqx, dqy, dqz);
 
                           const mfem::real_t *adj_row = elMetric_d + idl * dim * dim + 2 * dim;
-                          Theseus::NavierStokesFlux::compute_ref_viscous_flux(ctx.gas, dim, neq, state,
-                                                                              dqx, dqy, dqz,
-                                                                              adj_row, f_ref);
+                          Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+                            ctx.gas, dim, neq, state, dqx, dqy, dqz, adj_row,
+                            f_ref, ctx.axisymmetric,
+                            ctx.axisymmetric ? elRadius_d[idl] : 0.0);
 
                           for (int q = 0; q < neq; ++q)
                             {
@@ -518,6 +517,25 @@ namespace Theseus
                         }
                     }
                   Kernels::el_scatter_add(dU_viscous, dof, neq, id1, jInv, el_dudt);
+                  if (ctx.axisymmetric)
+                    {
+                      Kernels::el_gather_state(el_u, dof, neq, id1, state);
+                      Kernels::el_gather_grad_state(
+                        el_gradprim_x, el_gradprim_y, el_gradprim_z, dim,
+                        dof, neq, id1, dqx, dqy, dqz);
+                      mfem::real_t source[Theseus::MAXEQ] = {0.0};
+                      if (!AddAxisymmetricViscousSourceAwayFromAxis(
+                            ctx.gas, state, dqx, dqy, dqz,
+                            elRadius_d[id1], source))
+                        {
+                          AddAxisymmetricViscousSourceAtAxis(
+                            ctx, el_u, el_gradprim_x, el_gradprim_y,
+                            el_gradprim_z, elRadius_d, elJac_d, elMetric_d,
+                            id1, source);
+                        }
+                      Kernels::el_scatter_add(source, dof, neq, id1, 1.0,
+                                              el_dudt);
+                    }
                 }
             }
         }

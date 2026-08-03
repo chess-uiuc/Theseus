@@ -6,6 +6,7 @@
 #pragma once
 
 #include "mfem.hpp"
+#include "AxisymmetricGeometry.hpp"
 #include "GasModel.hpp"
 
 namespace Theseus
@@ -70,7 +71,10 @@ namespace Theseus
                                          const mfem::real_t *dprim_x,
                                          const mfem::real_t *dprim_y,
                                          const mfem::real_t *dprim_z,
-                                         mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM])
+                                         mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM],
+                                         bool axisymmetric = false,
+                                         mfem::real_t radius = 0.0,
+                                         mfem::real_t *azimuthal_stress = nullptr)
     {
 
       // TODO: Update for scalar transport
@@ -128,6 +132,24 @@ namespace Theseus
         vel[i] = gas.velocity(S, i);
         div_vel += grad_vel[i][i];
       }
+      mfem::real_t radial_rate = 0.0;
+      if (axisymmetric)
+        {
+          const int radial = AxisymmetricGeometry::radial_coordinate;
+          radial_rate = radius > AxisymmetricGeometry::radius_tolerance ?
+            vel[radial] / radius : grad_vel[radial][radial];
+          div_vel += radial_rate;
+        }
+
+      if (azimuthal_stress)
+        {
+          *azimuthal_stress = 0.0;
+          if (axisymmetric)
+            {
+              *azimuthal_stress = mu *
+                (2.0 * radial_rate - mu_bulk * div_vel);
+            }
+        }
 
       // Build momentum/energy viscous fluxes by physical direction.
       // Output convention:
@@ -172,12 +194,15 @@ namespace Theseus
                                          const mfem::real_t *dqy,
                                          const mfem::real_t *dqz,
                                          const mfem::real_t *adj_row,
-                                         mfem::real_t *f_ref)
+                                         mfem::real_t *f_ref,
+                                         bool axisymmetric = false,
+                                         mfem::real_t radius = 0.0)
     {
       mfem::real_t flux_phys[Theseus::MAXEQ][Theseus::MAXDIM] = {{0.}};
 
       // Grab the physical flux
-      ComputeViscousFluxKernel(gas, state, dqx, dqy, dqz, flux_phys);
+      ComputeViscousFluxKernel(gas, state, dqx, dqy, dqz, flux_phys,
+                               axisymmetric, radius);
       
       for (int q = 0; q < neq; ++q)
         {

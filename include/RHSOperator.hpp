@@ -6,6 +6,7 @@
 #pragma once
 
 #include "DGSEMIntegrator.hpp"
+#include "AxisymmetricSource.hpp"
 #include "ModalBasis.hpp"
 #include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
@@ -23,7 +24,6 @@ namespace Theseus
     std::shared_ptr<mfem::ParFiniteElementSpace> fes0;
     std::shared_ptr<mfem::ParMesh> pmesh;
     std::shared_ptr<mfem::ParGridFunction> eta;
-    std::shared_ptr<mfem::ParGridFunction> r_gf;
     std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator;
 
     const int num_equations, dim, order, num_elements;
@@ -49,12 +49,11 @@ namespace Theseus
                     std::shared_ptr<mfem::ParGridFunction> eta_,
                     std::shared_ptr<mfem::ParGridFunction> alpha_,
                     std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator_,
-                    std::shared_ptr<mfem::ParGridFunction> r_gf_ = nullptr,
                     const mfem::real_t alpha_max = 0.5, const mfem::real_t alpha_min = 0.001)
     : mfem::TimeDependentOperator(vfes_->GetTrueVSize()),
       mfem::ParNonlinearForm(vfes_.get()),
       vfes(vfes_), fes0(fes0_), pmesh(pmesh_),
-      eta(eta_), r_gf(r_gf_), indicator(indicator_),
+      eta(eta_), indicator(indicator_),
       num_equations(vfes->GetVDim()),
       dim(pmesh->SpaceDimension()),
       order(vfes->GetElementOrder(0)),
@@ -145,10 +144,9 @@ namespace Theseus
                 const std::string &gasModelName_,
                 const std::string &numFluxName_,
                 const std::string &flowModelName_,
-                std::shared_ptr<mfem::ParGridFunction> r_gf_ = nullptr,
                 const mfem::real_t alpha_max = 0.5, const mfem::real_t alpha_min = 0.001)
     : RHSOperatorBase(vfes_, fes0_, pmesh_, eta_, alpha_,
-                      indicator_, r_gf_, alpha_max, alpha_min),
+                      indicator_, alpha_max, alpha_min),
       gasModelName(gasModelName_), numFluxName(numFluxName_),
       flowModelName(flowModelName_), gas(std::move(gas_)), 
       gas_interface(std::make_shared<Theseus::GasModelInterfaceT<Gas>>(gas))

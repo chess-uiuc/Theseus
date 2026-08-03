@@ -28,7 +28,6 @@ namespace Theseus
                   std::shared_ptr<mfem::ParGridFunction> alpha,
                   std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u,
                   std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator,
-                  std::shared_ptr<mfem::ParGridFunction> r_gf,
                   mfem::real_t alpha_max);
 }
 

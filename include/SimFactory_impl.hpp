@@ -32,7 +32,6 @@ namespace Theseus {
                        std::shared_ptr<mfem::ParGridFunction> alpha,
                        std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u,
                        std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator,
-                       std::shared_ptr<mfem::ParGridFunction> r_gf,
                        mfem::real_t alpha_max,
                        std::shared_ptr<const GasModelT> gas_,
                        const std::string &gasModelName,
@@ -45,7 +44,6 @@ namespace Theseus {
                                                                gas_,
                                                                gasModelName,
                                                                numFluxName,
-                                                               r_gf,
                                                                alpha_max);
     } else {
       return std::make_unique<Theseus::NSOperator<Physics>>(vfes, fes0, pmesh, eta, alpha, grad_u,
@@ -53,7 +51,6 @@ namespace Theseus {
                                                             gas_,
                                                             gasModelName,
                                                             numFluxName,
-                                                            r_gf,
                                                             alpha_max);
     }
   }
@@ -67,7 +64,6 @@ namespace Theseus {
                   std::shared_ptr<mfem::ParGridFunction> alpha,
                   std::vector<std::shared_ptr<mfem::ParGridFunction> > &grad_u,
                   std::shared_ptr<Prandtl::PerssonPeraireIndicator> indicator,
-                  std::shared_ptr<mfem::ParGridFunction> r_gf,
                   mfem::real_t alpha_max)
   {
 
@@ -134,7 +130,7 @@ namespace Theseus {
                                      Theseus::ChandrashekarFlux::InviscidFlux>;
             return MakeTypedRHSOperator<Physics, Theseus::IdealGasModel>(inviscid, runtime,
                                                                          vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                         indicator, r_gf, alpha_max, gas_model,
+                                                                         indicator, alpha_max, gas_model,
                                                                          gasModelName, numFluxName);
           }
         else if (use_hll)
@@ -146,7 +142,7 @@ namespace Theseus {
 
             return MakeTypedRHSOperator<Physics, Theseus::IdealGasModel>(inviscid, runtime,
                                                                          vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                         indicator, r_gf, alpha_max, gas_model,
+                                                                         indicator, alpha_max, gas_model,
                                                                          gasModelName, numFluxName);
           }
         else if (use_llf)
@@ -158,7 +154,7 @@ namespace Theseus {
 
             return MakeTypedRHSOperator<Physics, Theseus::IdealGasModel>(inviscid, runtime,
                                                                          vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                         indicator, r_gf, alpha_max, gas_model,
+                                                                         indicator, alpha_max, gas_model,
                                                                          gasModelName, numFluxName);
           }
         else {
@@ -251,7 +247,7 @@ namespace Theseus {
                                    Theseus::ChandrashekarFlux::InviscidFlux>;
           // return MakeTypedRHSOperator<Physics>(inviscid, runtime,
           //                                   vfes, fes0, pmesh, eta, alpha, grad_u,
-          //                                     indicator, r_gf, alpha_max, gas_model,
+          //                                     indicator, alpha_max, gas_model,
           //                                     gasModelName, numFluxName);
           std::cerr << "Error: Cannot use Chandrashekar flux with LTE" << std::endl;
           return nullptr;
@@ -265,7 +261,7 @@ namespace Theseus {
 
             auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>(inviscid, runtime,
                                                                         vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                        indicator, r_gf, alpha_max, gas_model,
+                                                                        indicator, alpha_max, gas_model,
                                                                         gasModelName, numFluxName);
             RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
             auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
@@ -281,7 +277,7 @@ namespace Theseus {
 
             auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>
               (inviscid, runtime,vfes, fes0, pmesh, eta, alpha, grad_u,
-               indicator, r_gf, alpha_max, gas_model,
+               indicator, alpha_max, gas_model,
                gasModelName, numFluxName);
 
             RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());

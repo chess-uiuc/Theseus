@@ -1,0 +1,54 @@
+{
+  "compileTime": {
+    "PARABOLIC": true,
+    "AXISYMMETRIC": true,
+    "SUBCELL_FV_BLENDING": true,
+    "SUTHERLAND": false,
+    "USE_FILTER": false
+  },
+  "runTime": {
+    "order": 2,
+    "dim": 2,
+    "num_equations": 4,
+    "precision": 15,
+    "visualize": false,
+    "output_file_path": "../../TestCases/Axisymmetric/NavierStokes/UniformFlow",
+    "nancheck": true,
+    "nancheck_steps": 1,
+    "clock_simulation": false,
+    "variable_dt": false,
+    "dt": 1e-6,
+    "final_time": 5e-6,
+    "flow_model": "cns",
+    "Pr": 0.72,
+    "mu": 1.8e-5,
+    "R_gas": 287.05,
+    "gamma": 1.4,
+    "ser_ref_levels": 0,
+    "mesh_file": "../../TestCases/NavierStokes/2D/LidDrivenCavity/LidDrivenCavity.msh",
+    "conditions": {
+      "initial_conditions": {
+        "signature": 0,
+        "function": "RampIC"
+      },
+      "boundary_conditions": {
+        "left": {
+          "type": "supersonic-inflow",
+          "vector": "RampInletBCVector"
+        },
+        "right": {
+          "type": "supersonic-outflow"
+        },
+        "bottom": {
+          "type": "axis"
+        },
+        "lid": {
+          "type": "slip"
+        }
+      }
+    },
+    "lifting_scheme": "BR1",
+    "numerical_flux": "Chandrashekar",
+    "ode_solver": "RK3SSP"
+  }
+}

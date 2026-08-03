@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 #include "Simulation.hpp"
+#include "AxisymmetryConfig.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
 #include "json.hpp"
@@ -59,7 +60,6 @@ namespace Theseus
   }
 
   Simulation::Simulation(std::string device_cfg)
-    : r_coef([](const mfem::Vector &X){ return X[1];}), z_coef([](const mfem::Vector &X){ return X[0];})
   {
     mfem::Mpi::Init();
     numProcs = mfem::Mpi::WorldSize();
@@ -109,6 +109,25 @@ namespace Theseus
     nlohmann::json config;
     config_file >> config;
     auto runtime = config["runTime"];
+
+#ifdef AXISYMMETRIC
+    constexpr bool axisymmetric_build = true;
+#else
+    constexpr bool axisymmetric_build = false;
+#endif
+    try
+      {
+        AxisymmetryConfig::Validate(config, runtime, axisymmetric_build);
+      }
+    catch (const std::exception &error)
+      {
+        if (mfem::Mpi::Root())
+          {
+            std::cerr << "Invalid axisymmetry configuration: "
+                      << error.what() << std::endl;
+          }
+        return 1;
+      }
 
     order = runtime.value("order", 3);
     dim = runtime.value("dim", 2);
@@ -295,6 +314,34 @@ namespace Theseus
         return 1;
       }
 
+    if (runtime.contains("exact_solution"))
+      {
+        const auto &exact = runtime["exact_solution"];
+        const std::string key = exact["function"].get<std::string>();
+        const int exact_signature = exact.value("signature", 0);
+        if (exact_signature == 0)
+          {
+            exact_solution = std::make_unique<mfem::VectorFunctionCoefficient>(
+              num_equations,
+              Prandtl::ConditionFactory::Instance().
+                GetVectorTDFunctionBoundaryCondition0(key)());
+          }
+        else if (exact_signature == 1)
+          {
+            const mfem::real_t x1 = exact["params"].value("x1", 0.0);
+            exact_solution = std::make_unique<mfem::VectorFunctionCoefficient>(
+              num_equations,
+              Prandtl::ConditionFactory::Instance().
+                GetVectorTDFunctionBoundaryCondition1(key)(x1));
+          }
+        else
+          {
+            std::cerr << "Error: unsupported exact solution signature."
+                      << std::endl;
+            return 1;
+          }
+      }
+
     mfem::Mesh *mesh;
     std::string mesh_file_name(runtime["mesh_file"].get<std::string>());
     {
@@ -363,6 +410,22 @@ namespace Theseus
       }
 
     mesh->FinalizeMesh(0, true);
+#ifdef AXISYMMETRIC
+    try
+      {
+        AxisymmetryConfig::ValidateMesh(*mesh);
+      }
+    catch (const std::exception &error)
+      {
+        if (mfem::Mpi::Root())
+          {
+            std::cerr << "Invalid axisymmetric mesh: "
+                      << error.what() << std::endl;
+          }
+        delete mesh;
+        return 1;
+      }
+#endif
     pmesh = std::make_shared<mfem::ParMesh>(MPI_COMM_WORLD, *mesh);
     mesh->Clear();
     delete mesh;
@@ -454,24 +517,6 @@ if (debug_simulation && numProcs > 1) {
         }
       }
 
-#ifdef AXISYMMETRIC
-    r_coef = mfem::FunctionCoefficient([](const mfem::Vector &X){
-      return X[1]; });
-    r_gf = std::make_shared<mfem::ParGridFunction>(fes.get());
-    r_gf->ProjectCoefficient(r_coef);
-
-    mfem::real_t *r_data = r_gf->GetData();
-    mfem::real_t *sol_data = sol->GetData();
-
-    for (int i = 0; i < num_dofs_scalar; ++i)
-      {
-        for (int j=0; j < num_equations ; ++j)
-          {
-            sol_data[j*num_dofs_scalar+i] *= r_data[i];
-          }
-      }
-#endif
-
 #ifdef SUBCELL_FV_BLENDING
     mfem::Geometry::Type gtype = vfes->GetFE(0)->GetGeomType();
     eta = std::make_shared<mfem::ParGridFunction>(fes0.get());
@@ -490,7 +535,7 @@ if (debug_simulation && numProcs > 1) {
 #endif
 
     rhsOp = Theseus::MakeRHSOperator(runtime, vfes, fes0, pmesh, eta, alpha, grad_u,
-                                     indicator, r_gf, alpha_max);
+                                     indicator, alpha_max);
 
     if(!rhsOp){
       std::cerr << "Failed to create RHS Operator." << std::endl;
@@ -508,59 +553,6 @@ if (debug_simulation && numProcs > 1) {
     const auto &gasModel = rhsOp->GetGasModelInterface();
     auto stateLayout = gasModel.layout();
     auto physicsConstants = gasModel.phys();
-
-#ifdef AXISYMMETRIC
-
-    if (debug_simulation)
-      {
-        mfem::real_t *sol_state = sol->GetData();
-        Theseus::FieldStateView fields{sol_state};
-        std::vector<std::pair<mfem::real_t, mfem::real_t>> zr(num_dofs_scalar, {0.0, 0.0});
-
-        std::cout << "\n === sol state rU values after weighting by r ===\n";
-
-        for (int e = 0; e < pmesh->GetNE(); e++)
-          {
-            const mfem::FiniteElement &fe = *fes->GetFE(e);
-            mfem::ElementTransformation &Tr = *fes->GetElementTransformation(e);
-
-            mfem::Array<int> ldofs;
-            fes->GetElementDofs(e, ldofs);
-
-            const mfem::IntegrationRule &fe_nodes = fe.GetNodes();
-            if (fe_nodes.GetNPoints() == fe.GetDof())
-              {
-                for (int ldof = 0; ldof < fe.GetDof(); ldof++)
-                  {
-                    const mfem::IntegrationPoint &ip = fe_nodes.IntPoint(ldof);
-                    mfem::Vector X(dim);
-                    Tr.Transform(ip, X);
-                    const int gdof = ldofs[ldof];
-                    zr[gdof] = {static_cast<mfem::real_t>(X(0)), static_cast<mfem::real_t>(X(1))};
-                  }
-              }
-          }
-
-        for (int i = 0; i < num_dofs_scalar; ++i)
-          {
-            mfem::real_t rho = fields.mass(stateLayout, i);
-            mfem::real_t rhoU = fields.momentum_x(stateLayout, i);
-            mfem::real_t rhoV = fields.momentum_y(stateLayout, i);
-            mfem::real_t E = fields.energy(stateLayout, i);
-            mfem::real_t z = zr[i].first;
-            mfem::real_t r = zr[i].second;
-
-            std::cout << " DOF#" << std::setw(2) << i
-                      << " (z, r) = ("<< std::fixed << std::setprecision(2) << std::setw(4) << z //std::round(z*100)/100.0
-                      << ", " << std::setw(4) << std::round(r*100)/100.0 << "),  state = ["
-                      << std::setw(4) << std::round(rho*100)/100.0 << ", "
-                      << std::setw(4) << std::round(rhoU*100)/100.0 << ", "
-                      << std::setw(4) << std::round(rhoV*100)/100.0 << ", "
-                      << std::setw(5) << std::round(E*100)/100.0 << "]\n";
-          }
-
-      }
-#endif
 
     mfem::Vector bc_vector_data;
     mfem::Vector bc_scalar_data;
@@ -614,10 +606,9 @@ if (debug_simulation && numProcs > 1) {
 #ifndef AXISYMMETRIC
                 MFEM_ABORT("AXIS BC requires axisymmetry build.");
 #else
-                // bc_descr.type = int(Theseus::BCType::Axis);
                 rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
-                // NS->SetAxisBoundaryMarker(bdr_marker_vector.back());
-                // NS->SetLowOrderAxis(true);
+                bc_descr.type = int(Theseus::BCType::Axis);
+                bc_descr.data_kind = int(Theseus::BCDataKind::None);
 #endif
               }
             else if (type == "slip")
@@ -1011,11 +1002,6 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     velocity = std::make_unique<mfem::ParGridFunction>(dfes.get());
     p = std::make_unique<mfem::ParGridFunction>(fes.get());
 
-#ifdef AXISYMMETRIC
-    rho_axi = std::make_unique<mfem::ParGridFunction>(fes.get());
-#endif
-
-
     if (visualize)
       {
         if (paraview &&
@@ -1036,17 +1022,10 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
           {
             pd = std::make_unique<mfem::ParaViewDataCollection>(paraview_folder, pmesh.get());
             pd->SetPrefixPath(output_file_path);
-#ifdef AXISYMMETRIC
-            if (visualization_config.Has(VisualizationField::density))
-              {
-                pd->RegisterField("Density", rho_axi.get());
-              }
-#else
             if (visualization_config.Has(VisualizationField::density))
               {
                 pd->RegisterField("Density", &rho);
               }
-#endif
             if (visualization_config.Has(VisualizationField::velocity))
               {
                 pd->RegisterField("Velocity", velocity.get());
@@ -1073,17 +1052,10 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
             vd->SetPrecision(precision);
             vd->SetFormat(mfem::DataCollection::PARALLEL_FORMAT);
 
-#ifdef AXISYMMETRIC
-            if (visualization_config.Has(VisualizationField::density))
-              {
-                vd->RegisterField("Density", rho_axi.get());
-              }
-#else
             if (visualization_config.Has(VisualizationField::density))
               {
                 vd->RegisterField("Density", &rho);
               }
-#endif
             if (visualization_config.Has(VisualizationField::velocity))
               {
                 vd->RegisterField("Velocity", velocity.get());
@@ -1130,16 +1102,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     diag.max_temp = 0.0;
     diag.min_temp = 0.0;
 
-    // print the first node:
-#ifdef AXISYMMETRIC
-    mfem::Vector U_cons(sol->Size());
-    // Axi is DISABLED for a minute
-    // NS->RecoverStateFromWeighted(*sol, U_cons);
-    ConservativeToPrimitive(U_cons, *rho_axi, *velocity, *p);
-    rhsOp->ComputeIntegralMeasures(U_cons, diag);
-#else
     rhsOp->ComputeIntegralMeasures(*sol, diag);
-#endif
 
     Theseus::IntegralMeasures diag0 = rhsOp->GetIntegralMeasuresBaseline();
 
@@ -1216,22 +1179,13 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     if (mfem::Mpi::Root())
       {
         int i = 0;
-#ifdef AXISYMMETRIC
-        mfem::real_t rhoi = (*rho_axi)(i);
-        mfem::real_t ui = (*velocity)(i);
-        mfem::real_t vi = (*velocity)(i + num_dofs_scalar);
-        mfem::real_t pi = (*p)(i);
-
-        NS->SetAxisFloorsFromFreestream(rhoi, pi);
-#else
-        mfem::real_t *sol_state = sol->GetData();
+        const mfem::real_t *sol_state = sol->HostRead();
         Theseus::DofStateView dofState{sol_state, i};
         mfem::real_t rhoi = gasModel.density(dofState);
         mfem::real_t ui = gasModel.velocity(dofState, 0);
         mfem::real_t vi = dim > 1 ? gasModel.velocity(dofState, 1) : 0.0;
         mfem::real_t wi = dim > 2 ? gasModel.velocity(dofState, 2) : 0.0;
         mfem::real_t pi = gasModel.pressure(dofState);
-#endif
         std::cout << "***  initial at dof #" << i << ":  "
                   << "rho = " << std::round(rhoi*10000)/10000 << ",  velocity = <"
                   << std::round(ui*100)/100;
@@ -1255,23 +1209,6 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         Theseus::ScopedTimer timer("VisInit");
 
         UpdateVisualizationFields();
-
-#ifdef AXISYMMETRIC
-        if (debug_simulation)
-          {
-            for (int i = 0; i < num_dofs_scalar; i++)
-              {
-                std::cout << " DOF#" << std::setw(2) << i
-                          << "    primitive state =["
-                          << std::setw(4) << std::round((*rho_axi)(i)*100)/100.0 << ", "
-                          << std::setw(4) << std::round((*velocity)(i)*100)/100.0 << ", "
-                          << std::setw(4)
-                          << std::round((*velocity)(i + num_dofs_scalar)*100)/100.0 << ", "
-                          << std::setw(5) << std::round((*p)(i)*100)/100.0 << "]\n";
-              }
-
-          }
-#endif
 
         SaveVisualization();
       }
@@ -1305,14 +1242,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
 
         mfem::real_t cfl_rep = 0.0;
         if (ti % print_interval == 0 || (variable_dt && cfl > 0) || debug_simulation){
-#ifdef AXISYMMETRIC
-          mfem::Vector U_cons(sol->Size());
-          // AXI temporarily DISABLED
-          // NS->RecoverStateFromWeighted(*sol, U_cons);
-          // NS->ComputeIntegralMeasures(U_cons, diag);
-#else
           rhsOp->ComputeIntegralMeasures(*sol, diag);
-#endif
         }
         // Update the time step size with CFL?
         if ((variable_dt && cfl > 0) || (ti%print_interval == 0) || debug_simulation)
@@ -1414,25 +1344,26 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
           }
       }
 
-#ifdef AXISYMMETRIC
-
-    auto stats = NS->GetAxisReconStats(true);
-
-    if (mfem::Mpi::Root())
+    if (exact_solution)
       {
-        const double denom = (stats.calls > 0) ? (double)stats.calls : 1.0;
-        const double highOrder_shape_percentage = 100.0 * (double)stats.highOrder_shape / denom;
-        const double lowOrder_ray2_percentage = 100.0 * (double)stats.lowOrder_ray2 / denom;
-        const double lowOrder_ray1_percentage = 100.0 * (double)stats.lowOrder_ray1 / denom;
-        const double lowOrder_copy_percentage = 100.0 * (double)stats.lowOrder_copy / denom;
-        std::cout << "[Axis Reconstruction]" << "\n"
-                  << "High Order [shape] : " << std::round(highOrder_shape_percentage*1000)/1000.0 << "%" << "\n"
-                  << "Low  Order [ray2]  : " << std::round(lowOrder_ray2_percentage*1000)/1000.0 << "%" << "\n"
-                  << "Low  Order [ray1]  : " << std::round(lowOrder_ray1_percentage*1000)/1000.0 << "%" << "\n"
-                  << "Low  Order [copy]  : " << std::round(lowOrder_copy_percentage*1000)/1000.0 << "%" << std::endl;
+        exact_solution->SetTime(t);
+        mfem::FunctionCoefficient cylindrical_weight(
+          [](const mfem::Vector &x) {
+            return AxisymmetricGeometry::MeasureMultiplier(
+              AxisymmetricGeometry::enabled,
+              AxisymmetricGeometry::enabled ?
+                AxisymmetricGeometry::Radius(x.GetData()) : 0.0);
+          });
+        const mfem::real_t l1_error =
+          sol->ComputeLpError(1.0, *exact_solution, &cylindrical_weight);
+        const mfem::real_t l2_error =
+          sol->ComputeLpError(2.0, *exact_solution, &cylindrical_weight);
+        if (mfem::Mpi::Root())
+          {
+            std::cout << "Exact L1 Error: " << l1_error << std::endl
+                      << "Exact L2 Error: " << l2_error << std::endl;
+          }
       }
-
-#endif
 
     // VectorFunctionCoefficient u_final(num_equations,
     //    Prandtl::ConditionFactory::Instance().\
@@ -1473,43 +1404,8 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
       }
   }
 
-#ifdef AXISYMMETRIC
-  void Simulation::ConservativeToPrimitive(const mfem::Vector &U_cons,
-                                           mfem::ParGridFunction &rho_out,
-                                           mfem::ParGridFunction &velocity_out,
-                                           mfem::ParGridFunction &p_out) const
-  {
-    const auto physicsConstants = rhsOp->GetGasModelInterface().phys();
-    for (int i = 0; i < num_dofs_scalar; i++)
-      {
-        const mfem::real_t rho = U_cons[i];
-        const mfem::real_t mz  = U_cons[i + num_dofs_scalar];
-        const mfem::real_t mr  = U_cons[i + 2*num_dofs_scalar];
-        const mfem::real_t E   = U_cons[i + 3*num_dofs_scalar];
-
-        mfem::real_t uz = 0.0, ur = 0.0, p = 0.0;
-
-        uz = mz / rho;
-        ur = mr / rho;
-        const mfem::real_t Vsq = uz*uz + ur*ur;
-        p = physicsConstants.gammaM1 * (E - 0.5 * rho * Vsq);
-
-        rho_out(i) = rho;
-        velocity_out(i) = uz;
-        velocity_out(i + num_dofs_scalar) = ur;
-        p_out(i)   = p;
-      }
-  }
-#endif
-
   void Simulation::UpdateVisualizationFields()
   {
-#ifdef AXISYMMETRIC
-    mfem::Vector U_cons(sol->Size());
-    // Axisymmetric conservative-state recovery is temporarily disabled.
-    // NS->RecoverStateFromWeighted(*sol, U_cons);
-    ConservativeToPrimitive(U_cons, *rho_axi, *velocity, *p);
-#else
     const auto &gasModel = rhsOp->GetGasModelInterface();
     const mfem::real_t *sol_state = sol->HostRead();
     for (int i = 0; i < num_dofs_scalar; i++)
@@ -1528,7 +1424,6 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
             (*p)(i) = gasModel.pressure(dofState);
           }
       }
-#endif
   }
 
   void Simulation::SaveVisualization()
@@ -1557,13 +1452,19 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
 
   CheckpointCompatibility Simulation::CurrentCheckpointCompatibility() const
   {
+#ifdef AXISYMMETRIC
+    constexpr bool axisymmetric = true;
+#else
+    constexpr bool axisymmetric = false;
+#endif
     return {numProcs,
             order,
             dim,
             num_equations,
             static_cast<int>(sizeof(mfem::real_t)),
             static_cast<long long>(pmesh->GetGlobalNE()),
-            static_cast<long long>(vfes->GlobalVSize())};
+            static_cast<long long>(vfes->GlobalVSize()),
+            axisymmetric};
   }
 
   void Simulation::LoadCheckpoint()

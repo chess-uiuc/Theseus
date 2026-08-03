@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "mfem.hpp"
+#include "AxisymmetricGeometry.hpp"
 #include "dgsem_cache.hpp"
 #include "ModalBasis.hpp"
 #include "timer.hpp"
@@ -109,6 +110,8 @@ namespace Theseus {
     cache->elJac.SetSize(Np_x*Np_y*Np_z*nelem);
     cache->elMetric.SetSize(dim*dim*Np_x*Np_y*Np_z*nelem);
     cache->elQuadratureWeights.SetSize(Np_x*Np_y*Np_z*nelem);
+    cache->elRadius.SetSize(dim > AxisymmetricGeometry::radial_coordinate ?
+                            Np_x*Np_y*Np_z*nelem : 0);
     for (int i = 0; i < nelem; i++)
       {
         mfem::ElementTransformation *T = fes->GetElementTransformation(i);
@@ -175,11 +178,13 @@ namespace Theseus {
 
     cache->elJac.UseDevice();
     cache->elMetric.UseDevice();
+    cache->elRadius.UseDevice();
     cache->D.UseDevice();
     cache->Dhat.UseDevice();
     cache->Dhat2.UseDevice();
     cache->elJac.Read();
     cache->elMetric.Read();
+    cache->elRadius.Read();
     cache->D.Read();
     cache->Dhat.Read();
     cache->Dhat2.Read();
@@ -197,9 +202,11 @@ namespace Theseus {
     cache->face_normals.UseDevice();
     cache->face_wt_minus.UseDevice();
     cache->face_wt_plus.UseDevice();
+    cache->face_radius.UseDevice();
     cache->face_normals.Read();
     cache->face_wt_minus.Read();
     cache->face_wt_plus.Read();
+    cache->face_radius.Read();
 
     cache->ifWaveSpeed.SetSize(cache->num_interior_faces);
     cache->ifWaveSpeed = 0.0;
@@ -367,13 +374,15 @@ namespace Theseus {
     // 3. Geometry arrays
     cache->bnd_normals.SetSize(nbnd_faces * nfp * dim);
     cache->bnd_wt.SetSize(nbnd_faces * nfp);
-    cache->bnd_xyz.SetSize(nbnd_faces * nfp * dim);     // recommended
-    cache->bnd_radius.SetSize(nbnd_faces * nfp);        // optional, useful later
+    cache->bnd_xyz.SetSize(nbnd_faces * nfp * dim);
+    cache->bnd_radius.SetSize(dim > AxisymmetricGeometry::radial_coordinate ?
+                              nbnd_faces * nfp : 0);
     
     mfem::real_t *nor_d = cache->bnd_normals.HostWrite();
     mfem::real_t *wt_d  = cache->bnd_wt.HostWrite();
     mfem::real_t *xyz_d = cache->bnd_xyz.HostWrite();
-    mfem::real_t *rad_d = cache->bnd_radius.HostWrite();
+    mfem::real_t *rad_d = cache->bnd_radius.Size() > 0 ?
+                          cache->bnd_radius.HostWrite() : nullptr;
 
     const mfem::real_t w0 = cache->ir->IntPoint(0).weight;
 
@@ -395,7 +404,15 @@ namespace Theseus {
         }
       
       wt_d[base_scl] = inv_wJ1;
-      rad_d[base_scl] = (dim > 1) ? phys(1) : 0.0;
+      if (rad_d)
+        {
+          const mfem::real_t radius =
+            AxisymmetricGeometry::Radius(phys.GetData());
+          rad_d[base_scl] = cache->axisymmetric ?
+            AxisymmetricGeometry::ValidateRadius(
+              radius, "boundary face " + std::to_string(fslot) +
+              ", point " + std::to_string(fp_restr)) : radius;
+        }
     };
     
     for (int fslot = 0; fslot < nbnd_faces; ++fslot)
@@ -427,6 +444,10 @@ namespace Theseus {
             store(fslot, fp_restr, nor, phys, 1.0 / (w0 * J1));
           }
       }
+    cache->bnd_xyz.UseDevice();
+    cache->bnd_radius.UseDevice();
+    cache->bnd_xyz.Read();
+    cache->bnd_radius.Read();
   }
 
   // Builds element-specific Jac/Metric and stuffs into cache.elJac, cache.elMetric
@@ -437,9 +458,12 @@ namespace Theseus {
     mfem::real_t *Jinv_h = cache->elJac.HostWrite();
     mfem::real_t *Met_h  = cache->elMetric.HostWrite();
     mfem::real_t *qWgts_h = cache->elQuadratureWeights.HostWrite();
+    mfem::real_t *radius_h = cache->elRadius.Size() > 0 ?
+                             cache->elRadius.HostWrite() : nullptr;
 
     int dim = cache->dim;
     mfem::Vector metric1(dim);
+    mfem::Vector physical(dim);
     const int e = Tr.ElementNo;
     const int nq = cache->Np_x * cache->Np_y * cache->Np_z;
     
@@ -450,6 +474,16 @@ namespace Theseus {
         const mfem::real_t J = Tr.Weight();
         Jinv_h[e*nq + q] = J;
         qWgts_h[e*nq + q] = J * ip.weight;
+        if (radius_h)
+          {
+            Tr.Transform(ip, physical);
+            const mfem::real_t radius =
+              AxisymmetricGeometry::Radius(physical.GetData());
+            radius_h[e*nq + q] = cache->axisymmetric ?
+              AxisymmetricGeometry::ValidateRadius(
+                radius, "element " + std::to_string(e) +
+                ", point " + std::to_string(q)) : radius;
+          }
         const mfem::DenseMatrix &adj = Tr.AdjugateJacobian();              
         for (int dir = 0; dir < dim; ++dir)
           {
@@ -494,22 +528,38 @@ namespace Theseus {
     cache->face_normals.SetSize(ninterior_faces * nfp * dim);
     cache->face_wt_minus.SetSize(ninterior_faces * nfp);
     cache->face_wt_plus.SetSize(ninterior_faces * nfp);
+    cache->face_radius.SetSize(
+      dim > AxisymmetricGeometry::radial_coordinate ?
+      ninterior_faces * nfp : 0);
  
     mfem::real_t *nor_d  = cache->face_normals.HostWrite();
     mfem::real_t *inv1_d = cache->face_wt_minus.HostWrite();
     mfem::real_t *inv2_d = cache->face_wt_plus.HostWrite();
+    mfem::real_t *radius_d = cache->face_radius.Size() > 0 ?
+                             cache->face_radius.HostWrite() : nullptr;
     const mfem::real_t w0 = cache->ir->IntPoint(0).weight;
     
     auto store = [&](int fslot, int fp, const mfem::Vector &nor,
+                     const mfem::Vector &physical,
                      mfem::real_t inv_wJ1, mfem::real_t inv_wJ2)
     {
       const int nbase = (fslot * nfp + fp) * dim;
       for (int d = 0; d < dim; ++d) { nor_d[nbase + d] = nor(d); }
       inv1_d[fslot * nfp + fp] = inv_wJ1;
       inv2_d[fslot * nfp + fp] = inv_wJ2;
+      if (radius_d)
+        {
+          const mfem::real_t radius =
+            AxisymmetricGeometry::Radius(physical.GetData());
+          radius_d[fslot*nfp + fp] = cache->axisymmetric ?
+            AxisymmetricGeometry::ValidateRadius(
+              radius, "interior face " + std::to_string(fslot) +
+              ", point " + std::to_string(fp)) : radius;
+        }
     };
     
     mfem::Vector nor(dim);
+    mfem::Vector physical(dim);
     // The order of faces in GetFaceIndices(FaceType::Interior) *must*
     // match the order of the faces in the interior face restriction
     // operator face slots.
@@ -538,10 +588,12 @@ namespace Theseus {
               
               if (dim == 1) { nor(0) = (tr->GetElement1IntPoint().x - 0.5)*2.0; }
               else          { mfem::CalcOrtho(tr->Jacobian(), nor); }
+              tr->Transform(ip, physical);
               
               //const mfem::real_t fac = face_is_flipped ? -1.0 : 1.0;
               const mfem::real_t fac = 1.0;
-              store(fslot, fp_restr, nor, fac/(w0*J1), fac/(w0*J2));
+              store(fslot, fp_restr, nor, physical,
+                    fac/(w0*J1), fac/(w0*J2));
             }
           continue;
         } // Internal face processing
@@ -559,11 +611,13 @@ namespace Theseus {
               
               if (dim == 1) { nor(0) = (sh_tr->GetElement1IntPoint().x - 0.5)*2.0; }
               else          { mfem::CalcOrtho(sh_tr->Jacobian(), nor); }
+              sh_tr->Transform(ip, physical);
               
               //const mfem::real_t fac = face_is_flipped ? -1.0 : 1.0;
               const mfem::real_t fac1 = 1.0;
               const mfem::real_t fac2 = 0.0;
-              store(fslot, fp_restr, nor, fac1/(w0*J1), fac2/(w0*J2));
+              store(fslot, fp_restr, nor, physical,
+                    fac1/(w0*J1), fac2/(w0*J2));
             }
         } // Shared face processing
       } // Interior face processing
@@ -804,6 +858,7 @@ namespace Theseus {
     device_cache.Np_z = cache.Np_z;
     device_cache.num_elements = cache.num_elements;
     device_cache.num_equations = cache.num_equations;
+    device_cache.axisymmetric = cache.axisymmetric;
 
     // - Volume element data
     device_cache.elJac_d = cache.elJac.Read();
@@ -812,15 +867,18 @@ namespace Theseus {
     device_cache.Dhat_d = cache.Dhat.Read();
     device_cache.Dhat2_d = cache.Dhat2.Read();
     device_cache.elQWgts_d = cache.elQuadratureWeights.Read();
+    device_cache.elRadius_d = cache.elRadius.Read();
 
     // - Interior faces (including remote)
     device_cache.nor_d = cache.face_normals.Read();
     device_cache.fw_minus_d = cache.face_wt_minus.Read();
     device_cache.fw_plus_d = cache.face_wt_plus.Read();
+    device_cache.face_radius_d = cache.face_radius.Read();
 
     // - Boundary faces
     device_cache.bnd_nor_d = cache.bnd_normals.Read();
     device_cache.bnd_wt_d = cache.bnd_wt.Read();
+    device_cache.bnd_radius_d = cache.bnd_radius.Read();
     device_cache.bnd_marker_index_d = cache.bnd_marker_index.Read();
     device_cache.bnd_marker_to_bc_descr_d = cache.bnd_marker_to_bc_descr.Read();
     device_cache.bc_scalar_d = cache.bc_scalar_data.Read();
@@ -843,6 +901,49 @@ namespace Theseus {
     device_cache.subcell_weights_d = cache.subcellWeights.Read();
 #endif
 
+  }
+
+  template<typename CacheT>
+  bool AxisBoundaryGeometryIsValid(const CacheT &cache)
+  {
+    const int points_per_face = cache.num_face_points;
+    const int boundary_faces = cache.bnd_marker_index.Size();
+    const int *marker_index = cache.bnd_marker_index.HostRead();
+    const Theseus::BCDescriptor *descriptors =
+      cache.bc_descriptors.HostRead();
+    const mfem::real_t *radius = cache.bnd_radius.HostRead();
+    for (int face = 0; face < boundary_faces; ++face)
+      {
+        const int descriptor_index = marker_index[face];
+        if (descriptor_index < 0 ||
+            descriptor_index >= cache.bc_descriptors.Size() ||
+            descriptors[descriptor_index].type !=
+              int(Theseus::BCType::Axis))
+          {
+            continue;
+          }
+        if (cache.bnd_radius.Size() != boundary_faces*points_per_face)
+          {
+            return false;
+          }
+        for (int point = 0; point < points_per_face; ++point)
+          {
+            const mfem::real_t point_radius =
+              radius[face*points_per_face + point];
+            if (point_radius > AxisymmetricGeometry::radius_tolerance)
+              {
+                return false;
+              }
+          }
+      }
+    return true;
+  }
+
+  template<typename CacheT>
+  void ValidateAxisBoundaryGeometry(const CacheT &cache)
+  {
+    MFEM_VERIFY(AxisBoundaryGeometryIsValid(cache),
+                "an axis boundary quadrature point is not on r=0");
   }
 
   template<typename CacheT>

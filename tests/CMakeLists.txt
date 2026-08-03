@@ -20,6 +20,14 @@
 # Unit testing self-test suite
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+set(AXISYMMETRIC_RESTART_ARGUMENT)
+set(AXISYMMETRIC_TEST_DEVICE "cpu" CACHE STRING
+    "MFEM device used by axisymmetric integration tests")
+
+if(AXISYMMETRIC)
+    set(AXISYMMETRIC_RESTART_ARGUMENT --axisymmetric)
+endif()
+
 add_test(
     NAME RunTheseusHarnessTests
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/run_theseus_harness_tests.py
@@ -105,6 +113,65 @@ target_include_directories(checkpoint_config_tests
 
 add_test(NAME CheckpointConfigTests COMMAND checkpoint_config_tests)
 
+# Axisymmetry configuration and mesh contract tests
+add_executable(axisymmetry_config_tests
+   unit_test_main.cpp
+   axisymmetry_config_tests.cpp
+)
+
+target_include_directories(axisymmetry_config_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(axisymmetry_config_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+
+add_test(NAME AxisymmetryConfigTests COMMAND axisymmetry_config_tests)
+
+add_executable(axisymmetric_geometry_tests
+   unit_test_main.cpp
+   axisymmetric_geometry_tests.cpp
+)
+
+target_include_directories(axisymmetric_geometry_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(axisymmetric_geometry_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+
+add_test(NAME AxisymmetricGeometryTests COMMAND axisymmetric_geometry_tests)
+
+if(AXISYMMETRIC)
+    add_test(
+        NAME AxisymmetricUniformFlowIntegration
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_uniform_flow_integration_test.py
+                --executable $<TARGET_FILE:theseus>
+                --source ${PROJECT_SOURCE_DIR}
+                --mpiexec ${MPIEXEC_EXECUTABLE}
+                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+                --device ${AXISYMMETRIC_TEST_DEVICE}
+    )
+    add_test(
+        NAME AxisymmetricEntropyWaveConvergence
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_entropy_wave_convergence_test.py
+                --executable $<TARGET_FILE:theseus>
+                --source ${PROJECT_SOURCE_DIR}
+                --mpiexec ${MPIEXEC_EXECUTABLE}
+                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+    )
+    add_test(
+        NAME AxisymmetricFlowOverSphereIntegration
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_flow_over_sphere_integration_test.py
+                --executable $<TARGET_FILE:theseus>
+                --source ${PROJECT_SOURCE_DIR}
+                --mpiexec ${MPIEXEC_EXECUTABLE}
+                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+                --device ${AXISYMMETRIC_TEST_DEVICE}
+    )
+endif()
+
 add_test(
     NAME CheckpointRestartIntegration
     COMMAND ${Python3_EXECUTABLE}
@@ -113,6 +180,7 @@ add_test(
             --source ${PROJECT_SOURCE_DIR}
             --mpiexec ${MPIEXEC_EXECUTABLE}
             --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+            ${AXISYMMETRIC_RESTART_ARGUMENT}
 )
 
 # Riemann solvers tests

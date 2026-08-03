@@ -73,12 +73,12 @@ namespace Theseus
     std::unique_ptr<mfem::ParFiniteElementSpace> dfes;
   
     std::unique_ptr<mfem::VectorFunctionCoefficient> u0;
+    std::unique_ptr<mfem::VectorFunctionCoefficient> exact_solution;
   
     std::shared_ptr<mfem::ParGridFunction> sol;
     std::shared_ptr<mfem::ParGridFunction> dudx;
     std::shared_ptr<mfem::ParGridFunction> dudy;
     std::shared_ptr<mfem::ParGridFunction> dudz;
-    std::shared_ptr<mfem::ParGridFunction> r_gf;
 
     // Subcell blending : nullptr if OFF
     std::shared_ptr<mfem::ParGridFunction> eta;
@@ -87,12 +87,10 @@ namespace Theseus
 
     std::vector<std::shared_ptr<mfem::VectorFunctionCoefficient>> BC_coeff;
   
-    mfem::FunctionCoefficient r_coef, z_coef;
-  
     mfem::ParGridFunction rho, mom, energy;
   
     std::unique_ptr<mfem::ParGridFunction> velocity;
-    std::unique_ptr<mfem::ParGridFunction> p, rho_axi;
+    std::unique_ptr<mfem::ParGridFunction> p;
   
     std::unique_ptr<mfem::ParaViewDataCollection> pd;
     std::unique_ptr<mfem::VisItDataCollection> vd;
@@ -107,13 +105,6 @@ namespace Theseus
     int max_bdr_attr;
     void InitDevice(std::string);
     std::unique_ptr<mfem::Device> device_;
-
-#ifdef AXISYMMETRIC
-    void ConservativeToPrimitive(const mfem::Vector &U_cons,
-                                 mfem::ParGridFunction &rho_out,
-                                 mfem::ParGridFunction &velocity_out,
-                                 mfem::ParGridFunction &p_out) const;  
-#endif
 
     void UpdateVisualizationFields();
     void SaveVisualization();
