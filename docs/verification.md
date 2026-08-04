@@ -27,13 +27,12 @@ are included in failure artifacts.
 | `AxisymmetricViscousSphereIntegration` | Mach 0.3, `Re_D=100`, order-3 CNS sphere, one and two MPI ranks | The same positivity, body-flow-response, and serial/MPI agreement requirements as the inviscid sphere case. |
 
 The sphere tests accept the MFEM device selected by the CMake cache variable
-`AXISYMMETRIC_TEST_DEVICE`; CI currently qualifies `cpu`. An untested device is
-not rejected by the implementation.
+`AXISYMMETRIC_TEST_DEVICE`. CI currently tests `cpu`; CUDA and HIP are untested.
 
-The viscous sphere test qualifies execution of the axisymmetric CNS body-flow
-path. It is not yet a validation of wake separation distance;
-that requires suitable subsonic characteristic boundaries, steady-state and
-mesh-convergence studies, and automated separation-point extraction.
+The viscous sphere test exercises the axisymmetric CNS body-flow path. It is not
+yet a quantitative validation of wake separation distance; that requires
+suitable subsonic characteristic boundaries, steady-state and mesh-convergence
+studies, and automated separation-point extraction.
 
 Run the three CI integration tests locally with an axisymmetric build:
 

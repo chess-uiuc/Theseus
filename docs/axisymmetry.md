@@ -147,11 +147,12 @@ The axisymmetric regression suite currently exercises:
 - axisymmetric checkpoint/restart equivalence and ParaView output equivalence;
 - Mach 2 inviscid flow over a sphere in serial and two-rank MPI;
 - Mach 0.3, `Re_D=100` viscous flow over a sphere in serial and two-rank MPI;
+- Mach 2 inviscid flow over a $10^\circ$ cone with Taylor--Maccoll metrics;
 - the CPU MFEM backend.
 
 The uniform-flow and sphere integration tests accept a configurable MFEM
 backend through the CMake cache variable `AXISYMMETRIC_TEST_DEVICE`.
-Accelerator builds can qualify the same Euler and CNS paths, for example:
+Accelerator builds can test the same Euler and CNS paths, for example:
 
 ```sh
 cmake -S . -B build-axis-gpu \
@@ -163,12 +164,73 @@ ctest --test-dir build-axis-gpu \
   --output-on-failure
 ```
 
-Use `hip` instead of `cuda` for an MFEM HIP build. CUDA and HIP execution paths
-are device-oriented and are not disabled by axisymmetry, but they remain "officially"
-untested until this regression is run on corresponding accelerator hardware.
+Use `hip` instead of `cuda` for an MFEM HIP build. CUDA and HIP are untested in
+CI until these regressions are run on corresponding accelerator hardware.
+
+## Supersonic cone demonstration
+
+The `FlowOverCone` case models Mach 2 flow over a cone with a $10^\circ$
+half-angle. It exercises nonzero inviscid geometric source terms, the axis
+boundary, an oblique slip wall, shock capturing, and a body-fitted multiblock
+mesh. Run it from the repository root with an axisymmetric CUDA build:
+
+```sh
+scripts/run_theseus.sh -b /path/to/axisymmetric-build \
+  -c TestCases/Axisymmetric/Euler/FlowOverCone/config.json \
+  -r cuda -p 1
+```
+
+After the run, compare the numerical shock and surface state with the
+Taylor--Maccoll solution:
+
+```sh
+python3 TestCases/Axisymmetric/Euler/FlowOverCone/cone_metrics.py \
+  RunTheseus/FlowOverCone/ParaView/ParaView.pvd \
+  --check --json cone_metrics.json
+```
+
+For the checked-in mesh and default run, the expected Taylor--Maccoll values
+are a shock angle of approximately $31.2061^\circ$, surface Mach number
+1.8340, surface pressure ratio $p_s/p_\infty=1.2925$, and surface pressure
+coefficient $C_p=0.10447$. The postprocessor reports the numerical values,
+their differences from these references, surface-state variation, and whether
+the demonstration tolerances pass. See the
+[case README](../TestCases/Axisymmetric/Euler/FlowOverCone/README.md) for mesh
+generation, acceptance criteria, and interpretation.
 
 See the [verification and CI matrix](verification.md) for the exact integration
 assertions, direct smoke cases, and golden-data tolerances.
+
+## Viscous sphere demonstration
+
+The `ViscousSphereVerification` case models Mach 0.3 laminar flow over a sphere
+at diameter-based Reynolds number $Re_D=100$. Its multiblock mesh has an exact
+sphere-normal collar, a domain extending from $10R$ upstream to $40R$
+downstream, and sufficient wake extent to measure the separated recirculation
+region. It is a longer quantitative demonstration, separate from the short
+viscous-sphere CI smoke test.
+
+Run it with an executable compiled with both CNS and axisymmetry enabled:
+
+```sh
+scripts/run_theseus.sh -b /path/to/viscous-axisymmetric-build \
+  -c TestCases/Axisymmetric/NavierStokes/ViscousSphereVerification/config.json \
+  -r cuda -p 1
+```
+
+The postprocessor measures wake reattachment, separation angle, pressure and
+viscous drag, symmetry-axis radial velocity, and change between the last two
+saved states:
+
+```sh
+python3 TestCases/Axisymmetric/NavierStokes/ViscousSphereVerification/sphere_metrics.py \
+  RunTheseus/ViscousSphereVerification/ParaView/ParaView.pvd \
+  --check --json sphere_metrics.json
+```
+
+See the [viscous sphere README](../TestCases/Axisymmetric/NavierStokes/ViscousSphereVerification/README.md)
+for mesh generation, nondimensional parameters, build instructions, acceptance
+criteria, references, and interpretation.
 
 ## Output and restart semantics
 
@@ -178,5 +240,5 @@ in compatibility metadata. Restarts reject ambiguous legacy axisymmetric
 checkpoints that cannot establish whether they contain $\mathbf{U}$ or $r\mathbf{U}$.
 
 Mass, total energy, and kinetic-energy diagnostics use the revolved-domain
-cylindrical measure ${2}{\pi}{r}{dA}$. Visualization fields remain local physical
+cylindrical measure $2\pi r\,dA$. Visualization fields remain local physical
 density, velocity, and pressure; they are not radius-weighted.
