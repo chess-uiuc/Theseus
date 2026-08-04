@@ -16,8 +16,8 @@ Theseus does not yet provide subsonic characteristic inflow and outflow
 conditions. The outer boundary therefore uses fixed freestream state at the
 inlet and farfield and extrapolation at the outlet. This case exercises the CNS
 axisymmetric body-flow path, but wake separation should not be treated as a
-validated reproduction until the boundary treatment, mesh convergence, and
-steady-state convergence have been qualified.
+validated reproduction. The boundary treatment, mesh convergence, and
+steady-state convergence are untested.
 
 Run from the repository root with an axisymmetric build:
 
