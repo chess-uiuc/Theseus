@@ -123,7 +123,7 @@ axial velocity are even in radius. Singular-looking $f/r$ terms must use their
 analytic parity/L'Hopital limits at axis nodes; clipping radius to a small
 positive value is not an acceptable regularization.
 
-## Configuration contract
+## Configuration
 
 Axisymmetry remains selected at build time with `-DAXISYMMETRIC=ON`. If a case
 contains `compileTime.AXISYMMETRIC`, that value must match the executable.
