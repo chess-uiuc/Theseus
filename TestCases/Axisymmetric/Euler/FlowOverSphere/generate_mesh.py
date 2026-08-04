@@ -5,19 +5,19 @@ from math import sqrt
 from pathlib import Path
 
 
-NZ = 40
-NR = 12
-Z_MIN = -4.0
-Z_MAX = 6.0
-R_MAX = 5.0
-
+NZ = 1250
+NR = 250
+Z_MIN = -1.0
+Z_MAX = 4.0
+R_MAX = 1.0
+R_SPH = 0.1
 
 def node(i: int, j: int) -> int:
     return j * (NZ + 1) + i + 1
 
 
 def bottom_radius(z: float) -> float:
-    return sqrt(max(0.0, 1.0 - z*z)) if -1.0 <= z <= 1.0 else 0.0
+    return sqrt(max(0.0, R_SPH**2 - z*z)) if -R_SPH <= z <= R_SPH else 0.0
 
 
 def main() -> None:
