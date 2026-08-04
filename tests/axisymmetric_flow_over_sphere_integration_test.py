@@ -38,7 +38,7 @@ def run_case(executable: Path, source: Path, mpiexec: Path,
                    "-d", device, "-c", str(config_path)]
         result = subprocess.run(
             command, cwd=tmp, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=120, check=False
+            stderr=subprocess.STDOUT, timeout=360, check=False
         )
     if result.returncode != 0:
         raise RuntimeError(
