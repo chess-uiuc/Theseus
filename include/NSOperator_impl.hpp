@@ -145,7 +145,10 @@ namespace Theseus
         mfem::real_t el_gradP[Theseus::MAXEQ];
         Theseus::PointStateViewRW dP{el_gradP};
         gas.grad_entropy_to_grad_prim(CV, dS, dP);
-
+	if (dc.axisymmetric)
+	  {
+	    ProjectAxisPrimitiveGradientDirection(gas, dc.elRadius_d[pt], idim, el_gradP);
+	  }
         Kernels::el_scatter_assign(el_gradP, ndof, neq, ept, 1.0, grad_prim_el);
 
       });
@@ -603,6 +606,7 @@ namespace Theseus
     const mfem::real_t *nor_d   = dc.nor_d;      // size nfaces*nfp*dim
     const mfem::real_t *inv1_d  = dc.fw_minus_d; // size nfaces*nfp
     const mfem::real_t *inv2_d  = dc.fw_plus_d;  // size nfaces*nfp
+    const mfem::real_t *face_radius_d = dc.face_radius_d;
 
     mfem::real_t *ws_d = dc.ifWaveSpeed_d;
 
@@ -617,6 +621,8 @@ namespace Theseus
       const mfem::real_t *nor_face_d = nor_d + n_offset;
       const mfem::real_t *w_minus_d = inv1_d + w_offset;
       const mfem::real_t *w_plus_d = inv2_d + w_offset;
+      const mfem::real_t *radius_face_d = dc.axisymmetric ?
+        face_radius_d + w_offset : nullptr;
       const mfem::real_t *dprim_face_x = (dim > 0) ? grad_prim_d[0] + face_offset : nullptr;
       const mfem::real_t *dprim_face_y = (dim > 1) ? grad_prim_d[1] + face_offset : nullptr;
       const mfem::real_t *dprim_face_z = (dim > 2) ? grad_prim_d[2] + face_offset : nullptr;
@@ -627,6 +633,7 @@ namespace Theseus
                                                                                    dprim_face_x,
                                                                                    dprim_face_y,
                                                                                    dprim_face_z,
+                                                                                   radius_face_d,
                                                                                    rhs_face_d);
       ws_d[i] = ws;
     });
@@ -718,6 +725,7 @@ namespace Theseus
     mfem::real_t *rhs_d = rhs_faces.Write();
 
     const mfem::real_t *nor_d   = dc.bnd_nor_d;      // size nfaces*nfp*dim
+    const mfem::real_t *radius_d = dc.bnd_radius_d;
     const mfem::real_t *inv1_d  = dc.bnd_wt_d; // size nfaces*nfp
     const int *bnd_marker_index_d = dc.bnd_marker_index_d;
     mfem::real_t *ws_d = dc.bndWaveSpeed_d;
@@ -753,13 +761,8 @@ namespace Theseus
       const mfem::real_t *nor_face_d = nor_d + n_offset;
       const mfem::real_t *w_minus_d = inv1_d + w_offset;
       const mfem::real_t *nor_point = nor_face_d + fp*dim;
+      const mfem::real_t radius = dc.axisymmetric ? radius_d[w_offset + fp] : 0.0;
       mfem::real_t scale = -w_minus_d[fp];
-      // #ifdef AXISYMMETRIC
-      // NOTE: axisymmetric not ready for device yet
-      // scale *= rad_face[fp];
-      // #else
-      // #error "Axisymmetric boundary device path not implemented yet."
-      // #endif
       mfem::real_t state1[Theseus::MAXEQ];
       mfem::real_t fluxN[Theseus::MAXEQ];
       mfem::real_t gradPrim_x[Theseus::MAXEQ];
@@ -775,7 +778,7 @@ namespace Theseus
     
       const mfem::real_t ws = \
         Theseus::BC::ApplyViscousBoundaryCondition(dc, bc, state1, gradPrim_x, gradPrim_y,
-                                                   gradPrim_z, nor_point, fluxN);
+                                                   gradPrim_z, nor_point, radius, fluxN);
       Theseus::Kernels::el_scatter_add(fluxN, nfp, neq, fp, scale, rhs_face_d);
       ws_d[p] = ws;
     });
@@ -888,6 +891,7 @@ namespace Theseus
     const int *attr_marker_d = dc.attr_marker_d;
     const mfem::real_t *elJac_d = dc.elJac_d;
     const mfem::real_t *elMetric_d = dc.elMetric_d;
+    const mfem::real_t *elRadius_d = dc.elRadius_d;
 
     mfem::real_t *ws_d = dc.elWaveSpeed_d;
 
@@ -897,6 +901,8 @@ namespace Theseus
     
       const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
       const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
+      const mfem::real_t *radius_el = dc.axisymmetric ?
+        elRadius_d + e * jac_stride : nullptr;
 
       const int attr = elem_attr_d[e];
       if (attr_marker_d[attr-1] == 0) {
@@ -932,6 +938,8 @@ namespace Theseus
         cs_el = Kernels::rmax(cs_el, cs_fv);
       }
 #endif
+      AddAxisymmetricEulerElementSource(
+        dc, u_el, radius_el, jac_el, metric_el, du_el);
       ws_d[e] = cs_el;
 
       // Inviscid part is done: dUe currrently holds the inviscid RHS
@@ -943,6 +951,7 @@ namespace Theseus
       }
 
       Theseus::DGSEMIntegrator::AssembleViscousElementVolumeKernel(dc, u_el, jac_el, metric_el,
+                                                                   radius_el,
                                                                    grad_prim_el[0], grad_prim_el[1],
                                                                    grad_prim_el[2], du_el);
     

@@ -24,9 +24,7 @@ namespace Theseus
     return nbad;
   }
 
-  // Assemble volume part of RHS for all elements
-  // NOTE:
-  //  - No axisymmetry (temporarily disabled in device version of MULT)
+  // Assemble the Cartesian and optional axisymmetric volume RHS for all elements.
   template<typename PhysicsT>
   mfem::real_t EulerOperator<PhysicsT>::MultEuler_Volume(const mfem::Vector &pu, mfem::Vector &pdudt) const
   {
@@ -99,6 +97,7 @@ namespace Theseus
     const int *attr_marker_d = dc.attr_marker_d;
     const mfem::real_t *elJac_d = dc.elJac_d;
     const mfem::real_t *elMetric_d = dc.elMetric_d;
+    const mfem::real_t *elRadius_d = dc.elRadius_d;
 
     mfem::real_t *ws_d = dc.elWaveSpeed_d;
 
@@ -108,6 +107,8 @@ namespace Theseus
     
       const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
       const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
+      const mfem::real_t *radius_el = dc.axisymmetric ?
+        elRadius_d + e * jac_stride : nullptr;
 
       const int attr = elem_attr_d[e];
       if (attr_marker_d[attr-1] == 0) {
@@ -144,6 +145,9 @@ namespace Theseus
         cs_el = Kernels::rmax(cs_el, cs_fv);
       }
 #endif
+
+      AddAxisymmetricEulerElementSource(
+        dc, u_el, radius_el, jac_el, metric_el, du_el);
 
       ws_d[e] = cs_el;
 
@@ -331,12 +335,6 @@ namespace Theseus
       const mfem::real_t *w_minus_d = inv1_d + w_offset;
       const mfem::real_t *nor_point = nor_face_d + fp*dim;
       mfem::real_t scale = -w_minus_d[fp];
-      // #ifdef AXISYMMETRIC
-      // NOTE: axisymmetric not ready for device yet
-      // scale *= rad_face[fp];
-      // #else
-      // #error "Axisymmetric boundary device path not implemented yet."
-      // #endif
       mfem::real_t state1[Theseus::MAXEQ];
       mfem::real_t fluxN[Theseus::MAXEQ];
 

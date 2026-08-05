@@ -1,0 +1,105 @@
+name: CI Complete
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, reopened]
+
+jobs:
+  asan-ubsan-and-examples:
+    if: contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: Ubuntu/MPICH/Clang-15/ASan/UBSan/Examples
+    runs-on: ubuntu-22.04
+    env:
+      CMAKE_BUILD_TYPE: RelWithDebInfo
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show submodule SHAs (debug)
+        run: git submodule status --recursive
+
+      - name: Toolchain & deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang-15 lld-15 \
+            mpich libmpich-dev environment-modules \
+            gcc-12 g++-12 gfortran-12 \
+            cmake ninja-build pkg-config ccache jq
+          echo "CC=mpicc"   >> $GITHUB_ENV
+          echo "CXX=mpicxx" >> $GITHUB_ENV
+          echo "FC=mpifort" >> $GITHUB_ENV
+          echo "MPICH_CC=clang-15"    >> $GITHUB_ENV
+          echo "MPICH_CXX=clang++-15" >> $GITHUB_ENV
+
+      - name: Build dependency submodules (HYPRE, METIS, MFEM)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f /etc/profile.d/modules.sh ]; then
+            source /etc/profile.d/modules.sh
+          else
+            module() { return 0; }; export -f module
+          fi
+          bash ./build_depends.sh
+
+      - name: Configure Prandtl (ASan/UBSan)
+        env:
+          MFEM_DIR: ${{ github.workspace }}/libs/mfem
+          HYPRE_DIR: ${{ github.workspace }}/libs/hypre/src/hypre
+          METIS_DIR: ${{ github.workspace }}/libs/metis-5.1.0
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+            -DBUILD_TESTING=ON \
+            -DMFEM_DIR="${MFEM_DIR}" \
+            -DHYPRE_DIR="${HYPRE_DIR}" \
+            -DMETIS_DIR="${METIS_DIR}" \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fuse-ld=lld"
+
+      - name: Build
+        run: cmake --build build -- -k 0
+
+      - name: CTest (unit + smoke)
+        run: ctest --test-dir build -L "(unit|smoke)" -j2 --output-on-failure
+
+      - name: Example set (short, 100 steps)
+        run: |
+          cat > examples-complete.txt <<'EOF'
+          TestCases/Euler/1D/Problem123/config.json
+          TestCases/Euler/1D/ShuOsherShock/config.json
+          TestCases/Euler/1D/SodShockTube/config.json
+          TestCases/Euler/1D/WoodwardColellaBlastWave/config.json
+          TestCases/Euler/1D/WoodwardColellaBlastWaveCollision/config.json
+          TestCases/Euler/1D/WoodwardColellaBlastWaveLeft/config.json
+          TestCases/Euler/1D/WoodwardColellaBlastWaveRight/config.json
+          TestCases/Euler/1D/AcousticWave/config.json
+          TestCases/Euler/1D/LaxShockTube/config.json
+          TestCases/Euler/1D/LeBlancShockTube/config.json
+          TestCases/Euler/1D/ModifiedSodShockTube/config.json
+          TestCases/Euler/2D/ForwardFacingStep/config.json
+          TestCases/Euler/2D/IsentropicVortex/config.json
+          TestCases/Euler/2D/KelvinHelmholtzInstability/config.json
+          # Nagashima_Ramjet and Ramp request an AXISYMMETRIC executable and
+          # must not be exercised by this Cartesian example job.
+          TestCases/Euler/2D/BackwardFacingStep/config.json
+          TestCases/Euler/2D/TriplePointShockInteraction/config.json
+          TestCases/NavierStokes/2D/LidDrivenCavity/config.json
+          EOF
+          scripts/test_run_example.sh -l examples-complete.txt -n 100
+
+      - name: Upload logs & example outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prandtl-complete-logs
+          path: |
+            build/Testing/**/Test.xml
+            build/CMakeCache.txt
+            build/**/*.log
+            Run1/Run2/**/out/**

@@ -52,9 +52,14 @@ make test
 
 `ci-quick.yml` runs:
 
+- restart, inviscid-axisymmetric, and viscous-axisymmetric integration tests
+  with a dedicated axisymmetric build
 - direct smoke runs using `scripts/run_theseus.sh`
 - regression checks using `scripts/compare_viz.py`
 - unit tests via `ctest`
+
+The complete test inventory, assertions, step counts, and tolerances are in the
+[verification and CI matrix](docs/verification.md).
 
 Two quick local smoke examples:
 

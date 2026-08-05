@@ -25,6 +25,7 @@ namespace Theseus
     operator_cache.bc_descriptors = bc_descriptors;
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
+    ValidateAxisBoundaryGeometry(operator_cache);
 
 #ifdef SUBCELL_FV_BLENDING
     MFEM_VERIFY(indicator, "SUBCELL_FV_BLENDING enabled but indicator is null.");
@@ -219,6 +220,7 @@ namespace Theseus
     const int ndof = dc.ndof_scalar_el;
     const int neq = dc.num_equations;
     const mfem::real_t *qWts_d = dc.elQWgts_d;
+    const mfem::real_t *radius_d = dc.elRadius_d;
     auto gas = dc.gas;
 
     if(operator_cache.uVol.Size() != nval_restr){
@@ -270,6 +272,8 @@ namespace Theseus
     {
       const mfem::real_t *u_el = Ue_d + e * estride;
       const mfem::real_t *qWgt = qWts_d + e * ndof;
+      const mfem::real_t *radius = dc.axisymmetric ?
+        radius_d + e * ndof : nullptr;
 
       mfem::real_t mass_int = 0.0;
       mfem::real_t ke_int = 0.0;
@@ -292,9 +296,12 @@ namespace Theseus
         mfem::real_t press = gas.pressure(S);
         mfem::real_t temper = gas.temperature(S);
 
-        mass_int += rho * qWgt[ep];
-        ke_int += ke * qWgt[ep];
-        en_int += rhoE * qWgt[ep];
+        const mfem::real_t measure = qWgt[ep] *
+          AxisymmetricGeometry::MeasureMultiplier(
+            dc.axisymmetric, dc.axisymmetric ? radius[ep] : 0.0);
+        mass_int += rho * measure;
+        ke_int += ke * measure;
+        en_int += rhoE * measure;
 
         min_temp = Theseus::Kernels::rmin(min_temp, temper);
         max_temp = Theseus::Kernels::rmax(max_temp, temper);

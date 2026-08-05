@@ -79,17 +79,20 @@ TEST(enabled_checkpoints_require_a_positive_interval)
 
 TEST(current_checkpoint_metadata_validates_compatibility)
 {
-  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216};
+  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216, false};
   const auto metadata = CheckpointConfig::Metadata(0.1, 10, expected);
 
+  EXPECT_EQ(metadata.at("format_version").get<int>(), 2);
+  EXPECT_TRUE(metadata.at("state_representation") == "conservative");
+  EXPECT_TRUE(metadata.at("geometry") == "cartesian");
   EXPECT_TRUE(CheckpointConfig::ValidateMetadata(metadata, expected));
   return 0;
 }
 
 TEST(checkpoint_metadata_rejects_an_incompatible_mpi_layout)
 {
-  const CheckpointCompatibility written{2, 3, 2, 4, 8, 576, 9216};
-  const CheckpointCompatibility current{4, 3, 2, 4, 8, 576, 9216};
+  const CheckpointCompatibility written{2, 3, 2, 4, 8, 576, 9216, false};
+  const CheckpointCompatibility current{4, 3, 2, 4, 8, 576, 9216, false};
   bool rejected = false;
   try
     {
@@ -106,10 +109,61 @@ TEST(checkpoint_metadata_rejects_an_incompatible_mpi_layout)
 
 TEST(legacy_checkpoint_metadata_remains_loadable)
 {
-  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216};
+  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216, false};
   const nlohmann::json legacy{{"time", 0.1}, {"cycle", 10}};
 
   EXPECT_TRUE(!CheckpointConfig::ValidateMetadata(legacy, expected));
+  return 0;
+}
+
+TEST(axisymmetric_checkpoint_records_conservative_state_semantics)
+{
+  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216, true};
+  const auto metadata = CheckpointConfig::Metadata(0.1, 10, expected);
+
+  EXPECT_TRUE(metadata.at("state_representation") == "conservative");
+  EXPECT_TRUE(metadata.at("geometry") == "axisymmetric");
+  EXPECT_TRUE(CheckpointConfig::ValidateMetadata(metadata, expected));
+  return 0;
+}
+
+TEST(axisymmetric_restart_rejects_ambiguous_ru_checkpoint_metadata)
+{
+  const CheckpointCompatibility expected{2, 3, 2, 4, 8, 576, 9216, true};
+  auto version_one = CheckpointConfig::Metadata(0.1, 10, expected);
+  version_one["format_version"] = 1;
+  version_one.erase("state_representation");
+  version_one.erase("geometry");
+
+  bool rejected = false;
+  try
+    {
+      CheckpointConfig::ValidateMetadata(version_one, expected);
+    }
+  catch (const std::invalid_argument &error)
+    {
+      rejected = std::string(error.what()).find("U or rU") != std::string::npos;
+    }
+  EXPECT_TRUE(rejected);
+  return 0;
+}
+
+TEST(checkpoint_geometry_must_match_current_run)
+{
+  const CheckpointCompatibility cartesian{2, 3, 2, 4, 8, 576, 9216, false};
+  const CheckpointCompatibility axisymmetric{2, 3, 2, 4, 8, 576, 9216, true};
+
+  bool rejected = false;
+  try
+    {
+      CheckpointConfig::ValidateMetadata(
+        CheckpointConfig::Metadata(0.1, 10, cartesian), axisymmetric);
+    }
+  catch (const std::invalid_argument &error)
+    {
+      rejected = std::string(error.what()).find("geometry") != std::string::npos;
+    }
+  EXPECT_TRUE(rejected);
   return 0;
 }
 

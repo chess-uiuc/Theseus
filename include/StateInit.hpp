@@ -727,6 +727,41 @@ namespace Prandtl
   // Global static instance to ensure registration happens at startup.
   static RegisterRamp registerRamp;
 
+  // Nondimensional Mach 0.3 freestream for the viscous sphere validation case.
+  std::function<void(const mfem::Vector&, mfem::Vector&)>
+  ViscousSphereIC()
+  {
+    return [] (const mfem::Vector &x, mfem::Vector &y)
+    {
+      MFEM_ASSERT(x.Size() == 2, "Viscous sphere is a 2D axisymmetric problem");
+      constexpr mfem::real_t gamma = 1.4;
+      constexpr mfem::real_t density = 1.0;
+      constexpr mfem::real_t axial_velocity = 0.3;
+      constexpr mfem::real_t pressure = 1.0 / gamma;
+      y(0) = density;
+      y(1) = density * axial_velocity;
+      y(2) = 0.0;
+      y(3) = pressure / (gamma - 1.0) +
+             0.5 * density * axial_velocity * axial_velocity;
+    };
+  }
+
+  const Prandtl::BC_Vector ViscousSphereFreestreamBCVector(
+    {1.0, 0.3, 0.0, ((1.0/1.4)/0.4) + 0.5 * 0.3 * 0.3});
+
+  struct RegisterViscousSphere
+  {
+    RegisterViscousSphere()
+    {
+      Prandtl::ConditionFactory::Instance().RegisterInitialCondition0(
+        "ViscousSphereIC", ViscousSphereIC);
+      Prandtl::ConditionFactory::Instance().RegisterVectorBoundaryCondition(
+        "ViscousSphereFreestreamBCVector",
+        ViscousSphereFreestreamBCVector);
+    }
+  };
+  static RegisterViscousSphere registerViscousSphere;
+
   // Forward Facing Step initial condition
   std::function<void(const mfem::Vector&, mfem::Vector&)> ForwardFacingStepIC(mfem::real_t gammaM1Inverse)
   {
@@ -1072,6 +1107,59 @@ namespace Prandtl
   };
   // Global static instance to ensure registration happens at startup.
   static RegisterAcousticWave regAcousticWave;
+
+  inline void AxisymmetricEntropyWaveState(const mfem::Vector &x,
+                                           mfem::real_t time,
+                                           mfem::real_t gamma,
+                                           mfem::Vector &state)
+  {
+    const mfem::real_t axial_velocity = 2.0;
+    const mfem::real_t pressure = 1.0/gamma;
+    const mfem::real_t center = 0.8 + axial_velocity*time;
+    const mfem::real_t scaled = (x(0) - center)/0.6;
+    mfem::real_t bump = 0.0;
+    if (std::abs(scaled) < 1.0)
+      {
+        bump = std::exp(1.0 - 1.0/(1.0 - scaled*scaled));
+      }
+    const mfem::real_t radial_shape = 0.5*(1.0 + std::cos(M_PI*x(1)/2.0));
+    const mfem::real_t density = 1.0 + 0.1*bump*radial_shape;
+    state(0) = density;
+    state(1) = density*axial_velocity;
+    state(2) = 0.0;
+    state(3) = pressure/(gamma - 1.0) +
+      0.5*density*axial_velocity*axial_velocity;
+  }
+
+  std::function<void(const mfem::Vector&, mfem::Vector&)>
+  AxisymmetricEntropyWaveIC(mfem::real_t gamma)
+  {
+    return [gamma](const mfem::Vector &x, mfem::Vector &state) {
+      AxisymmetricEntropyWaveState(x, 0.0, gamma, state);
+    };
+  }
+
+  std::function<void(const mfem::Vector&, mfem::real_t, mfem::Vector&)>
+  AxisymmetricEntropyWaveExact(mfem::real_t gamma)
+  {
+    return [gamma](const mfem::Vector &x, mfem::real_t time,
+                   mfem::Vector &state) {
+      AxisymmetricEntropyWaveState(x, time, gamma, state);
+    };
+  }
+
+  struct RegisterAxisymmetricEntropyWave
+  {
+    RegisterAxisymmetricEntropyWave()
+    {
+      Prandtl::ConditionFactory::Instance().RegisterInitialCondition1(
+        "AxisymmetricEntropyWaveIC", AxisymmetricEntropyWaveIC);
+      Prandtl::ConditionFactory::Instance().
+        RegisterVectorTDFunctionBoundaryCondition1(
+          "AxisymmetricEntropyWaveExact", AxisymmetricEntropyWaveExact);
+    }
+  };
+  static RegisterAxisymmetricEntropyWave regAxisymmetricEntropyWave;
 
   // Shu-Osher Shock initial condition
   std::function<void(const mfem::Vector&, mfem::Vector&)> ShuOsherShockIC(mfem::real_t gamma)

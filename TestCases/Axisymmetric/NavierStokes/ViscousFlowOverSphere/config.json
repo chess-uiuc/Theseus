@@ -1,0 +1,67 @@
+{
+  "compileTime": {
+    "PARABOLIC": true,
+    "AXISYMMETRIC": true,
+    "SUBCELL_FV_BLENDING": true,
+    "SUTHERLAND": false,
+    "USE_FILTER": false
+  },
+  "runTime": {
+    "order": 3,
+    "dim": 2,
+    "num_equations": 4,
+    "precision": 15,
+    "visualize": true,
+    "paraview": true,
+    "visit": false,
+    "vis_steps": 1000,
+    "output_file_path": "../../TestCases/Axisymmetric/NavierStokes/ViscousFlowOverSphere",
+    "nancheck": true,
+    "nancheck_steps": 1,
+    "clock_simulation": true,
+    "variable_dt": false,
+    "dt": 0.0002,
+    "final_time": 2.0,
+    "flow_model": "cns",
+    "Pr": 0.72,
+    "mu": 0.006,
+    "R_gas": 287.05,
+    "gamma": 1.4,
+    "ser_ref_levels": 0,
+    "mesh_file": "../../TestCases/Axisymmetric/Euler/FlowOverSphere/FlowOverSphere.msh",
+    "conditions": {
+      "initial_conditions": {
+        "signature": 0,
+        "function": "ViscousSphereIC"
+      },
+      "boundary_conditions": {
+        "inlet": {
+          "type": "supersonic-inflow",
+          "vector": "ViscousSphereFreestreamBCVector"
+        },
+        "outlet": {
+          "type": "supersonic-outflow"
+        },
+        "axis": {
+          "type": "axis"
+        },
+        "sphere": {
+          "type": "no-slip-adiabatic",
+          "velocity": {
+            "vector": "LidDrivenCavityWallVelBCVector"
+          },
+          "heat": {
+            "scalar": "LidDrivenCavityAdiaBCScalar"
+          }
+        },
+        "farfield": {
+          "type": "supersonic-inflow",
+          "vector": "ViscousSphereFreestreamBCVector"
+        }
+      }
+    },
+    "lifting_scheme": "BR1",
+    "numerical_flux": "Chandrashekar",
+    "ode_solver": "RK3SSP"
+  }
+}

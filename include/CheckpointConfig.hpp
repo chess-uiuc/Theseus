@@ -25,6 +25,7 @@ namespace Theseus
     int real_bytes;
     long long global_elements;
     long long global_dofs;
+    bool axisymmetric;
   };
 
   class CheckpointConfig
@@ -93,8 +94,10 @@ namespace Theseus
     static nlohmann::json Metadata(double time, int cycle,
                                    const CheckpointCompatibility &compatibility)
     {
-      return {{"format_version", 1},
+      return {{"format_version", 2},
               {"state_format", "raw_vector_v1"},
+              {"state_representation", "conservative"},
+              {"geometry", compatibility.axisymmetric ? "axisymmetric" : "cartesian"},
               {"real_bytes", compatibility.real_bytes},
               {"time", time},
               {"cycle", cycle},
@@ -112,15 +115,40 @@ namespace Theseus
     {
       if (!metadata.contains("format_version"))
         {
+          if (expected.axisymmetric)
+            {
+              throw std::invalid_argument(
+                "Legacy checkpoint cannot establish axisymmetric conservative-state semantics");
+            }
           return false;
         }
-      if (metadata.value("format_version", 0) != 1)
+      const int format_version = metadata.value("format_version", 0);
+      if (format_version != 1 && format_version != 2)
         {
           throw std::invalid_argument("Unsupported checkpoint metadata format version");
         }
       if (metadata.value("state_format", std::string()) != "raw_vector_v1")
         {
           throw std::invalid_argument("Unsupported checkpoint state format");
+        }
+      if (format_version == 1 && expected.axisymmetric)
+        {
+          throw std::invalid_argument(
+            "Version 1 checkpoint cannot establish whether an axisymmetric state stores U or rU");
+        }
+      if (format_version == 2)
+        {
+          if (metadata.value("state_representation", std::string()) != "conservative")
+            {
+              throw std::invalid_argument("Unsupported checkpoint state representation");
+            }
+          const std::string expected_geometry =
+            expected.axisymmetric ? "axisymmetric" : "cartesian";
+          if (metadata.value("geometry", std::string()) != expected_geometry)
+            {
+              throw std::invalid_argument(
+                "Checkpoint is incompatible with the current run: geometry differs");
+            }
         }
       if (metadata.value("real_bytes", 0) != expected.real_bytes)
         {

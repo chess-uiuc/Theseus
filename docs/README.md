@@ -15,6 +15,10 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 - General input-file reference (coming soon)
 - [Checkpoints and restarts](checkpoints.md): save solution state, validate
   restart compatibility, and resume a run through the standard helper
+- [Axisymmetric formulation](axisymmetry.md): configure swirl-free cylindrical
+  Euler/CNS runs and understand their verification status
+- [Verification and CI matrix](verification.md): integration assertions, smoke
+  cases, golden-data tolerances, and local reproduction commands
 
 ## Theory
 
@@ -30,8 +34,7 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 - Physics models
 - Adding new components
 
-## Verification (Coming soon)
+## Verification
 
-- Isentropic vortex
-- Taylor-Green vortex
-- Forward-facing step
+See the [verification and CI matrix](verification.md) for the maintained test
+inventory and exact regression tolerances.
