@@ -68,24 +68,23 @@ For CNS, let $\mathbf{u}=(u_z,u_r)$ and use the swirl-free cylindrical velocity
 divergence
 
 $$
-\nabla\cdot\mathbf{u}
-= \frac{\partial u_z}{\partial z}
-+ \frac{\partial u_r}{\partial r}
-+ \frac{u_r}{r}.
+\nabla\cdot\mathbf{u} = \frac{\partial u_z}{\partial z} + \frac{\partial u_r}{\partial r} + \frac{u_r}{r}
 $$
 
 With the Stokes hypothesis used by Theseus, the stress components needed by the
 meridional operator are
 
 $$
-\tau_{zz} = \mu\left(2\frac{\partial u_z}{\partial z}
-- \frac{2}{3}\nabla\cdot\mathbf{u}\right), \\
-\tau_{rr} = \mu\left(2\frac{\partial u_r}{\partial r}
-- \frac{2}{3}\nabla\cdot\mathbf{u}\right), \\
-\tau_{\theta\theta} = \mu\left(2\frac{u_r}{r}
-- \frac{2}{3}\nabla\cdot\mathbf{u}\right), \\
-\tau_{zr}=\tau_{rz} = \mu\left(
-\frac{\partial u_z}{\partial r}+\frac{\partial u_r}{\partial z}\right).
+\tau_{zz} = \mu\left(2\frac{\partial u_z}{\partial z} - \frac{2}{3}\nabla\cdot\mathbf{u}\right),
+$$
+$$
+\tau_{rr} = \mu\left(2\frac{\partial u_r}{\partial r} - \frac{2}{3}\nabla\cdot\mathbf{u}\right),
+$$
+$$
+\tau_{\theta\theta} = \mu\left(2\frac{u_r}{r} - \frac{2}{3}\nabla\cdot\mathbf{u}\right),
+$$
+$$
+\tau_{zr}=\tau_{rz} = \mu\left(\frac{\partial u_z}{\partial r}+\frac{\partial u_r}{\partial z}\right).
 $$
 
 The radial heat flux is $q_r=-\kappa\,\partial_r T$. The Cartesian-like
