@@ -2,7 +2,7 @@
 #
 # This file is part of the unit testing infrastructure for Theseus
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: BSD-3-Clause
 #
 #################
 # Example on how to add unit tests

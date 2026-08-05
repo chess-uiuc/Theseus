@@ -2,7 +2,7 @@
 //
 // This file is part of Theseus.
 //
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
 // State-like objects must provide:
