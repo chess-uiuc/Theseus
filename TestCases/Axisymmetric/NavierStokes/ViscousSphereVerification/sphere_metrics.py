@@ -206,8 +206,8 @@ def numerical_metrics(points: np.ndarray, density: np.ndarray,
     separation_phi = float(x0 + y0*(x1-x0)/(y0-y1))
 
     area_weight = 2.0*pi*radius*radius*np.sin(theta)
-    pressure_force = np.trapezoid(-wall_pressure*np.cos(theta)*area_weight, theta)
-    viscous_force = np.trapezoid(wall_shear*np.sin(theta)*area_weight, theta)
+    pressure_force = np.trapz(-wall_pressure*np.cos(theta)*area_weight, theta)
+    viscous_force = np.trapz(wall_shear*np.sin(theta)*area_weight, theta)
     reference_force = 0.5*rho_inf*u_inf*u_inf*pi*radius*radius
 
     return {
@@ -265,16 +265,16 @@ def main() -> None:
         report["relative_change"] = changes
 
     checks = {
-        "steady_separated_wake":
-            0.2 <= final["recirculation_length_over_D"] <= 1.5,
-        "separation_angle_110_to_140_deg":
-            110.0 <= final["separation_angle_from_upstream_deg"] <= 140.0,
-        "drag_coefficient_0.9_to_1.3":
-            0.9 <= final["total_drag_coefficient"] <= 1.3,
-        "axis_radial_velocity_below_1e-6_Uinf":
-            final["maximum_axis_abs_ur_over_Uinf"] <= 1.0e-6,
-        "last_output_changes_below_2_percent":
-            bool(changes) and max(changes.values()) <= 0.02,
+        "steady_separated_wake": bool(
+            0.2 <= final["recirculation_length_over_D"] <= 1.5),
+        "separation_angle_110_to_140_deg": bool(
+            110.0 <= final["separation_angle_from_upstream_deg"] <= 140.0),
+        "drag_coefficient_0.9_to_1.3": bool(
+            0.9 <= final["total_drag_coefficient"] <= 1.3),
+        "axis_radial_velocity_below_1e-6_Uinf": bool(
+            final["maximum_axis_abs_ur_over_Uinf"] <= 1.0e-6),
+        "last_output_changes_below_2_percent": bool(
+            bool(changes) and max(changes.values()) <= 0.02),
     }
     report["checks"] = checks
     output = json.dumps(report, indent=2, sort_keys=True)

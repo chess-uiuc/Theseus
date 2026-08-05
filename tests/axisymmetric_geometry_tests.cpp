@@ -2,7 +2,7 @@
 //
 // This file is part of Theseus testing suites.
 //
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BSD-3-Clause
 #include "unit_test.hpp"
 
 #include "AxisymmetricGeometry.hpp"
