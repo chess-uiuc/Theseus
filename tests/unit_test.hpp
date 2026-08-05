@@ -2,7 +2,7 @@
 //
 // This file is part of Theseus testing suites
 //
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BSD-3-Clause
 //
 // This file (along with unit_test_main.cpp) is the unit testing
 // infrastructure for Theseus. Tests are arranged into "suites",
