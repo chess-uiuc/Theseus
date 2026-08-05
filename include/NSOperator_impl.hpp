@@ -145,7 +145,10 @@ namespace Theseus
         mfem::real_t el_gradP[Theseus::MAXEQ];
         Theseus::PointStateViewRW dP{el_gradP};
         gas.grad_entropy_to_grad_prim(CV, dS, dP);
-
+	if (dc.axisymmetric)
+	  {
+	    ProjectAxisPrimitiveGradientDirection(gas, dc.elRadius_d[pt], idim, el_gradP);
+	  }
         Kernels::el_scatter_assign(el_gradP, ndof, neq, ept, 1.0, grad_prim_el);
 
       });

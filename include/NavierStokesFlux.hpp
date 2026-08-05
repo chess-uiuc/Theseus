@@ -136,8 +136,20 @@ namespace Theseus
       if (axisymmetric)
         {
           const int radial = AxisymmetricGeometry::radial_coordinate;
-          radial_rate = radius > AxisymmetricGeometry::radius_tolerance ?
-            vel[radial] / radius : grad_vel[radial][radial];
+          //radial_rate = radius > AxisymmetricGeometry::radius_tolerance ?
+          //  vel[radial] / radius : grad_vel[radial][radial];
+	  if (radius > AxisymmetricGeometry::radius_tolerance)
+	    {
+	      radial_rate = vel[radial] / radius;
+	    }
+          else
+	    {
+	      radial_rate = grad_vel[radial][radial];
+	      // Axis parity requires u_r=0. Use the regular trace in the
+	      // viscous energy flux even if the weak axis BC leaves a small
+	      // nonzero radial momentum at the boundary node.
+	      vel[radial] = 0.0;
+	    }
           div_vel += radial_rate;
         }
 

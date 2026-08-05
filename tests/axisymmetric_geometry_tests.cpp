@@ -511,3 +511,63 @@ TEST(axisymmetric_measure_integrates_revolved_constant_state)
                1.0e-12);
   return 0;
 }
+
+TEST(axis_primitive_gradient_projection_enforces_parity)
+{
+  Theseus::PhysicsConstants physics(1.4, 0.72, 287.0, 1.8e-5);
+  Theseus::StateLayout layout(2, 1);
+  Theseus::IdealGasModel gas(physics, layout);
+  mfem::real_t axial_gradient[4] = {1.0, 2.0, 3.0, 4.0};
+  mfem::real_t radial_gradient[4] = {5.0, 6.0, 7.0, 8.0};
+
+  EXPECT_TRUE(Theseus::ProjectAxisPrimitiveGradientDirection(
+		     gas, 0.0, Theseus::AxisymmetricGeometry::axial_coordinate,
+		     axial_gradient));
+  EXPECT_CLOSE(axial_gradient[layout.eq_mass], 1.0, 0.0);
+  EXPECT_CLOSE(axial_gradient[layout.eq_mom[0]], 2.0, 0.0);
+  EXPECT_CLOSE(axial_gradient[layout.eq_mom[1]], 0.0, 0.0);
+  EXPECT_CLOSE(axial_gradient[layout.eq_energy], 4.0, 0.0);
+
+  EXPECT_TRUE(Theseus::ProjectAxisPrimitiveGradientDirection(
+		     gas, 0.0, Theseus::AxisymmetricGeometry::radial_coordinate,
+		     radial_gradient));
+  EXPECT_CLOSE(radial_gradient[layout.eq_mass], 0.0, 0.0);
+  EXPECT_CLOSE(radial_gradient[layout.eq_mom[0]], 0.0, 0.0);
+  EXPECT_CLOSE(radial_gradient[layout.eq_mom[1]], 7.0, 0.0);
+  EXPECT_CLOSE(radial_gradient[layout.eq_energy], 0.0, 0.0);
+  mfem::real_t off_axis[4] = {9.0, 10.0, 11.0, 12.0};
+  EXPECT_TRUE(!Theseus::ProjectAxisPrimitiveGradientDirection(
+                      gas, 0.1, Theseus::AxisymmetricGeometry::radial_coordinate,
+		      off_axis));
+  for (int equation = 0; equation < 4; ++equation)
+    {
+      EXPECT_CLOSE(off_axis[equation], 9.0 + equation, 0.0);
+    }
+  return 0;
+}
+
+TEST(axisymmetric_viscous_energy_flux_uses_zero_radial_axis_velocity)
+{
+  Theseus::PhysicsConstants physics(1.4, 0.72, 287.0, 1.8e-5);
+  Theseus::StateLayout layout(2, 1);
+  Theseus::IdealGasModel gas(physics, layout);
+  const mfem::real_t density = 2.0;
+  const mfem::real_t axial_velocity = 3.0;
+  const mfem::real_t radial_velocity = 0.25;
+  const mfem::real_t pressure = 4.0;
+  const mfem::real_t energy = pressure/(physics.gamma - 1.0) +
+    0.5*density*(axial_velocity*axial_velocity +
+		 radial_velocity*radial_velocity);
+  const mfem::real_t state[4] = {
+    density, density*axial_velocity, density*radial_velocity, energy
+  };
+  const mfem::real_t dprim_axial[4] = {0.0, 0.2, 0.0, 0.0};
+  const mfem::real_t dprim_radial[4] = {0.0, 0.0, 0.5, 0.0};
+  const mfem::real_t dprim_unused[4] = {0.0, 0.0, 0.0, 0.0};
+  mfem::real_t flux[Theseus::MAXEQ][Theseus::MAXDIM];
+  Theseus::NavierStokesFlux::ComputeViscousFluxKernel(
+	gas, state, dprim_axial, dprim_radial, dprim_unused, flux, true, 0.0);
+  EXPECT_CLOSE(flux[layout.eq_mom[0]][1], 0.0, 0.0);
+  EXPECT_CLOSE(flux[layout.eq_energy][1], 0.0, 0.0);
+  return 0;
+}

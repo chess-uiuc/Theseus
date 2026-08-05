@@ -1532,12 +1532,13 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
                     "Legacy checkpoint state size " << loaded.Size()
                     << " does not match current finite-element space size " << vfes->GetVSize());
         sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
-        const auto *loaded_space = loaded.ParFESpace();
+        auto *loaded_space = loaded.ParFESpace();
         for (int i = 0; i < loaded.Size(); i++)
           {
             // MFEM serializes parallel grid functions using their space's DOF
             // signs. Convert from the reconstructed legacy space's convention
             // to the current solver space's convention while copying.
+            // (*sol)[i] = loaded[i];
             (*sol)[i] = loaded[i] * loaded_space->GetDofSign(i) * vfes->GetDofSign(i);
           }
       }

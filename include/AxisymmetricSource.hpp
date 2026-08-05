@@ -254,4 +254,34 @@ namespace Theseus
                                 element_rate);
       }
   }
+
+  /// Enforce the even/odd primitive-gradient parity required at r=0.
+  /// Primitive-gradient slots contain (rho, velocity components, p, scalars).
+  template<typename GasT>
+  MFEM_HOST_DEVICE inline bool ProjectAxisPrimitiveGradientDirection(
+	      const GasT &gas, mfem::real_t radius, int derivative_direction,
+	      mfem::real_t *dprim)
+  {
+    if (radius > AxisymmetricGeometry::radius_tolerance){ return false; }
+    const int axial = AxisymmetricGeometry::axial_coordinate;
+    const int radial = AxisymmetricGeometry::radial_coordinate;
+    const int radial_velocity = gas.L.eq_mom[radial];
+    if (derivative_direction == radial)
+      {
+	const mfem::real_t radial_velocity_derivative =
+	  dprim[radial_velocity];
+	for (int equation = 0; equation < gas.L.nequations(); ++equation)
+	  {
+	    dprim[equation] = 0.0;
+	  }
+	// u_r is odd, so its radial derivative is even and need not vanish.
+	dprim[radial_velocity] = radial_velocity_derivative;
+      }
+    else if (derivative_direction == axial)
+      {
+	// The axial derivative of the odd radial velocity vanishes on axis.
+	dprim[radial_velocity] = 0.0;
+      }
+    return true;
+  }
 }
