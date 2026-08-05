@@ -143,6 +143,27 @@ def _stack_point_data(mesh) -> Dict[str, np.ndarray]:
     return out
 
 
+def _canonicalize_legacy_fields(fields: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """Map legacy visualization arrays to their canonical representation."""
+    canonical = dict(fields)
+    legacy_velocity = ["Horizontal V", "Vertical V", "Normal V"]
+
+    if "Velocity" not in canonical and "Horizontal V" in canonical:
+        components = []
+        for name in legacy_velocity:
+            if name not in canonical:
+                break
+            component = canonical[name]
+            if component.ndim != 2 or component.shape[1] != 1:
+                raise ValueError(
+                    f"legacy velocity field '{name}' must have exactly one component"
+                )
+            components.append(component)
+        canonical["Velocity"] = np.hstack(components)
+
+    return canonical
+
+
 def _stack_cell_data(mesh) -> Dict[str, np.ndarray]:
     # PyVista adapter: already (Nc, comp) arrays wrapped in a one-element list
     if hasattr(mesh, "_pv"):
@@ -215,6 +236,7 @@ def _load_mesh(path: str) -> 'MeshAdapter':
             self.point_data = {k: np.array(v) for k, v in m.point_data.items()}
             # store as a list of blocks to match the expectations of _stack_cell_data
             self.cell_data = {k: [np.array(v)] for k, v in m.cell_data.items()}
+            self.cell_types = np.array(m.celltypes)
             self.cells = []
     return MeshAdapter(mesh)
 
@@ -266,14 +288,27 @@ def compare_files(f0: str, f1: str, fields: List[str], exclude: List[str],
         idx0, pts0_sorted = _canonicalize_points(m0.points)
         idx1, pts1_sorted = _canonicalize_points(m1.points)
 
-    # Quick geometry sanity (same bbox within tiny tol)
+    # Geometry must contain the same point locations, independent of ordering.
     bbox0 = np.array([pts0_sorted.min(axis=0), pts0_sorted.max(axis=0)])
     bbox1 = np.array([pts1_sorted.min(axis=0), pts1_sorted.max(axis=0)])
-    geom_ok = np.allclose(bbox0, bbox1, rtol=1e-12, atol=1e-12) and (pts0_sorted.shape == pts1_sorted.shape)
+    geom_ok = (
+        pts0_sorted.shape == pts1_sorted.shape
+        and np.allclose(pts0_sorted, pts1_sorted, rtol=1e-12, atol=1e-12)
+    )
+
+    # A cell-type histogram catches representation changes such as one
+    # high-order Lagrange cell versus multiple linear GLL subcells.
+    cell_types0 = getattr(m0, "cell_types", None)
+    cell_types1 = getattr(m1, "cell_types", None)
+    topology_ok = True
+    if cell_types0 is not None and cell_types1 is not None:
+        types0, counts0 = np.unique(cell_types0, return_counts=True)
+        types1, counts1 = np.unique(cell_types1, return_counts=True)
+        topology_ok = np.array_equal(types0, types1) and np.array_equal(counts0, counts1)
 
     # Point data (aligned by sorted point index)
-    pd0_raw = _stack_point_data(m0)
-    pd1_raw = _stack_point_data(m1)
+    pd0_raw = _canonicalize_legacy_fields(_stack_point_data(m0))
+    pd1_raw = _canonicalize_legacy_fields(_stack_point_data(m1))
 
     pd0 = {k: v[idx0] for k, v in pd0_raw.items()}
     pd1 = {k: v[idx1] for k, v in pd1_raw.items()}
@@ -301,7 +336,23 @@ def compare_files(f0: str, f1: str, fields: List[str], exclude: List[str],
     include = [f.strip() for f in fields if f.strip()]
     exclude = [f.strip() for f in exclude if f.strip()]
 
-    results: Dict = {"files": [f0, f1], "geom_ok": bool(geom_ok), "point_data": {}, "cell_data": {}}
+    available_fields = set(pd0) & set(pd1)
+    if compare_cells:
+        available_fields |= set(cd0) & set(cd1)
+    missing_fields = sorted(set(include) - available_fields)
+    if missing_fields:
+        raise ValueError(
+            "requested fields are not present in both files: "
+            + ", ".join(missing_fields)
+        )
+
+    results: Dict = {
+        "files": [f0, f1],
+        "geom_ok": bool(geom_ok),
+        "topology_ok": bool(topology_ok),
+        "point_data": {},
+        "cell_data": {},
+    }
 
     # Which fields
     pfields = _select_common_fields(pd0, pd1, include or None, exclude)
@@ -324,22 +375,31 @@ def compare_files(f0: str, f1: str, fields: List[str], exclude: List[str],
             r["hash1"] = _hash(cd1[name])
             results["cell_data"][name] = r
 
+    if not pfields and not cfields:
+        if compare_cells:
+            raise ValueError("no common point- or cell-data fields to compare")
+        raise ValueError("no common point-data fields to compare")
+
     # overall pass
     ok_fields = all(v.get("ok", False) for v in results["point_data"].values())
     if compare_cells:
         ok_fields = ok_fields and all(v.get("ok", False) for v in results["cell_data"].values())
-    results["ok"] = bool(geom_ok and ok_fields)
+    results["ok"] = bool(geom_ok and topology_ok and ok_fields)
 
     if not quiet:
         print(f"[compare_viz] Comparing:\n  A: {f0}\n  B: {f1}")
-        print(f"  Geometry bbox match: {geom_ok} (A:{bbox0.tolist()} B:{bbox1.tolist()})")
+        print(f"  Geometry point match: {geom_ok} (A bbox:{bbox0.tolist()} B bbox:{bbox1.tolist()})")
+        print(f"  Cell topology match: {topology_ok}")
         def _pp(section, data):
             if not data:
                 print(f"  {section}: (no common fields)")
                 return
             print(f"  {section}:")
             for k, r in data.items():
-                status = "OK" if r['ok'] else "FAIL"
+                if "shape_mismatch" in r:
+                    print(f"    {k:20s} FAIL  shape mismatch")
+                    continue
+                status = "OK" if r["ok"] else "FAIL"
                 print(f"    {k:20s} {status:4s}  n={r['n']:7d} comp={r['ncomp']}"
                       f"  L2rel={r['l2_rel']:.3e}  Linf={r['linf_abs']:.3e}  mean|e|={r['mean_abs']:.3e}"
                       f"  hashA={r['hash0'][:6]} hashB={r['hash1'][:6]}")

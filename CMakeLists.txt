@@ -44,12 +44,10 @@ message(STATUS "MFEM link libs = ${_mfem_libs}")
 
 ## Set up PLATO's default db path
 # Pick first CMAKE_PREFIX_PATH entry if present.
-list(GET CMAKE_PREFIX_PATH 0 _theseus_first_prefix)
-
-if(_theseus_first_prefix)
+set(_plato_db_default "${CMAKE_CURRENT_BINARY_DIR}/database")
+if(CMAKE_PREFIX_PATH)
+  list(GET CMAKE_PREFIX_PATH 0 _theseus_first_prefix)
   set(_plato_db_default "${_theseus_first_prefix}/database")
-else()
-  set(_plato_db_default "${CMAKE_CURRENT_BINARY_DIR}/database")
 endif()
 
 set(PLATO_DB_PATH "${_plato_db_default}" CACHE PATH
@@ -242,10 +240,8 @@ target_sources(theseus
     PRIVATE src/Simulation.cpp
 )
 
-message(STATUS "Adding ${CMAKE_PREFIX_PATH}/include/mfem to include path")
 target_include_directories(theseus
     PUBLIC ${CMAKE_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_PREFIX_PATH}/include/mfem
 )
 
 target_link_libraries(theseus

@@ -2,7 +2,7 @@
 #
 # This file is part of the unit testing infrastructure for Theseus
 #
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: BSD-3-Clause
 #
 #################
 # Example on how to add unit tests
@@ -18,6 +18,18 @@
 #
 
 # Unit testing self-test suite
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_test(
+    NAME RunTheseusHarnessTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/run_theseus_harness_tests.py
+)
+
+add_test(
+    NAME CompareVizTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/compare_viz_tests.py
+)
+
 add_executable(unit_testing_stub
     unit_test_main.cpp
     test_stub.cpp
@@ -36,7 +48,6 @@ add_executable(gas_tests
 
 target_include_directories(gas_tests
     PRIVATE ${PROJECT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_PREFIX_PATH}/include/mfem
 )
 
 # Propagate SUTHERLAND compile definition to gas_tests if enabled
@@ -44,7 +55,7 @@ if(SUTHERLAND)
     target_compile_definitions(gas_tests PRIVATE SUTHERLAND)
 endif()
 
-target_link_libraries(gas_tests PRIVATE ${THESEUS_MFEM_TARGET})
+target_link_libraries(gas_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
 
 add_test(NAME GasPhysicsTestingSuite COMMAND gas_tests)
 
@@ -56,12 +67,53 @@ add_executable(state_tests
 
 target_include_directories(state_tests
     PRIVATE ${PROJECT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_PREFIX_PATH}/include/mfem
 )
 
-target_link_libraries(state_tests PRIVATE ${THESEUS_MFEM_TARGET})
+target_link_libraries(state_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
 
 add_test(NAME StateTestingSuite COMMAND state_tests)
+
+# Visualization configuration tests
+add_executable(visualization_config_tests
+   unit_test_main.cpp
+   visualization_config_tests.cpp
+)
+
+target_include_directories(visualization_config_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+
+add_test(NAME VisualizationConfigTests COMMAND visualization_config_tests)
+
+add_executable(visualization_mesh_tests
+   unit_test_main.cpp
+   visualization_mesh_tests.cpp
+)
+
+target_link_libraries(visualization_mesh_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+
+add_test(NAME VisualizationMeshTests COMMAND visualization_mesh_tests)
+
+add_executable(checkpoint_config_tests
+   unit_test_main.cpp
+   checkpoint_config_tests.cpp
+)
+
+target_include_directories(checkpoint_config_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+
+add_test(NAME CheckpointConfigTests COMMAND checkpoint_config_tests)
+
+add_test(
+    NAME CheckpointRestartIntegration
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/restart_integration_test.py
+            --executable $<TARGET_FILE:theseus>
+            --source ${PROJECT_SOURCE_DIR}
+            --mpiexec ${MPIEXEC_EXECUTABLE}
+            --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+)
 
 # Riemann solvers tests
 add_executable(rflux_tests
@@ -71,10 +123,9 @@ add_executable(rflux_tests
 
 target_include_directories(rflux_tests
     PRIVATE ${PROJECT_SOURCE_DIR}/include
-    PRIVATE ${CMAKE_PREFIX_PATH}/include/mfem
 )
 
-target_link_libraries(rflux_tests PRIVATE ${THESEUS_MFEM_TARGET})
+target_link_libraries(rflux_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
 
 add_test(NAME RiemannTestingSuite COMMAND rflux_tests)
 
@@ -102,6 +153,7 @@ if(THESEUS_WITH_PLATO)
    target_link_libraries(table_lookup_tests
           PRIVATE
           ${THESEUS_MFEM_TARGET}
+          MPI::MPI_CXX
           plato
         )
    if(CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES)

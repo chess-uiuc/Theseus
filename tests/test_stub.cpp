@@ -2,7 +2,7 @@
 //
 // This file is part of Theseus.
 //
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BSD-3-Clause
 #include "unit_test.hpp"
 
 // Minimal test stub to verify that the unit test infrastructure works.

@@ -7,8 +7,30 @@
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
 #include "json.hpp"
+#include <cstdint>
 #include <filesystem>
 #include <mpi.h>
+
+namespace
+{
+  class ScopedGeometryRefinerType
+  {
+  private:
+    int previous_type_;
+
+  public:
+    explicit ScopedGeometryRefinerType(int type)
+      : previous_type_(mfem::GlobGeometryRefiner.GetType())
+    {
+      mfem::GlobGeometryRefiner.SetType(type);
+    }
+
+    ~ScopedGeometryRefinerType()
+    {
+      mfem::GlobGeometryRefiner.SetType(previous_type_);
+    }
+  };
+}
 
 namespace Theseus
 {
@@ -99,18 +121,54 @@ namespace Theseus
     print_interval = runtime.value("print_interval", debug_simulation ?  1 : 100);
     output_file_path = runtime["output_file_path"].get<std::string>();
     paraview_folder = runtime.value("paraview_folder", "ParaView");
-    checkpoint_dt = runtime.value("checkpoint_dt", 0.01);
-    checkpoints_folder = output_file_path + "/" + runtime.value("checkpoints_folder", "Checkpoints");
-    checkpoint_load = runtime.value("checkpoint_load", false);
-    checkpoint_save = runtime.value("checkpoint_save", false);
-    if (checkpoint_save)
+    try
       {
-        std::filesystem::create_directories(checkpoints_folder);
+        checkpoint_config = CheckpointConfig::FromRuntime(runtime, output_file_path);
+      }
+    catch (const std::exception &error)
+      {
+        if (mfem::Mpi::Root())
+          {
+            std::cerr << "Invalid checkpoint configuration: " << error.what() << std::endl;
+          }
+        return 1;
+      }
+    if (checkpoint_config.SaveEnabled())
+      {
+        std::error_code ec;
+        std::filesystem::create_directories(checkpoint_config.Directory(), ec);
+        if (ec)
+          {
+            if (mfem::Mpi::Root())
+              {
+                std::cerr << "Failed to create checkpoint directory "
+                          << checkpoint_config.Directory() << ": " << ec.message() << std::endl;
+              }
+            return 1;
+          }
       }
 
     visualize = runtime["visualize"].get<bool>();
     if (visualize)
       {
+#ifdef SUBCELL_FV_BLENDING
+        constexpr bool blending_available = true;
+#else
+        constexpr bool blending_available = false;
+#endif
+        try
+          {
+            visualization_config = VisualizationConfig::FromRuntime(runtime, blending_available);
+          }
+        catch (const std::invalid_argument &error)
+          {
+            if (mfem::Mpi::Root())
+              {
+                std::cerr << "Invalid visualization configuration: " << error.what() << std::endl;
+              }
+            return 1;
+          }
+
         save_dt1 = runtime.value("initial_save_dt", 0.01);
         save_dt2 = runtime.value("refined_save_dt", save_dt1);
         trigger_t = runtime.value("refined_trigger", 2.0);
@@ -379,51 +437,9 @@ if (debug_simulation && numProcs > 1) {
     for(int idim = 0;idim < dim;idim++)
       grad_u[idim] = std::make_shared<mfem::ParGridFunction>(vfes.get());
 
-    if (checkpoint_load)
+    if (checkpoint_config.LoadEnabled())
       {
-        mfem::real_t root_t = 0.0;
-        int root_ti = 0;
-
-        if (mfem::Mpi::Root())
-          {
-            checkpoint_cycle = runtime.value("checkpoint_cycle", 0);
-            MFEM_VERIFY(checkpoint_cycle > 0, "Invalid or missing cycle number in JSON");
-            std::string meta_file = (checkpoints_folder + "/Cycle" + std::to_string(checkpoint_cycle) +
-                                     "/checkpoint_cycle_" + std::to_string(checkpoint_cycle) + ".json");
-
-            std::ifstream meta(meta_file);
-            MFEM_VERIFY(meta, "Failed to open meta file " << meta_file);
-            nlohmann::json J;
-            meta >> J;
-            root_t = J.value("time", 0.0);
-            root_ti = J.value("cycle", 0);
-            MFEM_VERIFY(root_ti == checkpoint_cycle,
-                        "Mismatch between provided cycle number and value in meta file");
-          }
-
-        MPI_Bcast(&root_t, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type, 0, pmesh->GetComm());
-        MPI_Bcast(&root_ti, 1, MPI_INT, 0, pmesh->GetComm());
-        MPI_Barrier(pmesh->GetComm());
-
-        t = root_t;
-        ti = root_ti;
-
-        std::ostringstream fname;
-        fname << checkpoints_folder << "/Cycle" << ti << "/checkpoint_cycle_" << ti << "."
-              << std::setw(8) << std::setfill('0') << myRank << ".chk";
-        std::cout << fname.str() << std::endl;
-        std::ifstream checkpoint_load(fname.str(), std::ios::binary);
-        MFEM_VERIFY(checkpoint_load, "Failed to open checkpoint file for reading: " << fname.str());
-
-        sol.reset();
-        sol = std::make_shared<mfem::ParGridFunction>(pmesh.get(), checkpoint_load);
-
-        MPI_Barrier(pmesh->GetComm());
-
-        if(myRank == 0 && debug_simulation){
-          std::cout << "Checkpoint loaded @ (" << ti << ", " << t << ")"
-                    << std::endl;
-        }
+        LoadCheckpoint();
       }
     else
       {
@@ -992,15 +1008,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     mom.MakeRef(dfes.get(), *sol, offset_momentum(stateLayout));
     energy.MakeRef(fes.get(), *sol, offset_energy(stateLayout));
 
-    u = std::make_unique<mfem::ParGridFunction>(fes.get());
-    if (dim > 1)
-      {
-        v = std::make_unique<mfem::ParGridFunction>(fes.get());
-        if (dim > 2)
-          {
-            w = std::make_unique<mfem::ParGridFunction>(fes.get());
-          }
-      }
+    velocity = std::make_unique<mfem::ParGridFunction>(dfes.get());
     p = std::make_unique<mfem::ParGridFunction>(fes.get());
 
 #ifdef AXISYMMETRIC
@@ -1010,31 +1018,53 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
 
     if (visualize)
       {
+        if (paraview &&
+            visualization_config.MeshMode() == VisualizationMeshMode::gll_subcells)
+          {
+            const mfem::Geometry::Type tensor_geometry =
+              dim == 1 ? mfem::Geometry::SEGMENT :
+              dim == 2 ? mfem::Geometry::SQUARE : mfem::Geometry::CUBE;
+            for (int element = 0; element < pmesh->GetNE(); element++)
+              {
+                MFEM_VERIFY(pmesh->GetElementBaseGeometry(element) == tensor_geometry,
+                            "Visualization mesh mode 'gll_subcells' supports only "
+                            "tensor-product segment, quadrilateral, or hexahedral elements");
+              }
+          }
+
         if (paraview)
           {
             pd = std::make_unique<mfem::ParaViewDataCollection>(paraview_folder, pmesh.get());
             pd->SetPrefixPath(output_file_path);
 #ifdef AXISYMMETRIC
-            pd->RegisterField("Density", rho_axi.get());
-#else
-            pd->RegisterField("Density", &rho);
-#endif
-            pd->RegisterField("Horizontal V", u.get());
-            if (dim > 1)
+            if (visualization_config.Has(VisualizationField::density))
               {
-                pd->RegisterField("Vertical V", v.get());
-                if (dim > 2)
-                  {
-                    pd->RegisterField("Normal V", w.get());
-                  }
+                pd->RegisterField("Density", rho_axi.get());
               }
-            pd->RegisterField("Pressure", p.get());
+#else
+            if (visualization_config.Has(VisualizationField::density))
+              {
+                pd->RegisterField("Density", &rho);
+              }
+#endif
+            if (visualization_config.Has(VisualizationField::velocity))
+              {
+                pd->RegisterField("Velocity", velocity.get());
+              }
+            if (visualization_config.Has(VisualizationField::pressure))
+              {
+                pd->RegisterField("Pressure", p.get());
+              }
 #ifdef SUBCELL_FV_BLENDING
-            pd->RegisterField("Blending Coeff", alpha.get());
+            if (visualization_config.Has(VisualizationField::blending_coefficient))
+              {
+                pd->RegisterField("Blending Coeff", alpha.get());
+              }
 #endif
             pd->SetLevelsOfDetail(order);
             pd->SetDataFormat(mfem::VTKFormat::BINARY);
-            pd->SetHighOrderOutput(true);
+            pd->SetHighOrderOutput(
+              visualization_config.MeshMode() == VisualizationMeshMode::vtk_high_order);
           }
         else if (visit)
           {
@@ -1044,27 +1074,34 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
             vd->SetFormat(mfem::DataCollection::PARALLEL_FORMAT);
 
 #ifdef AXISYMMETRIC
-            vd->RegisterField("Density", rho_axi.get());
-#else
-            vd->RegisterField("Density", &rho);
-#endif
-            vd->RegisterField("Horizontal V", u.get());
-            if (dim > 1)
+            if (visualization_config.Has(VisualizationField::density))
               {
-                vd->RegisterField("Vertical V", v.get());
-                if (dim > 2)
-                  {
-                    vd->RegisterField("Normal V", w.get());
-                  }
+                vd->RegisterField("Density", rho_axi.get());
               }
-            vd->RegisterField("Pressure", p.get());
+#else
+            if (visualization_config.Has(VisualizationField::density))
+              {
+                vd->RegisterField("Density", &rho);
+              }
+#endif
+            if (visualization_config.Has(VisualizationField::velocity))
+              {
+                vd->RegisterField("Velocity", velocity.get());
+              }
+            if (visualization_config.Has(VisualizationField::pressure))
+              {
+                vd->RegisterField("Pressure", p.get());
+              }
 #ifdef SUBCELL_FV_BLENDING
-            vd->RegisterField("Blending Coeff", alpha.get());
+            if (visualization_config.Has(VisualizationField::blending_coefficient))
+              {
+                vd->RegisterField("Blending Coeff", alpha.get());
+              }
 #endif
           }
       }
 
-    next_checkpoint_t = t + checkpoint_dt;
+    next_checkpoint_t = t + checkpoint_config.Interval();
     if (visualize) { next_save_t = t + save_dt; }
 
     return 0;
@@ -1098,7 +1135,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     mfem::Vector U_cons(sol->Size());
     // Axi is DISABLED for a minute
     // NS->RecoverStateFromWeighted(*sol, U_cons);
-    ConservativeToPrimitive(U_cons, *rho_axi, *u, *v, *p);
+    ConservativeToPrimitive(U_cons, *rho_axi, *velocity, *p);
     rhsOp->ComputeIntegralMeasures(U_cons, diag);
 #else
     rhsOp->ComputeIntegralMeasures(*sol, diag);
@@ -1181,8 +1218,8 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         int i = 0;
 #ifdef AXISYMMETRIC
         mfem::real_t rhoi = (*rho_axi)(i);
-        mfem::real_t ui = (*u)(i);
-        mfem::real_t vi = (*v)(i);
+        mfem::real_t ui = (*velocity)(i);
+        mfem::real_t vi = (*velocity)(i + num_dofs_scalar);
         mfem::real_t pi = (*p)(i);
 
         NS->SetAxisFloorsFromFreestream(rhoi, pi);
@@ -1217,8 +1254,9 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         }
         Theseus::ScopedTimer timer("VisInit");
 
-#ifdef AXISYMMETRIC
+        UpdateVisualizationFields();
 
+#ifdef AXISYMMETRIC
         if (debug_simulation)
           {
             for (int i = 0; i < num_dofs_scalar; i++)
@@ -1226,44 +1264,16 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
                 std::cout << " DOF#" << std::setw(2) << i
                           << "    primitive state =["
                           << std::setw(4) << std::round((*rho_axi)(i)*100)/100.0 << ", "
-                          << std::setw(4) << std::round((*u)(i)*100)/100.0 << ", "
-                          << std::setw(4) << std::round((*v)(i)*100)/100.0 << ", "
+                          << std::setw(4) << std::round((*velocity)(i)*100)/100.0 << ", "
+                          << std::setw(4)
+                          << std::round((*velocity)(i + num_dofs_scalar)*100)/100.0 << ", "
                           << std::setw(5) << std::round((*p)(i)*100)/100.0 << "]\n";
               }
 
           }
-
-
-#else
-        const mfem::real_t *sol_state = sol->HostRead();
-        for (int i = 0; i < num_dofs_scalar; i++)
-          {
-            Theseus::DofStateView dofState{sol_state, i};
-            (*u)(i) = gasModel.velocity(dofState, 0);
-            if (dim > 1)
-              {
-                (*v)(i) = gasModel.velocity(dofState, 1);
-                if (dim > 2)
-                  {
-                    (*w)(i) = gasModel.velocity(dofState, 2);
-                  }
-              }
-            (*p)(i) = gasModel.pressure(dofState);
-          }
 #endif
 
-        if (paraview)
-          {
-            pd->SetCycle(ti);
-            pd->SetTime(t);
-            pd->Save();
-          }
-        else if (visit)
-          {
-            vd->SetCycle(ti);
-            vd->SetTime(t);
-            vd->Save();
-          }
+        SaveVisualization();
       }
 
 
@@ -1342,7 +1352,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
           }
 
         // Check for completion
-        done = ((t >= t_final - 1e-8 * dt) || (ti == nsteps_max));
+        done = ((t >= t_final - 1e-8 * dt) || StepLimitReached(ti, nsteps_max));
 
         // Check for NaN/Inf values?
         rho.HostRead();
@@ -1362,40 +1372,9 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         if (visualize && (done || t >= next_save_t || ti % vis_steps == 0))
           {
 
-#ifdef AXISYMMETRIC
-            mfem::Vector U_cons(sol->Size());
-            //            NS->RecoverStateFromWeighted(*sol, U_cons);
-            ConservativeToPrimitive(U_cons, *rho_axi, *u, *v, *p);
-#else
-            const mfem::real_t *sol_state = sol->HostRead();
-            for (int i = 0; i < num_dofs_scalar; i++)
-              {
-                Theseus::DofStateView dofState{sol_state, i};
-                (*u)(i) = gasModel.velocity(dofState, 0);
-                if (dim > 1)
-                  {
-                    (*v)(i) = gasModel.velocity(dofState, 1);
-                    if (dim > 2)
-                      {
-                        (*w)(i) = gasModel.velocity(dofState, 2);
-                      }
-                  }
-                (*p)(i) = gasModel.pressure(dofState);
-              }
-#endif
+            UpdateVisualizationFields();
 
-            if (paraview)
-              {
-                pd->SetCycle(ti);
-                pd->SetTime(t);
-                pd->Save();
-              }
-            else if (visit)
-              {
-                vd->SetCycle(ti);
-                vd->SetTime(t);
-                vd->Save();
-              }
+            SaveVisualization();
 
 
             save_dt = (t < trigger_t) ? save_dt1 : save_dt2;
@@ -1404,40 +1383,10 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
           }
 
 
-        if (checkpoint_save && (done || t >= next_checkpoint_t))
+        if (checkpoint_config.SaveEnabled() && (done || t >= next_checkpoint_t))
           {
-            // writing the solution to a checkpoint file in a subfolder
-
-            std::string cycle_dir = checkpoints_folder + "/Cycle" + std::to_string(ti);
-            std::error_code ec;
-            std::filesystem::create_directories(cycle_dir, ec);
-            MFEM_VERIFY(!ec, "Failed to create a directory " << cycle_dir
-                        << " : " << ec.message());
-
-            std::ostringstream checkpoint_file;
-            checkpoint_file << cycle_dir << "/checkpoint_cycle_" << ti << "."
-                            << std::setw(8) << std::setfill('0') << myRank << ".chk";
-            std::ofstream checkpoint_save(checkpoint_file.str(), std::ios::binary);
-            MFEM_VERIFY(checkpoint_save, "Failed to open checkpoint file for writing: "
-                        << checkpoint_file.str());
-
-            sol->Save(checkpoint_save);
-            checkpoint_save.close();
-
-            if (mfem::Mpi::Root())
-              {
-                // writing time and cycle data to a json file
-                std::string meta_file = cycle_dir + "/checkpoint_cycle_" + std::to_string(ti)+".json";
-                std::ofstream meta(meta_file);
-                MFEM_VERIFY(meta, "Failed to open meta file for writing: " << meta_file);
-
-                meta << std::fixed << "{" << "\n" << " \"time\": " << t << "," << "\n"
-                     << " \"cycle\": " << ti << "\n" << "}" << "\n";
-                meta.close();
-              }
-            MPI_Barrier(pmesh->GetComm());
-
-            next_checkpoint_t += checkpoint_dt;
+            SaveCheckpoint();
+            next_checkpoint_t += checkpoint_config.Interval();
           }
 
         if (ti % print_interval == 0 || debug_simulation)
@@ -1527,10 +1476,10 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
 #ifdef AXISYMMETRIC
   void Simulation::ConservativeToPrimitive(const mfem::Vector &U_cons,
                                            mfem::ParGridFunction &rho_out,
-                                           mfem::ParGridFunction &uz_out,
-                                           mfem::ParGridFunction &ur_out,
+                                           mfem::ParGridFunction &velocity_out,
                                            mfem::ParGridFunction &p_out) const
   {
+    const auto physicsConstants = rhsOp->GetGasModelInterface().phys();
     for (int i = 0; i < num_dofs_scalar; i++)
       {
         const mfem::real_t rho = U_cons[i];
@@ -1546,12 +1495,204 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         p = physicsConstants.gammaM1 * (E - 0.5 * rho * Vsq);
 
         rho_out(i) = rho;
-        uz_out(i)  = uz;
-        ur_out(i)  = ur;
+        velocity_out(i) = uz;
+        velocity_out(i + num_dofs_scalar) = ur;
         p_out(i)   = p;
       }
   }
 #endif
+
+  void Simulation::UpdateVisualizationFields()
+  {
+#ifdef AXISYMMETRIC
+    mfem::Vector U_cons(sol->Size());
+    // Axisymmetric conservative-state recovery is temporarily disabled.
+    // NS->RecoverStateFromWeighted(*sol, U_cons);
+    ConservativeToPrimitive(U_cons, *rho_axi, *velocity, *p);
+#else
+    const auto &gasModel = rhsOp->GetGasModelInterface();
+    const mfem::real_t *sol_state = sol->HostRead();
+    for (int i = 0; i < num_dofs_scalar; i++)
+      {
+        Theseus::DofStateView dofState{sol_state, i};
+        if (visualization_config.Has(VisualizationField::velocity))
+          {
+            for (int component = 0; component < dim; component++)
+              {
+                (*velocity)(i + component*num_dofs_scalar) =
+                  gasModel.velocity(dofState, component);
+              }
+          }
+        if (visualization_config.Has(VisualizationField::pressure))
+          {
+            (*p)(i) = gasModel.pressure(dofState);
+          }
+      }
+#endif
+  }
+
+  void Simulation::SaveVisualization()
+  {
+    if (paraview)
+      {
+        pd->SetCycle(ti);
+        pd->SetTime(t);
+        if (visualization_config.MeshMode() == VisualizationMeshMode::gll_subcells)
+          {
+            ScopedGeometryRefinerType refiner_type(mfem::Quadrature1D::GaussLobatto);
+            pd->Save();
+          }
+        else
+          {
+            pd->Save();
+          }
+      }
+    else if (visit)
+      {
+        vd->SetCycle(ti);
+        vd->SetTime(t);
+        vd->Save();
+      }
+  }
+
+  CheckpointCompatibility Simulation::CurrentCheckpointCompatibility() const
+  {
+    return {numProcs,
+            order,
+            dim,
+            num_equations,
+            static_cast<int>(sizeof(mfem::real_t)),
+            static_cast<long long>(pmesh->GetGlobalNE()),
+            static_cast<long long>(vfes->GlobalVSize())};
+  }
+
+  void Simulation::LoadCheckpoint()
+  {
+    const int requested_cycle = checkpoint_config.Cycle();
+    const auto metadata_file = checkpoint_config.MetadataFile(requested_cycle);
+    std::ifstream metadata_stream(metadata_file);
+    MFEM_VERIFY(metadata_stream, "Failed to open checkpoint metadata: " << metadata_file);
+
+    nlohmann::json metadata;
+    metadata_stream >> metadata;
+    const int stored_cycle = metadata.value("cycle", 0);
+    MFEM_VERIFY(stored_cycle == requested_cycle,
+                "Checkpoint cycle mismatch: requested " << requested_cycle
+                << " but metadata contains " << stored_cycle);
+    MFEM_VERIFY(metadata.contains("time"),
+                "Checkpoint metadata does not contain a simulation time");
+
+    bool current_format = false;
+    try
+      {
+        current_format = CheckpointConfig::ValidateMetadata(
+          metadata, CurrentCheckpointCompatibility());
+        if (!current_format && mfem::Mpi::Root())
+          {
+            std::cerr << "Warning: loading a legacy checkpoint without compatibility metadata; "
+                      << "the MPI layout and discretization cannot be verified." << std::endl;
+          }
+      }
+    catch (const std::exception &error)
+      {
+        MFEM_ABORT(error.what());
+      }
+
+    t = metadata.at("time").get<mfem::real_t>();
+    ti = stored_cycle;
+
+    const auto rank_file = checkpoint_config.RankFile(ti, myRank);
+    std::ifstream checkpoint_stream(rank_file, std::ios::binary);
+    MFEM_VERIFY(checkpoint_stream,
+                "Failed to open checkpoint state for reading: " << rank_file);
+
+    if (current_format)
+      {
+        std::string magic;
+        std::getline(checkpoint_stream, magic);
+        MFEM_VERIFY(magic == "THESEUS_CHECKPOINT_RAW_V1",
+                    "Invalid checkpoint state header in " << rank_file);
+        std::uint64_t stored_size = 0;
+        checkpoint_stream.read(reinterpret_cast<char *>(&stored_size), sizeof(stored_size));
+        MFEM_VERIFY(stored_size == static_cast<std::uint64_t>(vfes->GetVSize()),
+                    "Checkpoint state size " << stored_size
+                    << " does not match current finite-element space size " << vfes->GetVSize());
+        sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
+        checkpoint_stream.read(
+          reinterpret_cast<char *>(sol->HostWrite()),
+          static_cast<std::streamsize>(stored_size * sizeof(mfem::real_t)));
+        MFEM_VERIFY(checkpoint_stream,
+                    "Failed while reading checkpoint state: " << rank_file);
+      }
+    else
+      {
+        mfem::ParGridFunction loaded(pmesh.get(), checkpoint_stream);
+        MFEM_VERIFY(loaded.Size() == vfes->GetVSize(),
+                    "Legacy checkpoint state size " << loaded.Size()
+                    << " does not match current finite-element space size " << vfes->GetVSize());
+        sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
+        const auto *loaded_space = loaded.ParFESpace();
+        for (int i = 0; i < loaded.Size(); i++)
+          {
+            // MFEM serializes parallel grid functions using their space's DOF
+            // signs. Convert from the reconstructed legacy space's convention
+            // to the current solver space's convention while copying.
+            (*sol)[i] = loaded[i] * loaded_space->GetDofSign(i) * vfes->GetDofSign(i);
+          }
+      }
+
+    MPI_Barrier(pmesh->GetComm());
+    if (mfem::Mpi::Root())
+      {
+        std::cout << "Checkpoint loaded from " << checkpoint_config.CycleDirectory(ti)
+                  << " at cycle " << ti << ", time " << t << std::endl;
+      }
+  }
+
+  void Simulation::SaveCheckpoint()
+  {
+    // GetGlobalNE is collective, so every rank must build this before the
+    // root-only metadata write below.
+    const auto compatibility = CurrentCheckpointCompatibility();
+    const auto cycle_directory = checkpoint_config.CycleDirectory(ti);
+    std::error_code ec;
+    std::filesystem::create_directories(cycle_directory, ec);
+    MFEM_VERIFY(!ec, "Failed to create checkpoint directory " << cycle_directory
+                << ": " << ec.message());
+
+    const auto rank_file = checkpoint_config.RankFile(ti, myRank);
+    std::ofstream checkpoint_stream(rank_file, std::ios::binary);
+    MFEM_VERIFY(checkpoint_stream,
+                "Failed to open checkpoint state for writing: " << rank_file);
+    const std::uint64_t state_size = static_cast<std::uint64_t>(sol->Size());
+    checkpoint_stream << "THESEUS_CHECKPOINT_RAW_V1\n";
+    checkpoint_stream.write(reinterpret_cast<const char *>(&state_size), sizeof(state_size));
+    checkpoint_stream.write(
+      reinterpret_cast<const char *>(sol->HostRead()),
+      static_cast<std::streamsize>(state_size * sizeof(mfem::real_t)));
+    checkpoint_stream.close();
+    MFEM_VERIFY(checkpoint_stream,
+                "Failed while writing checkpoint state: " << rank_file);
+
+    // Publish the metadata only after every rank's state file is complete.
+    MPI_Barrier(pmesh->GetComm());
+    if (mfem::Mpi::Root())
+      {
+        const auto metadata_file = checkpoint_config.MetadataFile(ti);
+        std::ofstream metadata_stream(metadata_file);
+        MFEM_VERIFY(metadata_stream,
+                    "Failed to open checkpoint metadata for writing: " << metadata_file);
+        metadata_stream << std::setw(2)
+                        << CheckpointConfig::Metadata(t, ti, compatibility)
+                        << std::endl;
+        metadata_stream.close();
+        MFEM_VERIFY(metadata_stream,
+                    "Failed while writing checkpoint metadata: " << metadata_file);
+        std::cout << "Checkpoint saved to " << cycle_directory
+                  << " at cycle " << ti << ", time " << t << std::endl;
+      }
+    MPI_Barrier(pmesh->GetComm());
+  }
 
 
 }
