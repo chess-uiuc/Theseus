@@ -9,6 +9,7 @@
 #include "json.hpp"
 #include "mfem.hpp"
 
+#include <cmath>
 #include <stdexcept>
 #include <string>
 

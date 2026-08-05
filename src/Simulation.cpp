@@ -1538,7 +1538,6 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
             // MFEM serializes parallel grid functions using their space's DOF
             // signs. Convert from the reconstructed legacy space's convention
             // to the current solver space's convention while copying.
-            // (*sol)[i] = loaded[i];
             (*sol)[i] = loaded[i] * loaded_space->GetDofSign(i) * vfes->GetDofSign(i);
           }
       }
