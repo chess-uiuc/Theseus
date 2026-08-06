@@ -120,8 +120,9 @@ namespace Theseus
     mfem::Vector bc_vector_data;
 
     // Physics parts - used directly on device
-    mutable mfem::Vector elWaveSpeed; // size nelements
-    mutable mfem::Vector ifWaveSpeed; // size ninterior faces
+    // One value per element, or per element point in point-volume builds.
+    mutable mfem::Vector elWaveSpeed;
+    mutable mfem::Vector ifWaveSpeed; // size ninterior faces * points per face
     mutable mfem::Vector bndWaveSpeed; // size nbnd faces
     OperatorGasModel gas;
     InviscidFlux iflux;

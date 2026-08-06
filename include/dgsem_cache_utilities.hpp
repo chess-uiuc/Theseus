@@ -171,7 +171,11 @@ namespace Theseus {
     std::memcpy(cache->Dhat.HostWrite(),  Dhat_T.Data(),  sizeof(mfem::real_t)*Np_x*Np_x);
     std::memcpy(cache->Dhat2.HostWrite(), Dhat2_T.Data(), sizeof(mfem::real_t)*Np_x*Np_x);
 
+#ifdef POINT_PARALLEL_VOLUME
+      cache->elWaveSpeed.SetSize(nelem * cache->ndof_scalar_el);
+#else
     cache->elWaveSpeed.SetSize(nelem);
+#endif
     cache->elWaveSpeed = 0.0;
     cache->elWaveSpeed.UseDevice();
     cache->elWaveSpeed.Read();
@@ -208,7 +212,7 @@ namespace Theseus {
     cache->face_wt_plus.Read();
     cache->face_radius.Read();
 
-    cache->ifWaveSpeed.SetSize(cache->num_interior_faces);
+    cache->ifWaveSpeed.SetSize(cache->num_interior_faces * nfp);
     cache->ifWaveSpeed = 0.0;
     cache->ifWaveSpeed.UseDevice();
     cache->ifWaveSpeed.Read();
@@ -1045,7 +1049,15 @@ namespace Theseus {
     MFEM_VERIFY(ds_size > 0, "Elem attr not set");
 
     ds_size = cache.elWaveSpeed.Size();
+#ifdef POINT_PARALLEL_VOLUME
+    MFEM_VERIFY(ds_size == cache.num_elements * cache.ndof_scalar_el,
+                "Element point wavespeeds missized.");
+#else
     MFEM_VERIFY(ds_size == cache.num_elements, "Element wavespeeds missized.");
+#endif
+    ds_size = cache.ifWaveSpeed.Size();
+    MFEM_VERIFY(ds_size == cache.num_interior_faces * cache.num_face_points,
+                "Interior-face wavespeeds missized.");
     ds_size = cache.bndWaveSpeed.Size();
     ds_size = cache.elJac.Size();
     MFEM_VERIFY(ds_size > 0, "Element Jacobians not set");

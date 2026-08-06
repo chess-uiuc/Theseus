@@ -123,41 +123,212 @@ namespace Theseus
       return max_char_speed;
     }
 
+    template<typename ContextType>
+    MFEM_HOST_DEVICE inline
+    static mfem::real_t AssembleVolumePointKernel(
+      const ContextType &ctx, const mfem::real_t *el_u,
+      const mfem::real_t *elJac_d, const mfem::real_t *elMetric_d,
+      const int point, mfem::real_t *el_dudt)
+    {
+      const int Np_x = ctx.Np_x;
+      const int Np_y = ctx.Np_y;
+      const int Np_z = ctx.Np_z;
+      const int dim = ctx.dim;
+      const int neq = ctx.num_equations;
+      const int dof = ctx.ndof_scalar_el;
+      const mfem::real_t *Dhat2_d = ctx.Dhat2_d;
+      const int i = point % Np_x;
+      const int j = (point / Np_x) % Np_y;
+      const int k = point / (Np_x*Np_y);
+
+      mfem::real_t state_lower[Theseus::MAXEQ];
+      mfem::real_t state_upper[Theseus::MAXEQ];
+      mfem::real_t flux[Theseus::MAXEQ];
+      mfem::real_t point_rate[Theseus::MAXEQ] = {0.0};
+      mfem::real_t max_char_speed = 0.0;
+
+      for (int m = 0; m < Np_x; ++m)
+        {
+          if (m == i) { continue; }
+          const int lower = m < i ? m : i;
+          const int upper = m < i ? i : m;
+          const int lower_point = k*Np_y*Np_x + j*Np_x + lower;
+          const int upper_point = k*Np_y*Np_x + j*Np_x + upper;
+          Kernels::el_gather_state(el_u, dof, neq, lower_point, state_lower);
+          Kernels::el_gather_state(el_u, dof, neq, upper_point, state_upper);
+          const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
+            ctx.gas, state_lower, state_upper,
+            elMetric_d + lower_point*dim*dim,
+            elMetric_d + upper_point*dim*dim, flux);
+          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+          const mfem::real_t coefficient = Dhat2_d[m + Np_x*i];
+          for (int q = 0; q < neq; ++q)
+            {
+              point_rate[q] += coefficient*flux[q];
+            }
+        }
+
+      if (dim > 1)
+        {
+          for (int m = 0; m < Np_y; ++m)
+            {
+              if (m == j) { continue; }
+              const int lower = m < j ? m : j;
+              const int upper = m < j ? j : m;
+              const int lower_point = k*Np_y*Np_x + lower*Np_x + i;
+              const int upper_point = k*Np_y*Np_x + upper*Np_x + i;
+              Kernels::el_gather_state(
+                el_u, dof, neq, lower_point, state_lower);
+              Kernels::el_gather_state(
+                el_u, dof, neq, upper_point, state_upper);
+              const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
+                ctx.gas, state_lower, state_upper,
+                elMetric_d + lower_point*dim*dim + dim,
+                elMetric_d + upper_point*dim*dim + dim, flux);
+              max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+              const mfem::real_t coefficient = Dhat2_d[m + Np_y*j];
+              for (int q = 0; q < neq; ++q)
+                {
+                  point_rate[q] += coefficient*flux[q];
+                }
+            }
+        }
+
+      if (dim > 2)
+        {
+          for (int m = 0; m < Np_z; ++m)
+            {
+              if (m == k) { continue; }
+              const int lower = m < k ? m : k;
+              const int upper = m < k ? k : m;
+              const int lower_point = lower*Np_y*Np_x + j*Np_x + i;
+              const int upper_point = upper*Np_y*Np_x + j*Np_x + i;
+              Kernels::el_gather_state(
+                el_u, dof, neq, lower_point, state_lower);
+              Kernels::el_gather_state(
+                el_u, dof, neq, upper_point, state_upper);
+              const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
+                ctx.gas, state_lower, state_upper,
+                elMetric_d + lower_point*dim*dim + 2*dim,
+                elMetric_d + upper_point*dim*dim + 2*dim, flux);
+              max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+              const mfem::real_t coefficient = Dhat2_d[m + Np_z*k];
+              for (int q = 0; q < neq; ++q)
+                {
+                  point_rate[q] += coefficient*flux[q];
+                }
+            }
+        }
+
+      Kernels::el_scatter_assign(
+        point_rate, dof, neq, point, -1.0/elJac_d[point], el_dudt);
+      return max_char_speed;
+    }
+
+    template<typename ContextT>
+    MFEM_HOST_DEVICE static mfem::real_t AssembleFacePointKernel(const ContextT &ctx,
+                                                                 const mfem::real_t *u_face,
+                                                                 const mfem::real_t *nor_point,
+                                                                 const mfem::real_t w_minus,
+                                                                 const mfem::real_t w_plus,
+                                                                 const int fp,
+                                                                 mfem::real_t *rhs_face)
+    {
+      mfem::real_t point_flux[Theseus::MAXEQ];
+      mfem::real_t qMinus[Theseus::MAXEQ];
+      mfem::real_t qPlus[Theseus::MAXEQ];
+      const int neq = ctx.num_equations;
+      for(int q = 0; q < neq; ++q){
+        qMinus[q] = u_face[ctx.iface_idx(0, fp, q)];
+        qPlus[q] = u_face[ctx.iface_idx(1, fp, q)];
+      }
+
+      const mfem::real_t char_speed =
+        ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
+
+      for(int q = 0; q < neq; ++q){
+        rhs_face[ctx.iface_idx(0, fp, q)] = -w_minus * point_flux[q];
+        rhs_face[ctx.iface_idx(1, fp, q)] =  w_plus * point_flux[q];
+      }
+
+      return char_speed;
+    }
+
     template<typename ContextT>
     MFEM_HOST_DEVICE static mfem::real_t AssembleElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
                                                              const mfem::real_t *nor_face,const mfem::real_t *w_minus,
                                                              const mfem::real_t *w_plus, mfem::real_t *rhs_face)
     {
       mfem::real_t max_char_speed = 0.0;
-      mfem::real_t point_flux[Theseus::MAXEQ];
-      mfem::real_t qMinus[Theseus::MAXEQ];
-      mfem::real_t qPlus[Theseus::MAXEQ];
       const int nfp = ctx.num_face_points;
-      const int neq = ctx.num_equations;
       const int dim = ctx.dim;
-      // auto idx = [=](int side, int fp, int eq) -> int
-      // {
-      //   return (((side)*neq + eq)*nfp + fp);
-      // };
-      for (int i = 0; i < nfp; i++)
+      for (int fp = 0; fp < nfp; ++fp)
         {
-          const mfem::real_t *nor_d = nor_face + i*dim;
-          const mfem::real_t wminus = -w_minus[i];
-          const mfem::real_t wplus = w_plus[i];
-          // Could avoid these copy-in,out 
-          for(int j = 0;j < neq;j++){
-            qMinus[j] = u_face[ctx.iface_idx(0,i,j)];
-            qPlus[j] = u_face[ctx.iface_idx(1,i,j)];
-          }
-          max_char_speed = \
-            Kernels::rmax(max_char_speed, ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus,
-                                                                    nor_d, point_flux));
-          for(int j = 0;j < neq;j++){
-            rhs_face[ctx.iface_idx(0, i, j)] = wminus * point_flux[j];
-            rhs_face[ctx.iface_idx(1, i, j)] = wplus * point_flux[j];
-          }
+          const mfem::real_t char_speed =
+            AssembleFacePointKernel(ctx, u_face, nor_face + fp*dim,
+                                    w_minus[fp], w_plus[fp], fp, rhs_face);
+          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
         }
       return max_char_speed;
+    }
+
+    template<typename ContextT>
+    MFEM_HOST_DEVICE static mfem::real_t AssembleViscousFacePointKernel(
+      const ContextT &ctx, const mfem::real_t *u_face,
+      const mfem::real_t *nor_point, const mfem::real_t w_minus,
+      const mfem::real_t w_plus, const mfem::real_t *dprim_face_x,
+      const mfem::real_t *dprim_face_y, const mfem::real_t *dprim_face_z,
+      const mfem::real_t radius, const int fp, mfem::real_t *rhs_face)
+    {
+      mfem::real_t point_flux[Theseus::MAXEQ];
+      mfem::real_t vflux_minus[Theseus::MAXEQ][Theseus::MAXDIM];
+      mfem::real_t vflux_plus[Theseus::MAXEQ][Theseus::MAXDIM];
+      mfem::real_t qMinus[Theseus::MAXEQ];
+      mfem::real_t qPlus[Theseus::MAXEQ];
+      mfem::real_t gradPrim_plus[Theseus::MAXDIM][Theseus::MAXEQ];
+      mfem::real_t gradPrim_minus[Theseus::MAXDIM][Theseus::MAXEQ];
+      const mfem::real_t *dprim_face[Theseus::MAXDIM] = {
+        dprim_face_x, dprim_face_y, dprim_face_z};
+      const int neq = ctx.num_equations;
+      const int dim = ctx.dim;
+
+      for(int q = 0; q < neq; ++q){
+        const int minus_index = ctx.iface_idx(0, fp, q);
+        const int plus_index = ctx.iface_idx(1, fp, q);
+        qMinus[q] = u_face[minus_index];
+        qPlus[q] = u_face[plus_index];
+        for(int idim = 0; idim < dim; ++idim){
+          gradPrim_minus[idim][q] = dprim_face[idim][minus_index];
+          gradPrim_plus[idim][q] = dprim_face[idim][plus_index];
+        }
+      }
+
+      const mfem::real_t char_speed =
+        ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
+
+      NavierStokesFlux::ComputeViscousFluxKernel(
+        ctx.gas, qMinus, gradPrim_minus[0], gradPrim_minus[1],
+        gradPrim_minus[2], vflux_minus, ctx.axisymmetric,
+        ctx.axisymmetric ? radius : 0.0);
+      NavierStokesFlux::ComputeViscousFluxKernel(
+        ctx.gas, qPlus, gradPrim_plus[0], gradPrim_plus[1],
+        gradPrim_plus[2], vflux_plus, ctx.axisymmetric,
+        ctx.axisymmetric ? radius : 0.0);
+
+      for(int q = 0; q < neq; ++q){
+        for(int idim = 0; idim < dim; ++idim){
+          const mfem::real_t avg =
+            0.5*(vflux_minus[q][idim] + vflux_plus[q][idim]);
+          point_flux[q] -= nor_point[idim]*avg;
+        }
+      }
+
+      for(int q = 0; q < neq; ++q){
+        rhs_face[ctx.iface_idx(0, fp, q)] = -w_minus * point_flux[q];
+        rhs_face[ctx.iface_idx(1, fp, q)] =  w_plus * point_flux[q];
+      }
+
+      return char_speed;
     }
 
     template<typename ContextT>
@@ -169,76 +340,16 @@ namespace Theseus
                                                                     mfem::real_t *rhs_face)
     {
       mfem::real_t max_char_speed = 0.0;
-      mfem::real_t point_flux[Theseus::MAXEQ];
-      mfem::real_t vflux_minus[Theseus::MAXEQ][Theseus::MAXDIM];
-      mfem::real_t vflux_plus[Theseus::MAXEQ][Theseus::MAXDIM];
-      mfem::real_t qMinus[Theseus::MAXEQ];
-      mfem::real_t qPlus[Theseus::MAXEQ];
-      mfem::real_t gradPrim_plus[Theseus::MAXDIM][Theseus::MAXEQ];
-      mfem::real_t gradPrim_minus[Theseus::MAXDIM][Theseus::MAXEQ];
-      const mfem::real_t *dprim_face[Theseus::MAXDIM] = {dprim_face_x, dprim_face_y, dprim_face_z};
       const int nfp = ctx.num_face_points;
-      const int neq = ctx.num_equations;
       const int dim = ctx.dim;
-      // auto idx = [=](int side, int fp, int eq) -> int
-      // {
-      //   return (((side)*neq + eq)*nfp + fp);
-      // };
-      for (int i = 0; i < nfp; i++)
+      for (int fp = 0; fp < nfp; ++fp)
         {
-          const mfem::real_t *nor_d = nor_face + i*dim;
-          const mfem::real_t wminus = -w_minus[i];
-          const mfem::real_t wplus = w_plus[i];
-          // Could avoid these copy-in,out 
-          for(int j = 0;j < neq;j++){
-            int minus_index = ctx.iface_idx(0, i, j);
-            int plus_index = ctx.iface_idx(1, i, j);
-            qMinus[j] = u_face[minus_index];
-            qPlus[j] = u_face[plus_index];
-            for(int idim = 0;idim < dim;idim++){
-              gradPrim_minus[idim][j] = dprim_face[idim][minus_index];
-              gradPrim_plus[idim][j] = dprim_face[idim][plus_index];
-            }
-          }
-          max_char_speed = \
-            Kernels::rmax(max_char_speed, ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus,
-                                                                    nor_d, point_flux));
-
-          // Here, point_flux is +(F_inv * Normal)
-
-          // Grab the viscous flux
-          NavierStokesFlux::ComputeViscousFluxKernel(ctx.gas, qMinus,
-                                                     gradPrim_minus[0],
-                                                     gradPrim_minus[1],
-                                                     gradPrim_minus[2], vflux_minus,
-                                                     ctx.axisymmetric,
-                                                     ctx.axisymmetric ? face_radius[i] : 0.0);
-          NavierStokesFlux::ComputeViscousFluxKernel(ctx.gas, qPlus,
-                                                     gradPrim_plus[0],
-                                                     gradPrim_plus[1],
-                                                     gradPrim_plus[2], vflux_plus,
-                                                     ctx.axisymmetric,
-                                                     ctx.axisymmetric ? face_radius[i] : 0.0);
-
-          // Now we have vflux(+) and vflux(-)
-          // In this loop:
-          //  - average vflux
-          //  - dot avg vflux with nor
-          //  - accumulate dotted (avg*n) into point_flux
-          for(int j = 0;j < neq;j++){
-            for(int idim = 0;idim < dim;idim++){
-              mfem::real_t avg = 0.5*(vflux_minus[j][idim] + vflux_plus[j][idim]);
-              point_flux[j] -= nor_d[idim]*avg;
-            }
-          }
-          // So now: point_flux = +(F_inv * Normal) -(F^bar_visc * Normal)
-          // in this loop:
-          // - SET/Overwrite rhs_face
-          // - NEGATE the (-) face point_flux to properly orient
-          for(int j = 0;j < neq;j++){
-            rhs_face[ctx.iface_idx(0, i, j)] = wminus * point_flux[j];
-            rhs_face[ctx.iface_idx(1, i, j)] = wplus * point_flux[j];
-          }
+          const mfem::real_t radius =
+            ctx.axisymmetric ? face_radius[fp] : 0.0;
+          const mfem::real_t char_speed = AssembleViscousFacePointKernel(
+            ctx, u_face, nor_face + fp*dim, w_minus[fp], w_plus[fp],
+            dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face);
+          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
         }
       return max_char_speed;
     }
@@ -403,6 +514,117 @@ namespace Theseus
 
     template<typename ContextType>
     MFEM_HOST_DEVICE inline
+    static void AssembleViscousVolumePointKernel(
+      const ContextType &ctx, const mfem::real_t *el_u,
+      const mfem::real_t *elJac_d, const mfem::real_t *elMetric_d,
+      const mfem::real_t *elRadius_d,
+      const mfem::real_t *el_gradprim_x,
+      const mfem::real_t *el_gradprim_y,
+      const mfem::real_t *el_gradprim_z,
+      const int point, mfem::real_t *el_dudt)
+    {
+      const int Np_x = ctx.Np_x;
+      const int Np_y = ctx.Np_y;
+      const int Np_z = ctx.Np_z;
+      const int dim = ctx.dim;
+      const int neq = ctx.num_equations;
+      const int dof = ctx.ndof_scalar_el;
+      const mfem::real_t *Dhat_d = ctx.Dhat_d;
+      const int i = point % Np_x;
+      const int j = (point / Np_x) % Np_y;
+      const int k = point / (Np_x*Np_y);
+
+      mfem::real_t state[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqx[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqy[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqz[Theseus::MAXEQ] = {0.0};
+      mfem::real_t f_ref[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dU_viscous[Theseus::MAXEQ] = {0.0};
+
+      for (int l = 0; l < Np_x; ++l)
+        {
+          const int sample = k*Np_y*Np_x + j*Np_x + l;
+          const mfem::real_t coefficient = Dhat_d[l + Np_x*i];
+          Kernels::el_gather_state(el_u, dof, neq, sample, state);
+          Kernels::el_gather_grad_state(
+            el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
+            sample, dqx, dqy, dqz);
+          Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+            ctx.gas, dim, neq, state, dqx, dqy, dqz,
+            elMetric_d + sample*dim*dim, f_ref, ctx.axisymmetric,
+            ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+          for (int q = 0; q < neq; ++q)
+            {
+              dU_viscous[q] += coefficient*f_ref[q];
+            }
+        }
+
+      if (dim > 1)
+        {
+          for (int l = 0; l < Np_y; ++l)
+            {
+              const int sample = k*Np_y*Np_x + l*Np_x + i;
+              const mfem::real_t coefficient = Dhat_d[l + Np_y*j];
+              Kernels::el_gather_state(el_u, dof, neq, sample, state);
+              Kernels::el_gather_grad_state(
+                el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
+                sample, dqx, dqy, dqz);
+              Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+                ctx.gas, dim, neq, state, dqx, dqy, dqz,
+                elMetric_d + sample*dim*dim + dim, f_ref,
+                ctx.axisymmetric,
+                ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+              for (int q = 0; q < neq; ++q)
+                {
+                  dU_viscous[q] += coefficient*f_ref[q];
+                }
+            }
+        }
+
+      if (dim > 2)
+        {
+          for (int l = 0; l < Np_z; ++l)
+            {
+              const int sample = l*Np_y*Np_x + j*Np_x + i;
+              const mfem::real_t coefficient = Dhat_d[l + Np_z*k];
+              Kernels::el_gather_state(el_u, dof, neq, sample, state);
+              Kernels::el_gather_grad_state(
+                el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
+                sample, dqx, dqy, dqz);
+              Theseus::NavierStokesFlux::compute_ref_viscous_flux(
+                ctx.gas, dim, neq, state, dqx, dqy, dqz,
+                elMetric_d + sample*dim*dim + 2*dim, f_ref,
+                ctx.axisymmetric,
+                ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+              for (int q = 0; q < neq; ++q)
+                {
+                  dU_viscous[q] += coefficient*f_ref[q];
+                }
+            }
+        }
+
+      Kernels::el_scatter_add(
+        dU_viscous, dof, neq, point, 1.0/elJac_d[point], el_dudt);
+      if (ctx.axisymmetric)
+        {
+          Kernels::el_gather_state(el_u, dof, neq, point, state);
+          Kernels::el_gather_grad_state(
+            el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
+            point, dqx, dqy, dqz);
+          mfem::real_t source[Theseus::MAXEQ] = {0.0};
+          if (!AddAxisymmetricViscousSourceAwayFromAxis(
+                ctx.gas, state, dqx, dqy, dqz, elRadius_d[point], source))
+            {
+              AddAxisymmetricViscousSourceAtAxis(
+                ctx, el_u, el_gradprim_x, el_gradprim_y, el_gradprim_z,
+                elRadius_d, elJac_d, elMetric_d, point, source);
+            }
+          Kernels::el_scatter_add(source, dof, neq, point, 1.0, el_dudt);
+        }
+    }
+
+    template<typename ContextType>
+    MFEM_HOST_DEVICE inline
     static void AssembleViscousElementVolumeKernel(const ContextType &ctx,
                                                    const mfem::real_t *el_u,
                                                    const mfem::real_t *elJac_d,
@@ -537,6 +759,94 @@ namespace Theseus
                                               el_dudt);
                     }
                 }
+            }
+        }
+    }
+
+    template <typename ContextType>
+    MFEM_HOST_DEVICE inline
+    static void AssembleGradVolumePointKernel(
+      const ContextType &ctx, const mfem::real_t *el_u,
+      const mfem::real_t *elJac_d, const mfem::real_t *elMetric_d,
+      const int point, mfem::real_t *el_grad_u[Theseus::MAXDIM])
+    {
+      const int Np_x = ctx.Np_x;
+      const int Np_y = ctx.Np_y;
+      const int neq = ctx.num_equations;
+      const int dim = ctx.dim;
+      const int dof = ctx.ndof_scalar_el;
+      const mfem::real_t *D_d = ctx.D_d;
+
+      const int i = point % Np_x;
+      const int j = (point / Np_x) % Np_y;
+      const int k = point / (Np_x * Np_y);
+
+      mfem::real_t dudxi[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dudeta[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dudzeta[Theseus::MAXEQ] = {0.0};
+
+      for (int l = 0; l < Np_x; ++l)
+        {
+          const int sample = k*Np_y*Np_x + j*Np_x + l;
+          const mfem::real_t coefficient = D_d[l + Np_x*i];
+          for (int q = 0; q < neq; ++q)
+            {
+              dudxi[q] += el_u[sample + q*dof] * coefficient;
+            }
+        }
+
+      if (dim > 1)
+        {
+          for (int l = 0; l < Np_y; ++l)
+            {
+              const int sample = k*Np_y*Np_x + l*Np_x + i;
+              const mfem::real_t coefficient = D_d[l + Np_y*j];
+              for (int q = 0; q < neq; ++q)
+                {
+                  dudeta[q] += el_u[sample + q*dof] * coefficient;
+                }
+            }
+        }
+
+      if (dim > 2)
+        {
+          for (int l = 0; l < ctx.Np_z; ++l)
+            {
+              const int sample = l*Np_y*Np_x + j*Np_x + i;
+              const mfem::real_t coefficient = D_d[l + ctx.Np_z*k];
+              for (int q = 0; q < neq; ++q)
+                {
+                  dudzeta[q] += el_u[sample + q*dof] * coefficient;
+                }
+            }
+        }
+
+      const mfem::real_t invJ = 1.0 / elJac_d[point];
+      const mfem::real_t *adj = elMetric_d + point*dim*dim;
+      for (int q = 0; q < neq; ++q)
+        {
+          if (dim == 1)
+            {
+              el_grad_u[0][point + q*dof] = invJ*dudxi[q]*adj[0];
+            }
+          else if (dim == 2)
+            {
+              el_grad_u[0][point + q*dof] =
+                invJ*(dudxi[q]*adj[0] + dudeta[q]*adj[2]);
+              el_grad_u[1][point + q*dof] =
+                invJ*(dudxi[q]*adj[1] + dudeta[q]*adj[3]);
+            }
+          else
+            {
+              el_grad_u[0][point + q*dof] =
+                invJ*(dudxi[q]*adj[0] + dudeta[q]*adj[3] +
+                      dudzeta[q]*adj[6]);
+              el_grad_u[1][point + q*dof] =
+                invJ*(dudxi[q]*adj[1] + dudeta[q]*adj[4] +
+                      dudzeta[q]*adj[7]);
+              el_grad_u[2][point + q*dof] =
+                invJ*(dudxi[q]*adj[2] + dudeta[q]*adj[5] +
+                      dudzeta[q]*adj[8]);
             }
         }
     }
@@ -702,6 +1012,41 @@ namespace Theseus
 
     template <typename ContextT>
     MFEM_HOST_DEVICE inline
+    static void AssembleGradInteriorFacePointKernel(
+                                               const ContextT &ctx,
+                                               const mfem::real_t *u_face,
+                                               const mfem::real_t *nor_point,
+                                               const mfem::real_t w_minus,
+                                               const mfem::real_t w_plus,
+                                               const int fp,
+                                               mfem::real_t *rhs_face[Theseus::MAXDIM])
+    {
+      const int neq = ctx.num_equations;
+      const int dim = ctx.dim;
+
+      mfem::real_t jump[Theseus::MAXEQ];
+
+      for (int q = 0; q < neq; ++q)
+        {
+          jump[q] = mfem::real_t(0.5) *
+            (u_face[ctx.iface_idx(1, fp, q)] -
+             u_face[ctx.iface_idx(0, fp, q)]);
+        }
+
+      for (int idim = 0; idim < dim; ++idim){
+        mfem::real_t *rhs_d = rhs_face[idim];
+        const mfem::real_t n_d = nor_point[idim];
+        for (int q = 0; q < neq; ++q)
+          {
+            const mfem::real_t f_d = jump[q]*n_d;
+            rhs_d[ctx.iface_idx(0, fp, q)] = w_minus * f_d;
+            rhs_d[ctx.iface_idx(1, fp, q)] = w_plus * f_d;
+          }
+      }
+    }
+
+    template <typename ContextT>
+    MFEM_HOST_DEVICE inline
     static void AssembleGradInteriorFaceKernel(const ContextT &ctx,
                                                const mfem::real_t *u_face,
                                                const mfem::real_t *nor_face,
@@ -710,37 +1055,13 @@ namespace Theseus
                                                mfem::real_t *rhs_face[Theseus::MAXDIM])
     {
       const int nfp = ctx.num_face_points;
-      const int neq = ctx.num_equations;
       const int dim = ctx.dim;
 
-      mfem::real_t qMinus[Theseus::MAXEQ];
-      mfem::real_t qPlus[Theseus::MAXEQ];
-      mfem::real_t jump[Theseus::MAXEQ];
-
-      for (int i = 0; i < nfp; ++i)
+      for (int fp = 0; fp < nfp; ++fp)
         {
-          const mfem::real_t *nor_d = nor_face + i * dim;
-
-          const mfem::real_t wminus = w_minus[i];
-          const mfem::real_t wplus  = w_plus[i];
-
-          for (int q = 0; q < neq; ++q)
-            {
-              qMinus[q] = u_face[ctx.iface_idx(0, i, q)];
-              qPlus[q]  = u_face[ctx.iface_idx(1, i, q)];
-              jump[q]   = mfem::real_t(0.5) * (qPlus[q] - qMinus[q]);
-            }
-
-          for ( int idim = 0;idim < dim;idim++){
-            mfem::real_t *rhs_d = rhs_face[idim];
-            const mfem::real_t n_d = nor_d[idim];
-            for (int q = 0; q < neq; ++q)
-              {
-                const mfem::real_t f_d = jump[q]*n_d;
-                rhs_d[ctx.iface_idx(0, i, q)] = wminus * f_d;
-                rhs_d[ctx.iface_idx(1, i, q)] = wplus * f_d;
-              }
-          }
+          AssembleGradInteriorFacePointKernel(
+            ctx, u_face, nor_face + fp*dim, w_minus[fp], w_plus[fp], fp,
+            rhs_face);
         }
     }
 

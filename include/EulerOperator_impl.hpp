@@ -102,6 +102,68 @@ namespace Theseus
     mfem::real_t *ws_d = dc.elWaveSpeed_d;
 
     // Inside the FORALL below, executed on device
+#ifdef POINT_PARALLEL_VOLUME
+    const int npoints = ne * ndof;
+    mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
+    {
+      const int e = p / ndof;
+      const int point = p % ndof;
+      const int attr = elem_attr_d[e];
+      if (attr_marker_d[attr-1] == 0) {
+        ws_d[p] = 0.0;
+        return;
+      }
+
+      const int element_offset = e * estride;
+      ws_d[p] = DGSEMIntegrator::AssembleVolumePointKernel(
+        dc, Ue_d + element_offset, elJac_d + e*jac_stride,
+        elMetric_d + e*metric_stride, point, dUe_d + element_offset);
+    });
+
+    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+    {
+      const int attr = elem_attr_d[e];
+      if (attr_marker_d[attr-1] == 0) {
+        return;
+      }
+
+      const int element_offset = e * estride;
+      const mfem::real_t *u_el = Ue_d + element_offset;
+      mfem::real_t *du_el = dUe_d + element_offset;
+      const mfem::real_t *jac_el = elJac_d + e*jac_stride;
+      const mfem::real_t *metric_el = elMetric_d + e*metric_stride;
+      const mfem::real_t *radius_el =
+        dc.axisymmetric ? elRadius_d + e*jac_stride : nullptr;
+      mfem::real_t char_speed = ws_d[e*ndof];
+
+#ifdef SUBCELL_FV_BLENDING
+      const mfem::real_t alpha_fv = alpha_d[e];
+      if (alpha_fv > 1e-16) {
+        const mfem::real_t alpha_dg = 1.0 - alpha_fv;
+        mfem::real_t *du_fv = dUfv_d + element_offset;
+        const mfem::real_t *el_metric_xi =
+          metric_xi_d + e*npe_metric_xi*dim;
+        const mfem::real_t *el_metric_eta = dim > 1 ?
+          metric_eta_d + e*npe_metric_eta*dim : nullptr;
+        const mfem::real_t *el_metric_zeta = dim > 2 ?
+          metric_zeta_d + e*npe_metric_zeta*dim : nullptr;
+        const mfem::real_t fv_char_speed =
+          DGSEMIntegrator::ComputeFVFluxesKernel(
+            dc, u_el, jac_el, el_metric_xi, el_metric_eta,
+            el_metric_zeta, du_fv);
+        for (int value = 0; value < estride; ++value) {
+          du_el[value] =
+            alpha_dg*du_el[value] + alpha_fv*du_fv[value];
+        }
+        char_speed = Kernels::rmax(char_speed, fv_char_speed);
+      }
+#endif
+
+      AddAxisymmetricEulerElementSource(
+        dc, u_el, radius_el, jac_el, metric_el, du_el);
+      ws_d[e*ndof] = char_speed;
+    });
+#else
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
     {
     
@@ -152,6 +214,7 @@ namespace Theseus
       ws_d[e] = cs_el;
 
     });
+#endif
 
     // Scatter RHS back to storage
     operator_cache.restr_v->AddMultTranspose(dUe, pdudt);
@@ -160,9 +223,14 @@ namespace Theseus
     //  - Reduce for rank-local max_char_speed
     const mfem::real_t *ws = operator_cache.elWaveSpeed.HostRead();
     mfem::real_t max_char_speed = 0.0;
-    for(int e = 0;e < operator_cache.num_elements;e++)
+#ifdef POINT_PARALLEL_VOLUME
+    const int num_wave_speeds = ne * ndof;
+#else
+    const int num_wave_speeds = ne;
+#endif
+    for(int i = 0; i < num_wave_speeds; ++i)
       {
-        max_char_speed = std::max(max_char_speed, ws[e]);
+        max_char_speed = std::max(max_char_speed, ws[i]);
       }
 
     return max_char_speed;
@@ -178,6 +246,7 @@ namespace Theseus
     const int nfp = dc.num_face_points;
     const int nval_restr = operator_cache.restr_f->Height();
     const int nfaces = nval_restr / (nfp * neq * 2); // (+/-)
+    const int npoints = nfaces * nfp;
     const int face_size = 2*nfp*neq;
     const int norm_size = nfp*dim;
   
@@ -211,11 +280,27 @@ namespace Theseus
 
     mfem::real_t *ws_d = dc.ifWaveSpeed_d;
 
-    mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int i)
+#ifdef POINT_PARALLEL_INTERIOR_FACES
+    mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
     {
-      const int face_offset = i*face_size;
-      const int n_offset = i*norm_size;
-      const int w_offset = i*nfp;
+      const int f = p / nfp;
+      const int fp = p % nfp;
+      const int face_offset = f*face_size;
+      const int point_offset = f*nfp + fp;
+
+      const mfem::real_t *u_face_d = u_d + face_offset;
+      mfem::real_t *rhs_face_d = rhs_d + face_offset;
+
+      ws_d[p] = DGSEMIntegrator::AssembleFacePointKernel(
+        dc, u_face_d, nor_d + point_offset*dim,
+        inv1_d[point_offset], inv2_d[point_offset], fp, rhs_face_d);
+    });
+#else
+    mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
+    {
+      const int face_offset = f*face_size;
+      const int n_offset = f*norm_size;
+      const int w_offset = f*nfp;
 
       const mfem::real_t *u_face_d = u_d + face_offset;
       mfem::real_t *rhs_face_d = rhs_d + face_offset;
@@ -225,9 +310,10 @@ namespace Theseus
     
       mfem::real_t ws = DGSEMIntegrator::AssembleElementFaceKernel(dc, u_face_d, nor_face_d,
                                                                    w_minus_d, w_plus_d, rhs_face_d);
-      ws_d[i] = ws;
+      ws_d[f] = ws;
     
     });
+#endif
 
     operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
     pdudt += faces_dudt; // on device? 
@@ -236,9 +322,14 @@ namespace Theseus
     //  - Reduce for rank-local max_char_speed
     const mfem::real_t *ws = operator_cache.ifWaveSpeed.HostRead();
     mfem::real_t max_char_speed_facial = 0.0;
-    for(int f = 0;f < operator_cache.num_interior_faces;f++)
+#ifdef POINT_PARALLEL_INTERIOR_FACES
+    const int num_wave_speeds = npoints;
+#else
+    const int num_wave_speeds = nfaces;
+#endif
+    for(int i = 0; i < num_wave_speeds; ++i)
       {
-        max_char_speed_facial = std::max(max_char_speed_facial, ws[f]);
+        max_char_speed_facial = std::max(max_char_speed_facial, ws[i]);
       }
 
     return max_char_speed_facial;

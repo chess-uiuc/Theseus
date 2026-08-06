@@ -22,6 +22,10 @@ option(ENABLE_TIMER_OUTPUT_ALLRANKS "Output timers on all ranks." OFF)
 option(ENABLE_TIMER_SYNC_DEVICE "Fence timers with device sync." OFF)
 option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
+option(ENABLE_POINT_PARALLEL_INTERIOR_FACES
+       "Use one device thread per interior-face point." OFF)
+option(ENABLE_POINT_PARALLEL_VOLUME
+       "Use one device thread per element volume point where supported." OFF)
 ## NOTE: PLATO_DB_PATH can be specified at build-time to customize
 ##       the location of the database used by PLATO. Tries to default
 ##       to a reasonable location.
@@ -156,6 +160,16 @@ if(ENABLE_TIMERS)
     message(STATUS " - Timing device sync enabled")
     target_compile_definitions(theseus PRIVATE TIMER_SYNC_DEVICE)
   endif()
+endif()
+
+if(ENABLE_POINT_PARALLEL_INTERIOR_FACES)
+  message(STATUS "Using point-parallel interior-face assembly")
+  target_compile_definitions(theseus PRIVATE POINT_PARALLEL_INTERIOR_FACES)
+endif()
+
+if(ENABLE_POINT_PARALLEL_VOLUME)
+  message(STATUS "Using point-parallel volume assembly where supported")
+  target_compile_definitions(theseus PRIVATE POINT_PARALLEL_VOLUME)
 endif()
 
 if(SUBCELL_FV_BLENDING)
