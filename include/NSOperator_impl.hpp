@@ -418,7 +418,6 @@ namespace Theseus
     const int nfaces = restr_size / (2 * nfp * neq);
     const int npoints = nfaces * nfp;
     const int face_size = 2 * nfp * neq;
-    const int norm_size = nfp * dim;
 
     mfem::Vector &u_faces(operator_cache.sInt);
     if(u_faces.Size() != restr_size){
@@ -484,6 +483,7 @@ namespace Theseus
         wm_d[point_offset], wp_d[point_offset], fp, rhs_face);
     });
 #else
+    const int norm_size = nfp * dim;
     mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
     {
       const int face_offset = f * face_size;
@@ -590,7 +590,6 @@ namespace Theseus
     const int nfaces = operator_cache.restr_f->Height() / (nfp * neq * 2); // (+/-)
     const int npoints = nfaces * nfp;
     const int face_size = 2*nfp*neq;
-    const int norm_size = nfp*dim;
 
     const int restr_size = operator_cache.restr_f->Height();
     mfem::Vector &int_u(operator_cache.uInt);
@@ -674,6 +673,7 @@ namespace Theseus
         dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d);
     });
 #else
+    const int norm_size = nfp*dim;
     mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
     {
       const int face_offset = f*face_size;

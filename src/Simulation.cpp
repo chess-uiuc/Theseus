@@ -322,17 +322,17 @@ namespace Theseus
         if (exact_signature == 0)
           {
             exact_solution = std::make_unique<mfem::VectorFunctionCoefficient>(
-              num_equations,
-              Prandtl::ConditionFactory::Instance().
-                GetVectorTDFunctionBoundaryCondition0(key)());
+									       num_equations,
+									       Prandtl::ConditionFactory::Instance().
+									       GetVectorTDFunctionBoundaryCondition0(key)());
           }
         else if (exact_signature == 1)
           {
             const mfem::real_t x1 = exact["params"].value("x1", 0.0);
             exact_solution = std::make_unique<mfem::VectorFunctionCoefficient>(
-              num_equations,
-              Prandtl::ConditionFactory::Instance().
-                GetVectorTDFunctionBoundaryCondition1(key)(x1));
+									       num_equations,
+									       Prandtl::ConditionFactory::Instance().
+									       GetVectorTDFunctionBoundaryCondition1(key)(x1));
           }
         else
           {
@@ -471,13 +471,13 @@ namespace Theseus
     std::int64_t num_elements_local = ndofscalar / points_per_element;
     std::int64_t num_elements_total = num_elements_local;
 
-if (debug_simulation && numProcs > 1) {
+    if (debug_simulation && numProcs > 1) {
       for(int irank = 0;irank < numProcs;irank++){
-       if(myRank == irank){
-         std::cout << "Rank(" << myRank << ") Number of elements: "
-                   << num_elements_local << std::endl;
-       }
-       MPI_Barrier(pmesh->GetComm());
+	if(myRank == irank){
+	  std::cout << "Rank(" << myRank << ") Number of elements: "
+		    << num_elements_local << std::endl;
+	}
+	MPI_Barrier(pmesh->GetComm());
       }
     }
     if(numProcs > 1){
@@ -486,8 +486,8 @@ if (debug_simulation && numProcs > 1) {
       MPI_Allreduce(MPI_IN_PLACE, &max_nel, 1, MPI_LONG_LONG, MPI_MAX, pmesh->GetComm());
       MPI_Allreduce(MPI_IN_PLACE, &min_nel, 1, MPI_LONG_LONG, MPI_MIN, pmesh->GetComm());
       if(myRank == 0){
-       std::cout << "Partition NumElements (min, max) = (" << min_nel << ", " << max_nel
-                 << ")" << std::endl;
+	std::cout << "Partition NumElements (min, max) = (" << min_nel << ", " << max_nel
+		  << ")" << std::endl;
       }
     }
     MPI_Allreduce(MPI_IN_PLACE, &num_elements_total, 1, MPI_LONG_LONG, MPI_SUM, pmesh->GetComm());
@@ -754,38 +754,38 @@ if (debug_simulation && numProcs > 1) {
               {
                 bc_descr.type = int(Theseus::BCType::NoSlipIso);
                 bc_descr.data_kind = int(Theseus::BCDataKind::VectorAndScalarConstant);
-if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &&
-      bc_props.contains("temperature") && bc_props["temperature"].contains("scalar")))
-  { std::cerr << "Error: no-slip-isothermal requires velocity.vector and temperature.scalar." << std::endl; return 1; }
-{
-                    std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
-                    std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
-                    // std::string state_key = bc_props["vector"].get<std::string>();
-                    auto vel_bc = Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(velBC_key);
-                    auto temp_bc = Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(tempBC_key);
+		if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &&
+		      bc_props.contains("temperature") && bc_props["temperature"].contains("scalar")))
+		  { std::cerr << "Error: no-slip-isothermal requires velocity.vector and temperature.scalar." << std::endl; return 1; }
+		{
+		  std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
+		  std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
+		  // std::string state_key = bc_props["vector"].get<std::string>();
+		  auto vel_bc = Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(velBC_key);
+		  auto temp_bc = Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(tempBC_key);
 
-                    mfem::Vector bc_data(vel_bc.Size() + 1);
-                    std::ostringstream Ostr;
-                    Ostr << "Wall velocity: < ";
-                    for(int ivec = 0;ivec < vel_bc.Size();ivec++){
-                      bc_data[ivec] = vel_bc[ivec];
-                      Ostr << vel_bc[ivec] << " ";
-                    }
-                    Ostr << ">" << std::endl;
-                    Ostr << "Wall temperature: " << temp_bc << std::endl;
-                    bc_data[vel_bc.Size()] = temp_bc;
-                    bc_descr.data_index = Theseus::AppendBCVectorPayload(bc_vector_data, bc_data);
-                    Ostr << "bc_vector_data index: " << bc_descr.data_index << std::endl
-                         << "BC Data So Far: [";
-                    for(int ivec=0;ivec < bc_vector_data.Size();ivec++){
-                      Ostr << bc_vector_data[ivec] << " ";
-                    }
-                    Ostr << "]" << std::endl;
-		    if(debug_simulation && mfem::Mpi::Root()){
-		      std::cout << Ostr.str();
-		    }
-                    rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
-                  }
+		  mfem::Vector bc_data(vel_bc.Size() + 1);
+		  std::ostringstream Ostr;
+		  Ostr << "Wall velocity: < ";
+		  for(int ivec = 0;ivec < vel_bc.Size();ivec++){
+		    bc_data[ivec] = vel_bc[ivec];
+		    Ostr << vel_bc[ivec] << " ";
+		  }
+		  Ostr << ">" << std::endl;
+		  Ostr << "Wall temperature: " << temp_bc << std::endl;
+		  bc_data[vel_bc.Size()] = temp_bc;
+		  bc_descr.data_index = Theseus::AppendBCVectorPayload(bc_vector_data, bc_data);
+		  Ostr << "bc_vector_data index: " << bc_descr.data_index << std::endl
+		       << "BC Data So Far: [";
+		  for(int ivec=0;ivec < bc_vector_data.Size();ivec++){
+		    Ostr << bc_vector_data[ivec] << " ";
+		  }
+		  Ostr << "]" << std::endl;
+		  if(debug_simulation && mfem::Mpi::Root()){
+		    std::cout << Ostr.str();
+		  }
+		  rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
+		}
               }
             else if (type == "supersonic-outflow")
               {
@@ -1043,7 +1043,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
             pd->SetLevelsOfDetail(order);
             pd->SetDataFormat(mfem::VTKFormat::BINARY);
             pd->SetHighOrderOutput(
-              visualization_config.MeshMode() == VisualizationMeshMode::vtk_high_order);
+				   visualization_config.MeshMode() == VisualizationMeshMode::vtk_high_order);
           }
         else if (visit)
           {
@@ -1084,7 +1084,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     if (mfem::Mpi::Root())
       {
         std::cout << "================================================" << std::endl
-                  << "Theseus Simulation Running Now" << std::endl
+                  << "Theseus::Simulation Running " << std::endl
                   << "================================================" << std::endl;
       }
     const auto &gasModel = rhsOp->GetGasModelInterface();
@@ -1206,154 +1206,167 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
         if(mfem::Mpi::Root()){
           std::cout << "Writing initial soln..." << std::endl;
         }
-        Theseus::ScopedTimer timer("VisInit");
+	{
+	  Theseus::ScopedTimer timer("VisInit");
 
-        UpdateVisualizationFields();
+	  UpdateVisualizationFields();
 
-        SaveVisualization();
+	  SaveVisualization();
+	}
+        if(mfem::Mpi::Root()){
+          std::cout << "Done writing initial soln." << std::endl;
+        }
       }
 
 
-    while (!done)
-      {
+    if(mfem::Mpi::Root()){
+      std::cout << "Timestepping ..." << std::endl;
+    }
+    {
+      ScopedTimer timestepping_timer("Timestepping");
+      while (!done)
+	{
 
-        if (debug_simulation)
-          {
-            MPI_Barrier(pmesh->GetComm());
-            if(mfem::Mpi::Root()){
-              std::cout << "############################################"
-                        << std::endl
-                        << "[TIME STEP = " << ti << ", TIME = " << t << "]"
-                        << std::endl
-                        << "############################################"
-                        << std::endl;
-            }
-          }
+	  if (debug_simulation)
+	    {
+	      MPI_Barrier(pmesh->GetComm());
+	      if(mfem::Mpi::Root()){
+		std::cout << "############################################"
+			  << std::endl
+			  << "[TIME STEP = " << ti << ", TIME = " << t << "]"
+			  << std::endl
+			  << "############################################"
+			  << std::endl;
+	      }
+	    }
 
-        // Compute the time step size
-        dt_real = std::min(dt, t_final - t);
+	  // Compute the time step size
+	  dt_real = std::min(dt, t_final - t);
 
-        // Perform the time step
-        {
-          Theseus::ScopedTimer timer("Timestep");
-          ode_solver->Step(*sol, t, dt_real);
-        }
-        ti++;
+	  // Perform the time step
+	  {
+	    Theseus::ScopedTimer timer("Timestep");
+	    ode_solver->Step(*sol, t, dt_real);
+	  }
+	  ti++;
 
-        mfem::real_t cfl_rep = 0.0;
-        if (ti % print_interval == 0 || (variable_dt && cfl > 0) || debug_simulation){
-          rhsOp->ComputeIntegralMeasures(*sol, diag);
-        }
-        // Update the time step size with CFL?
-        if ((variable_dt && cfl > 0) || (ti%print_interval == 0) || debug_simulation)
-          {
-            mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
-            MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
-                          MPI_MAX, pmesh->GetComm());
-            mfem::real_t dt_adv = heff / max_char_speed;
-            mfem::real_t dt_est = dt_adv;
+	  mfem::real_t cfl_rep = 0.0;
+	  if (ti % print_interval == 0 || (variable_dt && cfl > 0) || debug_simulation){
+	    rhsOp->ComputeIntegralMeasures(*sol, diag);
+	  }
+	  // Update the time step size with CFL?
+	  if ((variable_dt && cfl > 0) || (ti%print_interval == 0) || debug_simulation)
+	    {
+	      mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
+	      MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
+			    MPI_MAX, pmesh->GetComm());
+	      mfem::real_t dt_adv = heff / max_char_speed;
+	      mfem::real_t dt_est = dt_adv;
 #ifdef PARABOLIC
-            mfem::real_t nu_eff = nuscale * physicsConstants.mu / diag.min_dens;
-            mfem::real_t dt_diff = heff * heff / nu_eff;
-            mfem::real_t dt_m1 = 1.0 / (1.0/dt_adv + 1.0/dt_diff);
-            dt_est = dt_m1;
+	      mfem::real_t nu_eff = nuscale * physicsConstants.mu / diag.min_dens;
+	      mfem::real_t dt_diff = heff * heff / nu_eff;
+	      mfem::real_t dt_m1 = 1.0 / (1.0/dt_adv + 1.0/dt_diff);
+	      dt_est = dt_m1;
 #endif
-            if(variable_dt){
-              dt = cfl / dim * dt_est;
-            } else {
-              cfl_rep = dim * dt / dt_est;
-            }
+	      if(variable_dt){
+		dt = cfl / dim * dt_est;
+	      } else {
+		cfl_rep = dim * dt / dt_est;
+	      }
 
-            if(debug_simulation && mfem::Mpi::Root()){
+	      if(debug_simulation && mfem::Mpi::Root()){
 #ifdef PARABOLIC
-              std::cout << "DT(adv, diff, sim): (" << dt_adv << ", " << dt_diff
-                        << ", " << dt << ")" << std::endl
-                        << "Effective viscosity: " << nu_eff << std::endl;
+		std::cout << "DT(adv, diff, sim): (" << dt_adv << ", " << dt_diff
+			  << ", " << dt << ")" << std::endl
+			  << "Effective viscosity: " << nu_eff << std::endl;
 #else
-              std::cout << "DT(adv, sim): (" << dt_adv << ", " << dt << ")" << std::endl;
+		std::cout << "DT(adv, sim): (" << dt_adv << ", " << dt << ")" << std::endl;
 #endif
-              if(!variable_dt){
-                std::cout << "CFL: "<< cfl_rep << std::endl;
-              }
-              std::cout << "Max wavespeed: " << max_char_speed << std::endl
-                        << "Max specific volume: " << 1.0 / diag.min_dens << std::endl;
-            }
+		if(!variable_dt){
+		  std::cout << "CFL: "<< cfl_rep << std::endl;
+		}
+		std::cout << "Max wavespeed: " << max_char_speed << std::endl
+			  << "Max specific volume: " << 1.0 / diag.min_dens << std::endl;
+	      }
 
-          }
+	    }
 
-        // Check for completion
-        done = ((t >= t_final - 1e-8 * dt) || StepLimitReached(ti, nsteps_max));
+	  // Check for completion
+	  done = ((t >= t_final - 1e-8 * dt) || StepLimitReached(ti, nsteps_max));
 
-        // Check for NaN/Inf values?
-        rho.HostRead();
-        if (nancheck && ti % nancheck_steps == 0)
-          {
-            for (const mfem::real_t &val : rho)
-              {
-                if (std::isnan(val) || std::isinf(val))
-                  {
-                    MFEM_ABORT("NaN/Inf Detected at Time Step " + std::to_string(ti) +
-                               " on Rank " + std::to_string(myRank));
-                    break;
-                  }
-              }
-          }
-        // Visualize the solution?
-        if (visualize && (done || t >= next_save_t || ti % vis_steps == 0))
-          {
+	  // Check for NaN/Inf values?
+	  rho.HostRead();
+	  if (nancheck && ti % nancheck_steps == 0)
+	    {
+	      for (const mfem::real_t &val : rho)
+		{
+		  if (std::isnan(val) || std::isinf(val))
+		    {
+		      MFEM_ABORT("NaN/Inf Detected at Time Step " + std::to_string(ti) +
+				 " on Rank " + std::to_string(myRank));
+		      break;
+		    }
+		}
+	    }
+	  // Visualize the solution?
+	  if (visualize && (done || t >= next_save_t || ti % vis_steps == 0))
+	    {
 
-            UpdateVisualizationFields();
+	      UpdateVisualizationFields();
 
-            SaveVisualization();
-
-
-            save_dt = (t < trigger_t) ? save_dt1 : save_dt2;
-            next_save_t += save_dt;
-
-          }
+	      SaveVisualization();
 
 
-        if (checkpoint_config.SaveEnabled() && (done || t >= next_checkpoint_t))
-          {
-            SaveCheckpoint();
-            next_checkpoint_t += checkpoint_config.Interval();
-          }
+	      save_dt = (t < trigger_t) ? save_dt1 : save_dt2;
+	      next_save_t += save_dt;
 
-        if (ti % print_interval == 0 || debug_simulation)
-          {
-            mfem::real_t ke0 = diag0.ke;
-            if(ke0 == 0.0){ ke0 = 1.0; };
-            if (mfem::Mpi::Root())
-              {
-                std::ostringstream Ostr;
-                Ostr << "time step: " << ti << ", time: " << t;
-                if(variable_dt){
-                  Ostr << ", dt: " << dt;
-                } else {
-                  Ostr << ", cfl: " << cfl_rep;
-                }
-                Ostr << std::endl
-                     << "rho(" << diag.min_dens << "," << diag.max_dens << "), "
-                     << "p(" << diag.min_press << "," << diag.max_press << "), "
-                     << "T(" << diag.min_temp << "," << diag.max_temp << ")" << std::endl
-                     << "TotalChange: Mass: " << (diag.mass - diag0.mass) / diag0.mass
-                     << ", Energy: " <<  (diag.en - diag0.en) / diag0.en
-                     << ", K.E.: " << (diag.ke - diag0.ke) / ke0 << std::endl;
-                std::cout << Ostr.str();
-              }
-          }
-      }
+	    }
 
+
+	  if (checkpoint_config.SaveEnabled() && (done || t >= next_checkpoint_t))
+	    {
+	      SaveCheckpoint();
+	      next_checkpoint_t += checkpoint_config.Interval();
+	    }
+
+	  if (ti % print_interval == 0 || debug_simulation)
+	    {
+	      mfem::real_t ke0 = diag0.ke;
+	      if(ke0 == 0.0){ ke0 = 1.0; };
+	      if (mfem::Mpi::Root())
+		{
+		  std::ostringstream Ostr;
+		  Ostr << "time step: " << ti << ", time: " << t;
+		  if(variable_dt){
+		    Ostr << ", dt: " << dt;
+		  } else {
+		    Ostr << ", cfl: " << cfl_rep;
+		  }
+		  Ostr << std::endl
+		       << "rho(" << diag.min_dens << "," << diag.max_dens << "), "
+		       << "p(" << diag.min_press << "," << diag.max_press << "), "
+		       << "T(" << diag.min_temp << "," << diag.max_temp << ")" << std::endl
+		       << "TotalChange: Mass: " << (diag.mass - diag0.mass) / diag0.mass
+		       << ", Energy: " <<  (diag.en - diag0.en) / diag0.en
+		       << ", K.E.: " << (diag.ke - diag0.ke) / ke0 << std::endl;
+		  std::cout << Ostr.str();
+		}
+	    }
+	}
+    }
+    if(mfem::Mpi::Root()){
+      std::cout << "Timestepping done." << std::endl;
+    }
     if (exact_solution)
       {
         exact_solution->SetTime(t);
         mfem::FunctionCoefficient cylindrical_weight(
-          [](const mfem::Vector &x) {
-            return AxisymmetricGeometry::MeasureMultiplier(
-              AxisymmetricGeometry::enabled,
-              AxisymmetricGeometry::enabled ?
-                AxisymmetricGeometry::Radius(x.GetData()) : 0.0);
-          });
+						     [](const mfem::Vector &x) {
+						       return AxisymmetricGeometry::MeasureMultiplier(
+												      AxisymmetricGeometry::enabled,
+												      AxisymmetricGeometry::enabled ?
+												      AxisymmetricGeometry::Radius(x.GetData()) : 0.0);
+						     });
         const mfem::real_t l1_error =
           sol->ComputeLpError(1.0, *exact_solution, &cylindrical_weight);
         const mfem::real_t l2_error =
@@ -1458,13 +1471,13 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     constexpr bool axisymmetric = false;
 #endif
     return {numProcs,
-            order,
-            dim,
-            num_equations,
-            static_cast<int>(sizeof(mfem::real_t)),
-            static_cast<long long>(pmesh->GetGlobalNE()),
-            static_cast<long long>(vfes->GlobalVSize()),
-            axisymmetric};
+	order,
+	dim,
+	num_equations,
+	static_cast<int>(sizeof(mfem::real_t)),
+	static_cast<long long>(pmesh->GetGlobalNE()),
+	static_cast<long long>(vfes->GlobalVSize()),
+	axisymmetric};
   }
 
   void Simulation::LoadCheckpoint()
@@ -1487,7 +1500,7 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     try
       {
         current_format = CheckpointConfig::ValidateMetadata(
-          metadata, CurrentCheckpointCompatibility());
+							    metadata, CurrentCheckpointCompatibility());
         if (!current_format && mfem::Mpi::Root())
           {
             std::cerr << "Warning: loading a legacy checkpoint without compatibility metadata; "
@@ -1520,8 +1533,8 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
                     << " does not match current finite-element space size " << vfes->GetVSize());
         sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
         checkpoint_stream.read(
-          reinterpret_cast<char *>(sol->HostWrite()),
-          static_cast<std::streamsize>(stored_size * sizeof(mfem::real_t)));
+			       reinterpret_cast<char *>(sol->HostWrite()),
+			       static_cast<std::streamsize>(stored_size * sizeof(mfem::real_t)));
         MFEM_VERIFY(checkpoint_stream,
                     "Failed while reading checkpoint state: " << rank_file);
       }
@@ -1569,8 +1582,8 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
     checkpoint_stream << "THESEUS_CHECKPOINT_RAW_V1\n";
     checkpoint_stream.write(reinterpret_cast<const char *>(&state_size), sizeof(state_size));
     checkpoint_stream.write(
-      reinterpret_cast<const char *>(sol->HostRead()),
-      static_cast<std::streamsize>(state_size * sizeof(mfem::real_t)));
+			    reinterpret_cast<const char *>(sol->HostRead()),
+			    static_cast<std::streamsize>(state_size * sizeof(mfem::real_t)));
     checkpoint_stream.close();
     MFEM_VERIFY(checkpoint_stream,
                 "Failed while writing checkpoint state: " << rank_file);
@@ -1594,6 +1607,4 @@ if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &
       }
     MPI_Barrier(pmesh->GetComm());
   }
-
-
 }

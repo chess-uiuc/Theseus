@@ -248,7 +248,6 @@ namespace Theseus
     const int nfaces = nval_restr / (nfp * neq * 2); // (+/-)
     const int npoints = nfaces * nfp;
     const int face_size = 2*nfp*neq;
-    const int norm_size = nfp*dim;
   
     if(operator_cache.uInt.Size() != nval_restr){
       operator_cache.uInt.SetSize(nval_restr);
@@ -296,6 +295,7 @@ namespace Theseus
         inv1_d[point_offset], inv2_d[point_offset], fp, rhs_face_d);
     });
 #else
+    const int norm_size = nfp*dim;
     mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
     {
       const int face_offset = f*face_size;
