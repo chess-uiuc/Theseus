@@ -1223,6 +1223,7 @@ namespace Theseus
       std::cout << "Timestepping ..." << std::endl;
     }
     {
+      TimestepTimer timestep_timer;
       ScopedTimer timestepping_timer("Timestepping");
       while (!done)
 	{
@@ -1244,9 +1245,15 @@ namespace Theseus
 	  dt_real = std::min(dt, t_final - t);
 
 	  // Perform the time step
+	  if(ti > 1){
+	    timestep_timer.Start();
+	  }
 	  {
 	    Theseus::ScopedTimer timer("Timestep");
 	    ode_solver->Step(*sol, t, dt_real);
+	  }
+	  if(ti > 1){
+	    timestep_timer.Stop();
 	  }
 	  ti++;
 
@@ -1353,6 +1360,7 @@ namespace Theseus
 		}
 	    }
 	}
+      timestep_timer.Finalize();
     }
     if(mfem::Mpi::Root()){
       std::cout << "Timestepping done." << std::endl;
