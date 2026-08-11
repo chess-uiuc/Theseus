@@ -103,7 +103,234 @@ namespace Theseus
     }
 
     template<typename GasModelT>
-    MFEM_HOST_DEVICE inline static mfem::real_t ComputeFaceFluxKernel(const GasModelT &gasModel,const mfem::real_t *state1,
+    MFEM_HOST_DEVICE
+    inline static mfem::real_t
+    ComputeFaceFluxKernel(const GasModelT &gasModel,
+			  const mfem::real_t *state1,
+			  const mfem::real_t *state2,
+			  const mfem::real_t *nor,
+			  mfem::real_t *flux)
+    {
+      using real_t = mfem::real_t;
+      
+      const int dim = gasModel.dim();
+      
+      const int mass_eq = gasModel.L.eq_mass;
+      const int mom0_eq = gasModel.L.eq_mom0;
+      const int ener_eq = gasModel.L.eq_energy;
+      
+      const real_t gamma    = gasModel.phys.gamma;
+      const real_t gamma_m1 = gasModel.phys.gammaM1;
+      const real_t gamma_m1_inv = 1.0 / gamma_m1;
+      
+      //--------------------------------------------------------------------------
+      // Conservative state
+      //--------------------------------------------------------------------------
+      
+      const real_t rho1 = state1[mass_eq];
+      const real_t rho2 = state2[mass_eq];
+      
+      const real_t irho1 = 1.0 / rho1;
+      const real_t irho2 = 1.0 / rho2;
+      
+      const real_t rhoE1 = state1[ener_eq];
+      const real_t rhoE2 = state2[ener_eq];
+      
+      const real_t rho_sum  = rho1 + rho2;
+      const real_t rho_mean = 0.5 * rho_sum;
+      const real_t drho     = rho2 - rho1;
+      
+      //--------------------------------------------------------------------------
+      // Log mean of density
+      //
+      // u = ((rho2-rho1)/(rho2+rho1))^2
+      //--------------------------------------------------------------------------
+      
+      const real_t rho_z = drho / rho_sum;
+      const real_t rho_u = rho_z * rho_z;
+      
+      real_t rho_ln;
+      
+      if (rho_u < 1.0e-4)
+	{
+	  const real_t denom =
+	    105.0 + rho_u *
+	    (35.0 + rho_u *
+	     (21.0 + 15.0 * rho_u));
+	  
+	  rho_ln = rho_sum * 52.5 / denom;
+	}
+      else
+	{
+	  rho_ln = drho / Kernels::rlog(rho2 * irho1);
+	}
+      
+      //--------------------------------------------------------------------------
+      // Velocity-dependent quantities
+      //--------------------------------------------------------------------------
+      
+      real_t mom1[3] = {0.0, 0.0, 0.0};
+      real_t mom2[3] = {0.0, 0.0, 0.0};
+      real_t vbar[3] = {0.0, 0.0, 0.0};
+      
+      real_t v21 = 0.0;
+      real_t v22 = 0.0;
+      real_t vn = 0.0;
+      real_t nor2 = 0.0;
+      
+      real_t hhat = 0.0;
+      real_t diss = 0.0;
+      
+      for (int d = 0; d < dim; ++d)
+	{
+	  const real_t m1 = state1[mom0_eq + d];
+	  const real_t m2 = state2[mom0_eq + d];
+	  
+	  mom1[d] = m1;
+	  mom2[d] = m2;
+	  
+	  const real_t v1 = m1 * irho1;
+	  const real_t v2 = m2 * irho2;
+	  
+	  const real_t vb = 0.5 * (v1 + v2);
+	  const real_t dv = v2 - v1;
+	  
+	  vbar[d] = vb;
+	  
+	  v21 += v1 * v1;
+	  v22 += v2 * v2;
+	  
+	  vn   += vb * nor[d];
+	  nor2 += nor[d] * nor[d];
+	  
+	  // Exact simplification of:
+	  //
+	  // -0.25*(v1*v1 + v2*v2) + vb*vb
+	  //
+	  hhat += 0.5 * v1 * v2;
+	  
+	  diss += 0.5 * drho * v1 * v2
+            + rho_mean * dv * vb;
+	}
+      
+      const real_t nor_mag = std::sqrt(nor2);
+      
+      //--------------------------------------------------------------------------
+      // CPG thermodynamics.
+      //
+      // Avoid gasModel.pressure() and gasModel.sound_speed(), since those
+      // independently reconstruct kinetic energy.
+      //--------------------------------------------------------------------------
+      
+      const real_t rhoe1 =
+	rhoE1 - 0.5 * rho1 * v21;
+      
+      const real_t rhoe2 =
+	rhoE2 - 0.5 * rho2 * v22;
+      
+      const real_t p1 = gamma_m1 * rhoe1;
+      const real_t p2 = gamma_m1 * rhoe2;
+      
+      const real_t c1 =
+	std::sqrt(gamma * p1 * irho1);
+      
+      const real_t c2 =
+	std::sqrt(gamma * p2 * irho2);
+      
+      //--------------------------------------------------------------------------
+      // Preserve original LLF wave-speed definition for apples-to-apples timing.
+      //--------------------------------------------------------------------------
+      
+      const real_t vmag1 = std::sqrt(v21);
+      const real_t vmag2 = std::sqrt(v22);
+      
+      const real_t lambda_max =
+	Kernels::rmax(vmag1 + c1, vmag2 + c2);
+      
+      //--------------------------------------------------------------------------
+      // Beta quantities
+      //--------------------------------------------------------------------------
+      
+      const real_t beta1 = 0.5 * rho1 / p1;
+      const real_t beta2 = 0.5 * rho2 / p2;
+      
+      // Avoid later divisions by beta.
+      const real_t ibeta1 = 2.0 * p1 * irho1;
+      const real_t ibeta2 = 2.0 * p2 * irho2;
+      
+      //--------------------------------------------------------------------------
+      // Log mean of beta
+      //--------------------------------------------------------------------------
+      
+      const real_t beta_sum = beta1 + beta2;
+      const real_t dbeta    = beta2 - beta1;
+      
+      const real_t beta_z = dbeta / beta_sum;
+      const real_t beta_u = beta_z * beta_z;
+      
+      real_t beta_ln;
+      
+      if (beta_u < 1.0e-4)
+	{
+	  const real_t denom =
+	    105.0 + beta_u *
+	    (35.0 + beta_u *
+	     (21.0 + 15.0 * beta_u));
+	  
+	  beta_ln = beta_sum * 52.5 / denom;
+	}
+      else
+	{
+	  beta_ln =
+	    dbeta / Kernels::rlog(beta2 / beta1);
+	}
+      
+      const real_t ibeta_ln = 1.0 / beta_ln;
+      
+      //--------------------------------------------------------------------------
+      // KEPEC thermodynamic terms
+      //--------------------------------------------------------------------------
+      
+      const real_t p_hat =
+	rho_mean / beta_sum;
+      
+      hhat +=
+	0.5 * ibeta_ln * gamma_m1_inv
+	+ p_hat / rho_ln;
+      
+      diss +=
+	0.5 * drho * gamma_m1_inv * ibeta_ln
+	+ 0.5 * rho_mean * gamma_m1_inv
+	* (ibeta2 - ibeta1);
+      
+      //--------------------------------------------------------------------------
+      // Numerical flux
+      //--------------------------------------------------------------------------
+      
+      const real_t llf =
+	0.5 * lambda_max * nor_mag;
+      
+      flux[mass_eq] =
+	rho_ln * vn
+	- llf * drho;
+      
+      for (int d = 0; d < dim; ++d)
+	{
+	  flux[mom0_eq + d] =
+	    rho_ln * vn * vbar[d]
+	    + p_hat * nor[d]
+	    - llf * (mom2[d] - mom1[d]);
+	}
+      
+      flux[ener_eq] =
+	rho_ln * vn * hhat
+	- llf * diss;
+      
+      return lambda_max;
+    }
+
+    template<typename GasModelT>
+    MFEM_HOST_DEVICE inline static mfem::real_t ComputeFaceFluxKernel2(const GasModelT &gasModel,const mfem::real_t *state1,
                                                                 const mfem::real_t *state2, const mfem::real_t *nor,
                                                                 mfem::real_t *flux)
     {

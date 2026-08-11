@@ -939,14 +939,12 @@ namespace Theseus
     const mfem::real_t *metric_eta_d = (dim > 1 ? dc.subcell_metric_eta_d : nullptr);
     const mfem::real_t *metric_zeta_d = (dim > 2 ? dc.subcell_metric_zeta_d : nullptr);
 
-    mfem::Vector dUfv(operator_cache.restr_v->Height());
-    dUfv.UseDevice();
-    mfem::real_t *dUfv_d = dUfv.Write();
-    // zero the array on-device
-    {
-      mfem::real_t *d = dUfv_d;
-      mfem::forall(dUfv.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
+    mfem::Vector &dUfv(operator_cache.dUfv);
+    if(dUfv.Size() != restr_size){
+      dUfv.SetSize(restr_size);
+      dUfv.UseDevice();
     }
+    mfem::real_t *dUfv_d = dUfv.Write();
 
     const mfem::real_t *alpha_d = operator_cache.alpha->Read();
 #endif

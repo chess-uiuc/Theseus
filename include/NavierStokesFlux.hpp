@@ -64,9 +64,261 @@ namespace Theseus
       // return speed + sound;
     }
 
+    // Optimized CPG-specific version written by ChatGPT
     template<typename GasT>
     MFEM_HOST_DEVICE inline
-    static void ComputeViscousFluxKernel(const GasT &gas,
+    static void ComputeViscousFluxKernel(
+					 const GasT &gas,
+					 const mfem::real_t *state,
+					 const mfem::real_t *dprim_x,
+					 const mfem::real_t *dprim_y,
+					 const mfem::real_t *dprim_z,
+					 mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM],
+					 bool axisymmetric = false,
+					 mfem::real_t radius = 0.0,
+					 mfem::real_t *azimuthal_stress = nullptr)
+    {
+      using real_t = mfem::real_t;
+
+      const int dim = gas.dim();
+
+      // State layout.
+      const int eq_mass = gas.L.eq_mass;
+      const int eq_mom0 = gas.L.eq_mom0;
+      const int eq_ener = gas.L.eq_energy;
+
+      //--------------------------------------------------------------------------
+      // Preserve original output-zeroing behavior exactly for this benchmark.
+      //
+      // Once correctness is established, this is something worth revisiting:
+      // normally only the active equation rows need to be initialized.
+      //--------------------------------------------------------------------------
+      for (int q = 0; q < Theseus::MAXEQ; ++q)
+	{
+	  for (int dir = 0; dir < dim; ++dir)
+	    {
+	      visc_flux[q][dir] = 0.0;
+	    }
+	}
+
+      Theseus::PointStateView S{state};
+
+      //--------------------------------------------------------------------------
+      // CPG / transport constants.
+      //
+      // These accessors only return constants from phys, so leave them alone.
+      // They should inline away essentially for free.
+      //--------------------------------------------------------------------------
+      const real_t mu      = gas.viscosity(S);
+      const real_t kappa   = gas.thermal_conductivity(S);
+      const real_t mu_bulk = gas.bulk_viscosity(S);
+
+      const real_t gamma          = gas.phys.gamma;
+      const real_t gamma_m1       = gas.phys.gammaM1;
+      const real_t gamma_m1_inv   = gas.phys.gammaM1Inverse;
+
+      // cp() is also just a CPG constant.
+      const real_t cp = gas.cp(S);
+
+      //--------------------------------------------------------------------------
+      // Construct the CPG state ONCE.
+      //--------------------------------------------------------------------------
+
+      const real_t rho  = state[eq_mass];
+      const real_t irho = 1.0 / rho;
+
+      real_t vel[Theseus::MAXDIM] = {0.0, 0.0, 0.0};
+      real_t v2 = 0.0;
+
+      for (int d = 0; d < dim; ++d)
+	{
+	  const real_t vd = state[eq_mom0 + d] * irho;
+	  vel[d] = vd;
+	  v2 += vd * vd;
+	}
+
+      // p = (gamma-1) * rho*e
+      //
+      // Reuse v^2 computed above rather than calling pressure(), which would
+      // perform another momentum-squared reduction and density division.
+      const real_t rhoE = state[eq_ener];
+      const real_t rhoe = rhoE - 0.5 * rho * v2;
+      const real_t p = gamma_m1 * rhoe;
+      const real_t p_over_rho = p * irho;
+
+      //--------------------------------------------------------------------------
+      // Velocity gradient tensor:
+      //
+      //     grad_vel[component][physical direction]
+      //
+      // This is genuinely needed for the viscous stress tensor.
+      //--------------------------------------------------------------------------
+
+      real_t grad_vel[Theseus::MAXDIM][Theseus::MAXDIM] = {{0.0}};
+
+      grad_vel[0][0] = dprim_x[eq_mom0];
+
+      if (dim > 1)
+	{
+	  grad_vel[0][1] = dprim_y[eq_mom0];
+
+	  grad_vel[1][0] = dprim_x[eq_mom0 + 1];
+	  grad_vel[1][1] = dprim_y[eq_mom0 + 1];
+
+	  if (dim > 2)
+	    {
+	      grad_vel[0][2] = dprim_z[eq_mom0];
+
+	      grad_vel[1][2] = dprim_z[eq_mom0 + 1];
+
+	      grad_vel[2][0] = dprim_x[eq_mom0 + 2];
+	      grad_vel[2][1] = dprim_y[eq_mom0 + 2];
+	      grad_vel[2][2] = dprim_z[eq_mom0 + 2];
+	    }
+	}
+
+      //--------------------------------------------------------------------------
+      // Velocity divergence.
+      //--------------------------------------------------------------------------
+
+      real_t div_vel = 0.0;
+
+      for (int d = 0; d < dim; ++d)
+	{
+	  div_vel += grad_vel[d][d];
+	}
+
+      //--------------------------------------------------------------------------
+      // Axisymmetric contribution.
+      //--------------------------------------------------------------------------
+
+      real_t radial_rate = 0.0;
+
+      if (axisymmetric)
+	{
+	  const int radial = AxisymmetricGeometry::radial_coordinate;
+
+	  if (radius > AxisymmetricGeometry::radius_tolerance)
+	    {
+	      radial_rate = vel[radial] / radius;
+	    }
+	  else
+	    {
+	      radial_rate = grad_vel[radial][radial];
+	      // Axis parity requires u_r = 0.
+	      // Preserve original behavior in the energy flux.
+	      vel[radial] = 0.0;
+	    }
+	  div_vel += radial_rate;
+	}
+
+      //--------------------------------------------------------------------------
+      // Precompute the bulk contribution used by every diagonal stress.
+      //
+      // Original:
+      //
+      //   mu * (2 grad_u - mu_bulk * div_u)
+      //
+      // becomes
+      //
+      //   2 mu grad_u - bulk_term
+      //--------------------------------------------------------------------------
+
+      const real_t bulk_term = mu * mu_bulk * div_vel;
+
+      //--------------------------------------------------------------------------
+      // Optional azimuthal normal stress.
+      //--------------------------------------------------------------------------
+
+      if (azimuthal_stress)
+	{
+	  *azimuthal_stress = 0.0;
+
+	  if (axisymmetric)
+	    {
+	      *azimuthal_stress = 2.0 * mu * radial_rate - bulk_term;
+	    }
+	}
+
+      //--------------------------------------------------------------------------
+      // CPG temperature-gradient coefficient.
+      //
+      // Existing implementation:
+      //
+      //   cv  = cp / gamma
+      //   fac = gammaM1Inverse / (cv*rho)
+      //
+      // Therefore:
+      //
+      //   fac = gamma * gammaM1Inverse / cp * (1/rho)
+      //
+      // Compute it once here.
+      //--------------------------------------------------------------------------
+      const real_t grad_t_fac =gamma * gamma_m1_inv * irho / cp;
+
+      //--------------------------------------------------------------------------
+      // Build momentum and energy viscous fluxes by physical direction.
+      //
+      // Calculate grad(T) on demand for each direction, so grad_rho[],
+      // grad_p[], and grad_t[] are no longer needed.
+      //--------------------------------------------------------------------------
+
+      for (int dir = 0; dir < dim; ++dir)
+	{
+	  real_t grad_rho_dir;
+	  real_t grad_p_dir;
+
+	  if (dir == 0)
+	    {
+	      grad_rho_dir = dprim_x[eq_mass];
+	      grad_p_dir   = dprim_x[eq_ener];
+	    }
+	  else if (dir == 1)
+	    {
+	      grad_rho_dir = dprim_y[eq_mass];
+	      grad_p_dir   = dprim_y[eq_ener];
+	    }
+	  else
+	    {
+	      grad_rho_dir = dprim_z[eq_mass];
+	      grad_p_dir   = dprim_z[eq_ener];
+	    }
+
+	  // Exact CPG equivalent of gas.grad_temperature().
+	  const real_t grad_t = grad_t_fac * (grad_p_dir - p_over_rho * grad_rho_dir);
+
+	  // Start conductive energy flux.
+	  real_t eflux = kappa * grad_t;
+	  //-----------------------------------------------------------------------
+	  // Stress tensor and viscous work.
+	  //
+	  // Accumulate vel . tau directly while tau is still live instead of
+	  // storing tau into visc_flux and then reading it back.
+	  //-----------------------------------------------------------------------
+
+	  for (int mom = 0; mom < dim; ++mom)
+	    {
+	      real_t tau;
+
+	      if (mom == dir)
+		{
+		  // Preserve legacy diagonal stress exactly.
+		  tau = 2.0 * mu * grad_vel[mom][dir] - bulk_term;
+		}
+	      else
+		{
+		  tau = mu * (grad_vel[mom][dir] + grad_vel[dir][mom]);
+		}
+	      visc_flux[eq_mom0 + mom][dir] = tau;
+	      eflux += vel[mom] * tau;
+	    }
+	  visc_flux[eq_ener][dir] = eflux;
+	}
+    }
+    
+    template<typename GasT>
+    MFEM_HOST_DEVICE inline
+    static void ComputeViscousFluxKernel2(const GasT &gas,
                                          const mfem::real_t *state,
                                          const mfem::real_t *dprim_x,
                                          const mfem::real_t *dprim_y,
