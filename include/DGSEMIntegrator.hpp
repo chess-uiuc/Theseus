@@ -266,9 +266,6 @@ namespace Theseus
       mfem::real_t state1_local[Theseus::MAXEQ];
       mfem::real_t state2_local[Theseus::MAXEQ];
 
-      for(int i = 0;i < npe*neq;i++)
-	el_dudt[i] = 0.0;
-
       for (int k = 0; k < Np_z; k++)
         {
           for (int j = 0; j < Np_y; j++)
@@ -288,11 +285,11 @@ namespace Theseus
                     Kernels::rmax(max_char_speed,
                                   ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
                                                             state2_local, nor, flux_num));
+                  const mfem::real_t inv_volume =
+                    1.0 / (elJac[id1] * qWgt[i]);
                   for(int q = 0; q < neq;q++){
-                    du_subcell[q] -= flux_num[q];
-                  }
-                  for(int q = 0; q < neq;q++){
-                    du_subcell[q] /= (elJac[id1] * qWgt[i]);
+                    du_subcell[q] =
+                      (du_subcell[q] - flux_num[q]) * inv_volume;
                   }
                   Kernels::el_scatter_assign(du_subcell, npe, neq, id1, 1.0, el_dudt);
                   for(int q = 0; q < neq;q++){
@@ -303,8 +300,10 @@ namespace Theseus
                   }
                   id1 = id2;
                 }
+              const mfem::real_t inv_volume =
+                1.0 / (elJac[id1] * qWgt[Np_x-1]);
               for(int q = 0;q < neq;q++){
-                du_subcell[q] /= (elJac[id1] * qWgt[Np_x-1]);
+                du_subcell[q] *= inv_volume;
               }
               Kernels::el_scatter_assign(du_subcell, npe, neq, id1, 1.0, el_dudt);
             }
@@ -334,11 +333,11 @@ namespace Theseus
                                                                 state1_local,
                                                                 state2_local,
                                                                 nor, flux_num));
+                      const mfem::real_t inv_volume =
+                        1.0 / (elJac[id1] * qWgt[j]);
                       for(int q = 0;q < neq;q++){
-                        du_subcell[q] -= flux_num[q];
-                      }
-                      for(int q = 0;q < neq;q++){
-                        du_subcell[q] /= (elJac[id1] * qWgt[j]);
+                        du_subcell[q] =
+                          (du_subcell[q] - flux_num[q]) * inv_volume;
                       }
                       Kernels::el_scatter_add(du_subcell, npe, neq, id1, 1.0, el_dudt);
                       for(int q = 0;q < neq;q++){
@@ -347,8 +346,10 @@ namespace Theseus
                       }
                       id1 = id2;                   
                     }
+                  const mfem::real_t inv_volume =
+                    1.0 / (elJac[id1] * qWgt[Np_y - 1]);
                   for(int q = 0;q < neq;q++){
-                    du_subcell[q] /= (elJac[id1] * qWgt[Np_y - 1]);
+                    du_subcell[q] *= inv_volume;
                   }
                   Kernels::el_scatter_add(du_subcell, npe, neq, id1, 1.0, el_dudt);
                 }
@@ -375,11 +376,11 @@ namespace Theseus
                             Kernels::rmax(max_char_speed,
                                           ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
                                                                     state2_local, nor, flux_num));
+                          const mfem::real_t inv_volume =
+                            1.0 / (elJac[id1] * qWgt[k]);
                           for(int q = 0;q < neq;q++){
-                            du_subcell[q] -= flux_num[q];
-                          }
-                          for(int q = 0;q < neq;q++){
-                            du_subcell[q] /= (elJac[id1] * qWgt[k]);
+                            du_subcell[q] =
+                              (du_subcell[q] - flux_num[q]) * inv_volume;
                           }
                           Kernels::el_scatter_add(du_subcell, npe, neq, id1, 1.0, el_dudt);
                       
@@ -389,8 +390,10 @@ namespace Theseus
                           }
                           id1 = id2;            
                         }
+                      const mfem::real_t inv_volume =
+                        1.0 / (elJac[id1] * qWgt[Np_z - 1]);
                       for(int q = 0;q < neq;q++){
-                        du_subcell[q] /= (elJac[id1] * qWgt[Np_z - 1]);
+                        du_subcell[q] *= inv_volume;
                       }
                       Kernels::el_scatter_add(du_subcell, npe, neq, id1, 1.0, el_dudt);
                     }
