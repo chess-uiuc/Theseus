@@ -45,19 +45,28 @@ namespace Theseus
       uVol.SetSize(psize);
       uVol.UseDevice();
     }
-    operator_cache.restr_v->Mult(pu, uVol);
+    {
+      Theseus::ScopedTimer vrt("VolumeRestriction");
+      operator_cache.restr_v->Mult(pu, uVol);
+    }
     const int int_restr_size = operator_cache.restr_f->Height();
     if(uInt.Size() != int_restr_size){
       uInt.SetSize(int_restr_size);
       uInt.UseDevice();
     }
-    operator_cache.restr_f->Mult(pu, uInt);
+    {
+      Theseus::ScopedTimer ifr("InteriorFaceRestriction");
+      operator_cache.restr_f->Mult(pu, uInt);
+    }
     const int bnd_restr_size = operator_cache.restr_b->Height();
     if(uBnd.Size() != bnd_restr_size){
       uBnd.SetSize(bnd_restr_size);
       uBnd.UseDevice();
     }
-    operator_cache.restr_b->Mult(pu, uBnd);
+    {
+      Theseus::ScopedTimer bndr("BoundaryFaceRestriction");
+      operator_cache.restr_b->Mult(pu, uBnd);
+    }
     operator_cache.u_vol_restr_ready = true;
     operator_cache.u_bnd_restr_ready = true;
     operator_cache.u_int_restr_ready = true;
@@ -406,7 +415,9 @@ namespace Theseus
       FetchRestrictions(pu, operator_cache.uVol, operator_cache.uInt, operator_cache.uBnd);
       if (this->P)
 	{
-	  operator_cache.pdudt.SetSize(this->P->Height());
+	  if(operator_cache.pdudt.Size() != this->P->Height()){
+	    operator_cache.pdudt.SetSize(this->P->Height());
+	  }
 	}
     }
     mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;

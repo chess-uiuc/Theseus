@@ -111,9 +111,10 @@ namespace Theseus
     CheckpointCompatibility CurrentCheckpointCompatibility() const;
     void LoadCheckpoint();
     void SaveCheckpoint();
-  
+    void PrintFacePartitionDiagnostics() const;
+
     Simulation(std::string);
-  
+    
   public:    
     static Simulation& SimulationCreate(std::string);
     int LoadConfig(const std::string &config_file_path);
