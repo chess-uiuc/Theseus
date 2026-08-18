@@ -14,6 +14,7 @@
 #include "LaxFriedrichsFlux.hpp"
 #include "ChandrashekarFlux.hpp"
 #include "HLLFlux.hpp"
+#include "RoeFlux.hpp"
 #include "LTETable.hpp"
 #include "TheseusConfig.hpp"
 
@@ -93,6 +94,9 @@ namespace Theseus {
     const bool use_hll =
       inv_flux_string == "hll";
 
+    const bool use_roe =
+      inv_flux_string == "roe";
+
     const bool use_llf =
       inv_flux_string == "llf" ||
       inv_flux_string == "lfr" ||
@@ -157,10 +161,22 @@ namespace Theseus {
                                                                          indicator, alpha_max, gas_model,
                                                                          gasModelName, numFluxName);
           }
+        else if (use_roe)
+          {
+            std::string numFluxName("Roe");
+            using Physics =
+              Theseus::PhysicsTraits<Theseus::IdealGasModel,
+                                     Theseus::RoeFlux::InviscidFlux>;
+
+            return MakeTypedRHSOperator<Physics, Theseus::IdealGasModel>(inviscid, runtime,
+                                                                         vfes, fes0, pmesh, eta, alpha, grad_u,
+                                                                         indicator, alpha_max, gas_model,
+                                                                         gasModelName, numFluxName);
+          }
         else {
           std::cerr << "Error: Invalid Numerical Flux Type specified: "
                     << inv_flux_string << "\n"
-                    << "Supported: Chandrashekar, LLF/LFR, HLL"
+                    << "Supported: Chandrashekar, LLF/LFR, HLL, Roe"
                     << std::endl;
           return nullptr;
         }
