@@ -989,7 +989,10 @@ namespace Theseus {
 
 	for (int m = 0; m < ndofs; ++m)
 	  {
-	    modal_h[m * ndofs + q] = modes(m);
+	    // Store the transform transposed.  CheckIndicatorSmoothness assigns
+	    // adjacent modal rows to adjacent accelerator threads, so this layout
+	    // turns their coefficient reads into contiguous transactions.
+	    modal_h[q * ndofs + m] = modes(m);
 	  }
       }
 

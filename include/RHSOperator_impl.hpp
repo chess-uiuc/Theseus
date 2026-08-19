@@ -164,50 +164,85 @@ namespace Theseus
 
     const int ne = operator_cache.num_elements;
     const int ndofs = operator_cache.ndof_scalar_el;
+    constexpr int block_size = 256;
 
     const mfem::real_t *indicator_d = operator_cache.indicatorField.Read();
     const mfem::real_t *modal_d = operator_cache.modal.Read();
     const mfem::real_t *keep_M1_d = operator_cache.keep_M1.Read();
     const mfem::real_t *keep_M2_d = operator_cache.keep_M2.Read();
-    mfem::real_t *eta_d = operator_cache.eta.ReadWrite();
+    mfem::real_t *eta_d = operator_cache.eta.Write();
 
-    mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
+    // One thread block cooperates on each element.  The previous kernel used
+    // one thread per element, leaving the dense ndofs-by-ndofs modal transform
+    // entirely serial and severely under-filling accelerators at modest ne.
+    mfem::forall_2D(ne, block_size, 1, [=] MFEM_HOST_DEVICE (int e)
    {
      const mfem::real_t *u = indicator_d + e * ndofs;
 
-     mfem::real_t mm = 0.0;
-     mfem::real_t m1m1 = 0.0;
-     mfem::real_t m2m2 = 0.0;
+     MFEM_SHARED mfem::real_t mm_s[block_size];
+     MFEM_SHARED mfem::real_t m1m1_s[block_size];
+     MFEM_SHARED mfem::real_t m2m2_s[block_size];
 
-     for (int m = 0; m < ndofs; ++m)
+     MFEM_FOREACH_THREAD(t, x, block_size)
+       {
+	 mm_s[t] = 0.0;
+	 m1m1_s[t] = 0.0;
+	 m2m2_s[t] = 0.0;
+       }
+     MFEM_SYNC_THREAD;
+
+     MFEM_FOREACH_THREAD(m, x, ndofs)
        {
 	 mfem::real_t mode = 0.0;
-
 	 for (int q = 0; q < ndofs; ++q)
 	   {
-	     mode += modal_d[m * ndofs + q] * u[q];
+	     // Modal data is cached transposed so adjacent threads read adjacent
+	     // coefficients while each dot product retains its original q order.
+	     mode += modal_d[q * ndofs + m] * u[q];
 	   }
 
-	 const mfem::real_t m1 = keep_M1_d[m] * mode;
-	 const mfem::real_t m2 = keep_M2_d[m] * mode;
+	 const int t = MFEM_THREAD_ID(x);
+	 const mfem::real_t mode2 = mode * mode;
+	 mm_s[t] += mode2;
+	 m1m1_s[t] += keep_M1_d[m] * mode2;
+	 m2m2_s[t] += keep_M2_d[m] * mode2;
+       }
+     MFEM_SYNC_THREAD;
 
-	 mm += mode * mode;
-	 m1m1 += m1 * m1;
-	 m2m2 += m2 * m2;
+     for (int stride = block_size / 2; stride > 0; stride /= 2)
+       {
+	 MFEM_FOREACH_THREAD(t, x, stride)
+	   {
+	     mm_s[t] += mm_s[t + stride];
+	     m1m1_s[t] += m1m1_s[t + stride];
+	     m2m2_s[t] += m2m2_s[t + stride];
+	   }
+	 MFEM_SYNC_THREAD;
        }
 
-     const mfem::real_t eps = 1.0e-30;
-     mfem::real_t val = 0.0;
+     if (MFEM_THREAD_ID(x) == 0)
+	{
+	 const mfem::real_t mm = mm_s[0];
+	 const mfem::real_t m1m1 = m1m1_s[0];
+	 const mfem::real_t m2m2 = m2m2_s[0];
+	 const mfem::real_t eps = 1.0e-30;
+	 mfem::real_t val = 0.0;
 
-     if(mm > eps) {
-       val = 1.0 - m1m1 / mm;
-       if (m1m1 > eps){
-	 val = Theseus::Kernels::rmax(val, 1.0 - m2m2 / m1m1);
-       } else {
-	 val = 1.0;
-       }
-     }
-     eta_d[e] = Theseus::Kernels::rmin(Theseus::Kernels::rmax(val, 0.0), 1.0);
+	 if (mm > eps)
+	   {
+	     val = 1.0 - m1m1 / mm;
+	     if (m1m1 > eps)
+	       {
+		 val = Theseus::Kernels::rmax(val, 1.0 - m2m2 / m1m1);
+	       }
+	     else
+	       {
+		 val = 1.0;
+	       }
+	   }
+	 eta_d[e] = Theseus::Kernels::rmin(
+	   Theseus::Kernels::rmax(val, 0.0), 1.0);
+	 }
    });
 
   }
