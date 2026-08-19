@@ -224,7 +224,7 @@ build_mfem() {
     cpu)
       ;;
     cuda)
-      opts+=("-DMFEM_USE_CUDA=YES" "-DMFEM_CUDA_ARCH=$CUDA_ARCH")
+      opts+=("-DMFEM_USE_CUDA=YES" "-DMFEM_CUDA_ARCH=$CUDA_ARCH" "-DCUDA_ARCH=$CUDA_ARCH")
       ;;
     hip)
       opts+=("-DMFEM_USE_HIP=YES")
