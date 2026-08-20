@@ -170,13 +170,15 @@ build_hypre() {
     "--disable-fortran"
     "--prefix=$PREFIX"
     "--enable-mixedint"
+    "--without-umpire"
   )
 
   case "$DEVICE" in
     cpu)
       ;;
     cuda)
-      opts+=("--with-cuda" "--with-gpu-arch=$CUDA_ARCH" "--with-umpire-include=${PREFIX}/include" "--with-umpire-lib-dirs=${PREFIX}/lib" "--with-umpire-libs=\"umpire camp\"")
+      # opts+=("--with-cuda" "--with-gpu-arch=$CUDA_ARCH" "--with-umpire-include=${PREFIX}/include" "--with-umpire-lib-dirs=${PREFIX}/lib" "--with-umpire-libs=\"umpire camp\"")
+      opts+=("--with-cuda" "--with-gpu-arch=$CUDA_ARCH")
       ;;
     hip)
       opts+=("--with-hip" "--enable-mixedint")
@@ -222,7 +224,7 @@ build_mfem() {
     cpu)
       ;;
     cuda)
-      opts+=("-DMFEM_USE_CUDA=YES" "-DMFEM_CUDA_ARCH=$CUDA_ARCH")
+      opts+=("-DMFEM_USE_CUDA=YES" "-DMFEM_CUDA_ARCH=$CUDA_ARCH" "-DCUDA_ARCH=$CUDA_ARCH")
       ;;
     hip)
       opts+=("-DMFEM_USE_HIP=YES")

@@ -264,9 +264,6 @@ cat "${patched}"
 
 local -a run_command=(mpiexec -n "${NMPIRANKS}")
 
-# if [[ "${DEVICE}" != "cpu" ]]; then
-# fi
-
 # Override MPI_LAUNCHER if required for this platform:
 case "${HOST_SHORT}" in
     tuo*)
@@ -275,17 +272,18 @@ case "${HOST_SHORT}" in
         ;;
     front*)
         # Frontera@TACC
-        run_command=(ibrun -n "${NMPIRANKS}")
-	# Determine if any launcher is required ...
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
-	run_command+=(../device_launcher.sh)
+        run_command=(ibrun -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
     c[0-9]*-[0-9]*)
         # Frontera@TACC compute nodes
-        run_command=(ibrun -n "${NMPIRANKS}")
-	# Determine if any launcher is required ...
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
-	run_command+=(../device_launcher.sh)
+        run_command=(ibrun -n "${NMPIRANKS}" ../device_launcher.sh)
+        ;;
+    gh*)
+        # GraceHopper/Delta
+	cp "${UTILDIR}/launch_delta_device.sh" "${RUNDIR}/device_launcher.sh"
+        run_command=(srun -N "${NHOSTS}" -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
 esac
 run_command+=(../theseus -d "${DEVICE}" -c "${patched}")

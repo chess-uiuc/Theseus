@@ -95,7 +95,7 @@ namespace Theseus
       }
   }
 
-  constexpr bool debug_simulation = false;
+  constexpr bool debug_simulation = true;
 
   int Simulation::LoadConfig(const std::string &config_file_path)
   {
@@ -446,7 +446,10 @@ namespace Theseus
       }
 
     pmesh->ExchangeFaceNbrData();
-
+    // if (debug_simulation)
+    //   {
+    // 	PrintFacePartitionDiagnostics();
+    //   }
 #ifdef SUBCELL_FV_BLENDING
     fec0 = std::make_shared<mfem::DG_FECollection>(0, dim);
     fes0 = std::make_shared<mfem::ParFiniteElementSpace>(pmesh.get(), fec0.get());
@@ -1614,5 +1617,85 @@ namespace Theseus
                   << " at cycle " << ti << ", time " << t << std::endl;
       }
     MPI_Barrier(pmesh->GetComm());
+  }
+
+  void Simulation::PrintFacePartitionDiagnostics() const
+  {
+    const MPI_Comm comm = pmesh->GetComm();
+    
+    const int n_interior_all =
+      pmesh->GetNFbyType(mfem::FaceType::Interior);
+    
+    const int n_partition =
+      pmesh->GetNSharedFaces();
+    
+    const int n_interior_local =
+      n_interior_all - n_partition;
+    
+    const int n_boundary =
+      pmesh->GetNFbyType(mfem::FaceType::Boundary);
+    
+    const int n_neighbors =
+      pmesh->GetNFaceNeighbors();
+    
+    for (int rank = 0; rank < numProcs; ++rank)
+      {
+	if (myRank == rank)
+	  {
+	    std::cout
+	      << "Face diagnostics rank " << myRank << ":\n"
+	      << "  local elements             : " << pmesh->GetNE() << '\n'
+	      << "  interior faces, local-local: " << n_interior_local << '\n'
+	      << "  partition-boundary faces   : " << n_partition << '\n'
+	      << "  interior faces processed   : " << n_interior_all << '\n'
+	      << "  physical boundary faces    : " << n_boundary << '\n'
+	      << "  face-neighbor ranks        : " << n_neighbors << '\n';
+	    
+	    int neighbor_sum = 0;
+	    
+	    for (int fn = 0; fn < n_neighbors; ++fn)
+	      {
+		const int neighbor_rank = pmesh->GetFaceNbrRank(fn);
+		const int group = pmesh->GetFaceNbrGroup(fn);
+		
+		int neighbor_faces = 0;
+		
+		if (dim == 1)
+		  {
+		    neighbor_faces = pmesh->GroupNVertices(group);
+		  }
+		else if (dim == 2)
+		  {
+		    neighbor_faces = pmesh->GroupNEdges(group);
+		  }
+		else
+		  {
+		    neighbor_faces =
+		      pmesh->GroupNTriangles(group) +
+		      pmesh->GroupNQuadrilaterals(group);
+		  }
+		
+		neighbor_sum += neighbor_faces;
+		
+		std::cout
+		  << "    neighbor rank " << neighbor_rank
+		  << ": " << neighbor_faces
+		  << " shared faces\n";
+	      }
+	    
+	    std::cout
+	      << "  neighbor-face sum          : " << neighbor_sum << '\n';
+	    
+	    if (neighbor_sum != n_partition)
+	      {
+		std::cout
+		  << "  WARNING: neighbor sum differs from GetNSharedFaces()\n";
+	      }
+	    
+	    std::cout.flush();
+	  }
+	
+	MPI_Barrier(comm);
+      }
   }
 }

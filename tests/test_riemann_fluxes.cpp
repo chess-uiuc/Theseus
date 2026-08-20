@@ -9,6 +9,7 @@
 #include "ChandrashekarFlux.hpp"
 #include "LaxFriedrichsFlux.hpp"
 #include "HLLFlux.hpp"
+#include "RoeFlux.hpp"
 
 #include <cmath>
 
@@ -168,10 +169,12 @@ TEST(RiemannFlux_Consistency_2D)
   Theseus::ChandrashekarFlux::InviscidFlux chan;
   Theseus::LaxFriedrichsFlux::InviscidFlux llf;
   Theseus::HLLFlux::InviscidFlux           hll;
+  Theseus::RoeFlux::InviscidFlux           roe;
 
   run_face_flux_consistency_2d(chan, gasModel);
   run_face_flux_consistency_2d(llf,  gasModel);
   run_face_flux_consistency_2d(hll,  gasModel);
+  run_face_flux_consistency_2d(roe,  gasModel);
   
     return 0;
 }
@@ -188,10 +191,12 @@ TEST(RiemannFlux_NormalReversal_2D)
     Theseus::ChandrashekarFlux::InviscidFlux chan;
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
+    Theseus::RoeFlux::InviscidFlux           roe;
 
     run_face_flux_normal_reversal_2d(chan, gasModel);
     run_face_flux_normal_reversal_2d(llf,  gasModel);
     run_face_flux_normal_reversal_2d(hll,  gasModel);
+    run_face_flux_normal_reversal_2d(roe,  gasModel);
 
     return 0;
 }
@@ -208,10 +213,12 @@ TEST(RiemannFlux_ZeroNormalVelocityPressureFlux_2D)
     Theseus::ChandrashekarFlux::InviscidFlux chan;
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
+    Theseus::RoeFlux::InviscidFlux           roe;
 
     run_zero_normal_velocity_pressure_flux_2d(chan, gasModel);
     run_zero_normal_velocity_pressure_flux_2d(llf,  gasModel);
     run_zero_normal_velocity_pressure_flux_2d(hll,  gasModel);
+    run_zero_normal_velocity_pressure_flux_2d(roe,  gasModel);
 
     return 0;
 }
@@ -228,10 +235,36 @@ TEST(RiemannFlux_FiniteStrongState_2D)
     Theseus::ChandrashekarFlux::InviscidFlux chan;
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
+    Theseus::RoeFlux::InviscidFlux           roe;
 
     run_face_flux_finite_strong_state_2d(chan, gasModel);
     run_face_flux_finite_strong_state_2d(llf,  gasModel);
     run_face_flux_finite_strong_state_2d(hll,  gasModel);
+    run_face_flux_finite_strong_state_2d(roe,  gasModel);
 
+    return 0;
+}
+
+TEST(RoeFlux_ResolvesStationaryContact_2D)
+{
+    Theseus::PhysicsConstants phys(1.4, 0.72, 287.05, 0.02);
+    Theseus::StateLayout layout(2, 1);
+    Theseus::IdealGasModel gasModel(phys, layout);
+    Theseus::RoeFlux::InviscidFlux roe;
+    mfem::Vector qL(4), qR(4), n(2), flux(4);
+
+    // Equal pressure and velocity with a density jump is a pure contact wave.
+    set_state_2d(qL, 1.0, 0.0, 7.0, 100000.0, phys.gamma);
+    set_state_2d(qR, 2.0, 0.0, 7.0, 100000.0, phys.gamma);
+    n(0) = 1.0;
+    n(1) = 0.0;
+
+    roe.ComputeFaceFlux(gasModel, qL.HostRead(), qR.HostRead(),
+                        n.HostRead(), flux.HostWrite());
+
+    EXPECT_CLOSE(flux(0), 0.0, 1.0e-12);
+    EXPECT_CLOSE(flux(1), 100000.0, 1.0e-8);
+    EXPECT_CLOSE(flux(2), 0.0, 1.0e-12);
+    EXPECT_CLOSE(flux(3), 0.0, 1.0e-8);
     return 0;
 }

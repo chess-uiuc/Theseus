@@ -622,14 +622,18 @@ namespace Theseus
       }
     }
 
-    for(int idim = 0;idim < dim;idim++){
-      operator_cache.restr_f->Mult(*p_grad_prim[idim], int_grad_prim[idim]);
-      grad_prim_d[idim] = int_grad_prim[idim].Read();
+    {
+      Theseus::ScopedTimer gradrestr("GradInteriorFaceRestrict");
+      for(int idim = 0;idim < dim;idim++){
+	operator_cache.restr_f->Mult(*p_grad_prim[idim], int_grad_prim[idim]);
+	grad_prim_d[idim] = int_grad_prim[idim].Read();
+      }
     }
   
     // If zeroed before accumulation, do it explicitly on device:
     // Potentially, this is not needed at all since I think we overwrite everything
     {
+      Theseus::ScopedTimer intfacezero("InteriorFaceRHSZero");
       mfem::real_t *d = rhs_faces.Write();
       mfem::forall(rhs_faces.Size(), [=] MFEM_HOST_DEVICE (int i) { d[i] = mfem::real_t(0); });
     }
@@ -648,6 +652,8 @@ namespace Theseus
 
     mfem::real_t *ws_d = dc.ifWaveSpeed_d;
 
+    {
+      Theseus::ScopedTimer ifkern("CNSInteriorFaceKernel");
 #ifdef POINT_PARALLEL_INTERIOR_FACES
     mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
     {
@@ -702,14 +708,20 @@ namespace Theseus
       ws_d[f] = ws;
     });
 #endif
+    }
 
-    operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
-    pdudt += faces_dudt; // on device? 
+    { 
+      Theseus::ScopedTimer ifscatter("CNSInteriorFaceScatter");
+      operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
+      pdudt += faces_dudt; // on device? 
+    }
 
+    mfem::real_t max_char_speed_facial = 0.0;
+    {
+      Theseus::ScopedTimer ifsws("CNSIFWSReduction");
     // Finish up on the host:
     //  - Reduce for rank-local max_char_speed
     const mfem::real_t *ws = operator_cache.ifWaveSpeed.HostRead();
-    mfem::real_t max_char_speed_facial = 0.0;
 #ifdef POINT_PARALLEL_INTERIOR_FACES
     const int num_wave_speeds = npoints;
 #else
@@ -719,6 +731,7 @@ namespace Theseus
       {
         max_char_speed_facial = std::max(max_char_speed_facial, ws[i]);
       }
+    }
 
     return max_char_speed_facial;
   }

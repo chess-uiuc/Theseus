@@ -135,6 +135,23 @@ add_executable(axisymmetric_geometry_tests
 target_include_directories(axisymmetric_geometry_tests
     PRIVATE ${PROJECT_SOURCE_DIR}/include
 )
+if(ENABLE_CUDA)
+    set_source_files_properties(
+        axisymmetric_geometry_tests.cpp
+        PROPERTIES LANGUAGE CUDA
+    )
+
+    target_include_directories(axisymmetric_geometry_tests PRIVATE
+        ${MPI_CXX_INCLUDE_DIRS}
+    )
+
+    target_compile_options(axisymmetric_geometry_tests PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:
+            --expt-extended-lambda
+            --expt-relaxed-constexpr
+        >
+    )
+endif()
 
 target_link_libraries(axisymmetric_geometry_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
 
@@ -217,6 +234,24 @@ if(THESEUS_WITH_PLATO)
       table_lookup_test.cpp
    )
 
+   if(ENABLE_CUDA)
+	 set_source_files_properties(
+		table_lookup_test.cpp
+         	PROPERTIES LANGUAGE CUDA
+    	 )
+
+    	 target_include_directories(table_lookup_tests PRIVATE
+              ${MPI_CXX_INCLUDE_DIRS}
+    	 )
+
+         target_compile_options(table_lookup_tests PRIVATE
+              $<$<COMPILE_LANGUAGE:CUDA>:
+                --expt-extended-lambda
+                --expt-relaxed-constexpr
+               >
+         )
+   endif()
+
    target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
 
    target_include_directories(table_lookup_tests
@@ -236,6 +271,7 @@ if(THESEUS_WITH_PLATO)
           MPI::MPI_CXX
           plato
         )
+
    if(CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES)
           target_link_libraries(table_lookup_tests PRIVATE
             ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES}
