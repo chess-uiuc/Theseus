@@ -38,6 +38,79 @@ namespace
     }
   };
 
+  struct SubcellMetricCache
+  {
+    int dim = 3;
+    int p = 3;
+    int Np_x = 4;
+    int Np_y = 4;
+    int Np_z = 4;
+    int ndof_scalar_el = 64;
+    int num_elements = 0;
+    mfem::IntegrationRules rules{0, mfem::Quadrature1D::GaussLobatto};
+    const mfem::IntegrationRule *ir = nullptr;
+    const mfem::IntegrationRule *ir_vol = nullptr;
+    mfem::Vector D;
+    mfem::Vector elMetric;
+    mfem::Vector subcellMetricXi;
+    mfem::Vector subcellMetricEta;
+    mfem::Vector subcellMetricZeta;
+    mfem::Vector subcellWeights;
+  };
+
+  void PrepareSubcellMetricCache(mfem::Mesh &mesh, SubcellMetricCache &cache)
+  {
+    cache.num_elements = mesh.GetNE();
+    const int integration_order = 2*cache.Np_x - 3;
+    cache.ir = &cache.rules.Get(mfem::Geometry::SEGMENT, integration_order);
+    cache.ir_vol = &cache.rules.Get(mfem::Geometry::CUBE, integration_order);
+    cache.elMetric.SetSize(cache.num_elements*cache.ndof_scalar_el
+                           *cache.dim*cache.dim);
+
+    mfem::Vector unused_jac(cache.num_elements*cache.ndof_scalar_el);
+    mfem::Vector unused_weights(cache.num_elements*cache.ndof_scalar_el);
+    mfem::Vector unused_radius;
+    GeometryCache geometry_cache(0);
+    geometry_cache.dim = cache.dim;
+    geometry_cache.Np_x = cache.Np_x;
+    geometry_cache.Np_y = cache.Np_y;
+    geometry_cache.Np_z = cache.Np_z;
+    geometry_cache.ir_vol = cache.ir_vol;
+    geometry_cache.elJac.MakeRef(unused_jac, 0, unused_jac.Size());
+    geometry_cache.elMetric.MakeRef(cache.elMetric, 0, cache.elMetric.Size());
+    geometry_cache.elQuadratureWeights.MakeRef(unused_weights, 0,
+                                                unused_weights.Size());
+    geometry_cache.elRadius.MakeRef(unused_radius, 0, 0);
+    geometry_cache.axisymmetric = false;
+    for (int element = 0; element < mesh.GetNE(); ++element)
+      Theseus::AssembleElementVolumeGeometricTerms(
+        *mesh.GetElementTransformation(element), &geometry_cache);
+
+    mfem::Vector barycentric(cache.Np_x);
+    barycentric = 1.0;
+    for (int i = 1; i < cache.Np_x; ++i)
+      for (int j = 0; j < i; ++j)
+        {
+          barycentric(j) *= cache.ir->IntPoint(j).x - cache.ir->IntPoint(i).x;
+          barycentric(i) *= cache.ir->IntPoint(i).x - cache.ir->IntPoint(j).x;
+        }
+    barycentric.Reciprocal();
+    mfem::DenseMatrix derivative(cache.Np_x);
+    derivative = 0.0;
+    for (int row = 0; row < cache.Np_x; ++row)
+      for (int column = 0; column < cache.Np_x; ++column)
+        if (row != column)
+          {
+            derivative(column, row) = barycentric(row)/barycentric(column)
+              /(cache.ir->IntPoint(column).x-cache.ir->IntPoint(row).x);
+            derivative(column, column) -= derivative(column, row);
+          }
+    derivative.Transpose();
+    cache.D.SetSize(cache.Np_x*cache.Np_x);
+    std::memcpy(cache.D.HostWrite(), derivative.Data(),
+                sizeof(mfem::real_t)*cache.D.Size());
+  }
+
   struct ViscousAxisContext
   {
     Theseus::PhysicsConstants physics{1.4, 0.72, 287.0, 1.8e-5};
@@ -116,6 +189,85 @@ TEST(curved_mesh_radius_cache_matches_physical_coordinate)
           EXPECT_TRUE(cache.elRadius[element*nq + point] >= 0.0);
         }
     }
+  return 0;
+}
+
+TEST(subcell_metrics_match_legacy_construction_on_curved_mesh)
+{
+  mfem::Mesh mesh = mfem::Mesh::MakeCartesian3D(
+    2, 1, 1, mfem::Element::HEXAHEDRON, 2.0, 1.0, 1.0);
+  mesh.SetCurvature(3);
+  mfem::VectorFunctionCoefficient deformation(3, [](const mfem::Vector &x,
+                                                     mfem::Vector &y) {
+    y.SetSize(3);
+    y(0) = x(0) + 0.04*x(1)*x(2);
+    y(1) = x(1) + 0.06*x(0)*(2.0 - x(0))*x(2);
+    y(2) = x(2) + 0.05*x(0)*x(1)*(1.0 - x(2));
+  });
+  mesh.GetNodes()->ProjectCoefficient(deformation);
+
+  mfem::DG_FECollection collection(3, 3, mfem::BasisType::GaussLobatto);
+  mfem::FiniteElementSpace fes(&mesh, &collection);
+  SubcellMetricCache cache;
+  PrepareSubcellMetricCache(mesh, cache);
+  Theseus::ComputeSubcellMetrics(&fes, &cache);
+
+  const mfem::real_t *D = cache.D.HostRead();
+  const mfem::real_t *xi = cache.subcellMetricXi.HostRead();
+  const mfem::real_t *eta = cache.subcellMetricEta.HostRead();
+  const mfem::real_t *zeta = cache.subcellMetricZeta.HostRead();
+  const int n = cache.Np_x;
+  const int nq = n*n*n;
+  const int n_metric_xi = (n + 1)*n*n;
+  const int n_metric_eta = n*(n + 1)*n;
+  const int n_metric_zeta = n*n*(n + 1);
+  mfem::Vector left(3), point_metric(3);
+
+  for (int element = 0; element < mesh.GetNE(); ++element)
+    {
+      auto *transformation = mesh.GetElementTransformation(element);
+      for (int direction = 0; direction < 3; ++direction)
+        for (int transverse_b = 0; transverse_b < n; ++transverse_b)
+          for (int transverse_a = 0; transverse_a < n; ++transverse_a)
+            for (int face = 1; face < n; ++face)
+              {
+                const int line = direction == 0
+                  ? transverse_b*n*n + transverse_a*n
+                  : (direction == 1 ? transverse_b*n*n + transverse_a
+                                    : transverse_b*n + transverse_a);
+                transformation->SetIntPoint(&cache.ir_vol->IntPoint(line));
+                transformation->AdjugateJacobian().GetRow(direction, left);
+                for (int l = 0; l < face; ++l)
+                  {
+                    mfem::Vector sum(3);
+                    sum = 0.0;
+                    for (int m = 0; m < n; ++m)
+                      {
+                        const int point = line + (direction == 0 ? m
+                          : (direction == 1 ? m*n : m*n*n));
+                        transformation->SetIntPoint(&cache.ir_vol->IntPoint(point));
+                        transformation->AdjugateJacobian().GetRow(direction,
+                                                                   point_metric);
+                        point_metric *= D[l*n + m];
+                        sum += point_metric;
+                      }
+                    sum *= cache.ir->IntPoint(l).weight;
+                    left += sum;
+                  }
+
+                const int point = direction == 0 ? line + face
+                  : (direction == 1 ? transverse_b*n*n + face*n + transverse_a
+                                    : face*n*n + line);
+                const int stride = direction == 0 ? n_metric_xi
+                  : (direction == 1 ? n_metric_eta : n_metric_zeta);
+                const mfem::real_t *computed = direction == 0 ? xi
+                  : (direction == 1 ? eta : zeta);
+                for (int component = 0; component < 3; ++component)
+                  EXPECT_CLOSE(computed[((element*stride + point)*3)+component],
+                               left(component), 2.0e-14);
+              }
+    }
+  EXPECT_EQ(cache.elMetric.Size(), mesh.GetNE()*nq*9);
   return 0;
 }
 
