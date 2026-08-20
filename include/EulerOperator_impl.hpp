@@ -29,7 +29,7 @@ namespace Theseus
   mfem::real_t EulerOperator<PhysicsT>::MultEuler_Volume(const mfem::Vector &pu, mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("MultEuler_Volume");
-    
+
     // This block is executed by the host
     int nval_restr = operator_cache.restr_v->Height();
     if(operator_cache.uVol.Size() != nval_restr){
@@ -91,7 +91,7 @@ namespace Theseus
     const int metric_stride = ndof * dim * dim;
     const int jac_stride    = ndof;
     const int estride = ndof*neq;
-  
+
     // Device cache data/arrays
     const int *elem_attr_d = dc.elem_attr_d;
     const int *attr_marker_d = dc.attr_marker_d;
@@ -116,8 +116,8 @@ namespace Theseus
 
       const int element_offset = e * estride;
       ws_d[p] = DGSEMIntegrator::AssembleVolumePointKernel(
-        dc, Ue_d + element_offset, elJac_d + e*jac_stride,
-        elMetric_d + e*metric_stride, point, dUe_d + element_offset);
+                                                           dc, Ue_d + element_offset, elJac_d + e*jac_stride,
+                                                           elMetric_d + e*metric_stride, point, dUe_d + element_offset);
     });
 
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
@@ -149,8 +149,8 @@ namespace Theseus
           metric_zeta_d + e*npe_metric_zeta*dim : nullptr;
         const mfem::real_t fv_char_speed =
           DGSEMIntegrator::ComputeFVFluxesKernel(
-            dc, u_el, jac_el, el_metric_xi, el_metric_eta,
-            el_metric_zeta, du_fv);
+                                                 dc, u_el, jac_el, el_metric_xi, el_metric_eta,
+                                                 el_metric_zeta, du_fv);
         for (int value = 0; value < estride; ++value) {
           du_el[value] =
             alpha_dg*du_el[value] + alpha_fv*du_fv[value];
@@ -160,13 +160,13 @@ namespace Theseus
 #endif
 
       AddAxisymmetricEulerElementSource(
-        dc, u_el, radius_el, jac_el, metric_el, du_el);
+                                        dc, u_el, radius_el, jac_el, metric_el, du_el);
       ws_d[e*ndof] = char_speed;
     });
 #else
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
     {
-    
+
       const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
       const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
       const mfem::real_t *radius_el = dc.axisymmetric ?
@@ -198,8 +198,8 @@ namespace Theseus
                                               nullptr);
         const mfem::real_t cs_fv = \
           DGSEMIntegrator::ComputeFVFluxesKernel(dc, u_el, jac_el, el_metric_xi, el_metric_eta,
-						 el_metric_zeta, du_fv);
-      
+                                                 el_metric_zeta, du_fv);
+
         for(int ipt = 0;ipt < estride;ipt++){
           du_el[ipt] = alpha_inv * du_el[ipt] + alpha_fv * du_fv[ipt];
         }
@@ -209,7 +209,7 @@ namespace Theseus
 #endif
 
       AddAxisymmetricEulerElementSource(
-        dc, u_el, radius_el, jac_el, metric_el, du_el);
+                                        dc, u_el, radius_el, jac_el, metric_el, du_el);
 
       ws_d[e] = cs_el;
 
@@ -248,7 +248,7 @@ namespace Theseus
     const int nfaces = nval_restr / (nfp * neq * 2); // (+/-)
     const int npoints = nfaces * nfp;
     const int face_size = 2*nfp*neq;
-  
+
     if(operator_cache.uInt.Size() != nval_restr){
       operator_cache.uInt.SetSize(nval_restr);
       operator_cache.uInt.UseDevice(true);
@@ -291,8 +291,8 @@ namespace Theseus
       mfem::real_t *rhs_face_d = rhs_d + face_offset;
 
       ws_d[p] = DGSEMIntegrator::AssembleFacePointKernel(
-        dc, u_face_d, nor_d + point_offset*dim,
-        inv1_d[point_offset], inv2_d[point_offset], fp, rhs_face_d);
+                                                         dc, u_face_d, nor_d + point_offset*dim,
+                                                         inv1_d[point_offset], inv2_d[point_offset], fp, rhs_face_d);
     });
 #else
     const int norm_size = nfp*dim;
@@ -307,16 +307,16 @@ namespace Theseus
       const mfem::real_t *nor_face_d = nor_d + n_offset;
       const mfem::real_t *w_minus_d = inv1_d + w_offset;
       const mfem::real_t *w_plus_d = inv2_d + w_offset;
-    
+
       mfem::real_t ws = DGSEMIntegrator::AssembleElementFaceKernel(dc, u_face_d, nor_face_d,
                                                                    w_minus_d, w_plus_d, rhs_face_d);
       ws_d[f] = ws;
-    
+
     });
 #endif
 
     operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
-    pdudt += faces_dudt; // on device? 
+    pdudt += faces_dudt; // on device?
 
     // Finish up on the host:
     //  - Reduce for rank-local max_char_speed
@@ -440,7 +440,7 @@ namespace Theseus
 
     operator_cache.restr_b->MultTranspose(rhs_faces, faces_dudt);
 
-    pdudt += faces_dudt; // on device? (likely yes) 
+    pdudt += faces_dudt; // on device? (likely yes)
 
     // Finish up on the host:
     //  - Reduce for rank-local max_char_speed
@@ -460,7 +460,7 @@ namespace Theseus
   mfem::real_t EulerOperator<PhysicsT>::FlowMult(const mfem::Vector &u, mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("EulerMult");
-    
+
     auto report_bad = [&](const char *name, const mfem::Vector &v)
     {
       int nbad = CBE(v);
@@ -489,5 +489,5 @@ namespace Theseus
     return std::max(max_char_speed, max_char_speed_bnd);
 
   }
-  
+
 }

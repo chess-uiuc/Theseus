@@ -37,7 +37,7 @@ namespace Theseus
   // pu should be prolongated
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::FetchRestrictions(const mfem::Vector &pu, mfem::Vector &uVol,
-						mfem::Vector &uInt, mfem::Vector &uBnd) const
+                                                mfem::Vector &uInt, mfem::Vector &uBnd) const
   {
     Theseus::ScopedTimer timer("FetchRestrictions");
     const int psize = operator_cache.restr_v->Height();
@@ -142,19 +142,19 @@ namespace Theseus
     mfem::real_t alpmin = alpha_min;
     mfem::real_t alpmax = alpha_max;
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
-   {
-     mfem::real_t alpha_dof = \
-       1.0 / (1.0 + std::exp(-sharp_fac * (eta_d[e] - mthresh) / mthresh));
-     if (alpha_dof < alpmin)
-       {
-	 alpha_dof = 0.0;
-       }
-     else if (alpha_dof > (1.0 - alpmin))
-       {
-	 alpha_dof = 1.0;
-       }
-     alpha_d[e] = std::min(alpha_dof, alpmax);
-   });
+    {
+      mfem::real_t alpha_dof = \
+        1.0 / (1.0 + std::exp(-sharp_fac * (eta_d[e] - mthresh) / mthresh));
+      if (alpha_dof < alpmin)
+        {
+          alpha_dof = 0.0;
+        }
+      else if (alpha_dof > (1.0 - alpmin))
+        {
+          alpha_dof = 1.0;
+        }
+      alpha_d[e] = std::min(alpha_dof, alpmax);
+    });
   }
 
   template<typename PhysicsT>
@@ -176,74 +176,74 @@ namespace Theseus
     // one thread per element, leaving the dense ndofs-by-ndofs modal transform
     // entirely serial and severely under-filling accelerators at modest ne.
     mfem::forall_2D(ne, block_size, 1, [=] MFEM_HOST_DEVICE (int e)
-   {
-     const mfem::real_t *u = indicator_d + e * ndofs;
+    {
+      const mfem::real_t *u = indicator_d + e * ndofs;
 
-     MFEM_SHARED mfem::real_t mm_s[block_size];
-     MFEM_SHARED mfem::real_t m1m1_s[block_size];
-     MFEM_SHARED mfem::real_t m2m2_s[block_size];
+      MFEM_SHARED mfem::real_t mm_s[block_size];
+      MFEM_SHARED mfem::real_t m1m1_s[block_size];
+      MFEM_SHARED mfem::real_t m2m2_s[block_size];
 
-     MFEM_FOREACH_THREAD(t, x, block_size)
-       {
-	 mm_s[t] = 0.0;
-	 m1m1_s[t] = 0.0;
-	 m2m2_s[t] = 0.0;
-       }
-     MFEM_SYNC_THREAD;
+      MFEM_FOREACH_THREAD(t, x, block_size)
+        {
+          mm_s[t] = 0.0;
+          m1m1_s[t] = 0.0;
+          m2m2_s[t] = 0.0;
+        }
+      MFEM_SYNC_THREAD;
 
-     MFEM_FOREACH_THREAD(m, x, ndofs)
-       {
-	 mfem::real_t mode = 0.0;
-	 for (int q = 0; q < ndofs; ++q)
-	   {
-	     // Modal data is cached transposed so adjacent threads read adjacent
-	     // coefficients while each dot product retains its original q order.
-	     mode += modal_d[q * ndofs + m] * u[q];
-	   }
+      MFEM_FOREACH_THREAD(m, x, ndofs)
+        {
+          mfem::real_t mode = 0.0;
+          for (int q = 0; q < ndofs; ++q)
+            {
+              // Modal data is cached transposed so adjacent threads read adjacent
+              // coefficients while each dot product retains its original q order.
+              mode += modal_d[q * ndofs + m] * u[q];
+            }
 
-	 const int t = MFEM_THREAD_ID(x);
-	 const mfem::real_t mode2 = mode * mode;
-	 mm_s[t] += mode2;
-	 m1m1_s[t] += keep_M1_d[m] * mode2;
-	 m2m2_s[t] += keep_M2_d[m] * mode2;
-       }
-     MFEM_SYNC_THREAD;
+          const int t = MFEM_THREAD_ID(x);
+          const mfem::real_t mode2 = mode * mode;
+          mm_s[t] += mode2;
+          m1m1_s[t] += keep_M1_d[m] * mode2;
+          m2m2_s[t] += keep_M2_d[m] * mode2;
+        }
+      MFEM_SYNC_THREAD;
 
-     for (int stride = block_size / 2; stride > 0; stride /= 2)
-       {
-	 MFEM_FOREACH_THREAD(t, x, stride)
-	   {
-	     mm_s[t] += mm_s[t + stride];
-	     m1m1_s[t] += m1m1_s[t + stride];
-	     m2m2_s[t] += m2m2_s[t + stride];
-	   }
-	 MFEM_SYNC_THREAD;
-       }
+      for (int stride = block_size / 2; stride > 0; stride /= 2)
+        {
+          MFEM_FOREACH_THREAD(t, x, stride)
+            {
+              mm_s[t] += mm_s[t + stride];
+              m1m1_s[t] += m1m1_s[t + stride];
+              m2m2_s[t] += m2m2_s[t + stride];
+            }
+          MFEM_SYNC_THREAD;
+        }
 
-     if (MFEM_THREAD_ID(x) == 0)
-	{
-	 const mfem::real_t mm = mm_s[0];
-	 const mfem::real_t m1m1 = m1m1_s[0];
-	 const mfem::real_t m2m2 = m2m2_s[0];
-	 const mfem::real_t eps = 1.0e-30;
-	 mfem::real_t val = 0.0;
+      if (MFEM_THREAD_ID(x) == 0)
+        {
+          const mfem::real_t mm = mm_s[0];
+          const mfem::real_t m1m1 = m1m1_s[0];
+          const mfem::real_t m2m2 = m2m2_s[0];
+          const mfem::real_t eps = 1.0e-30;
+          mfem::real_t val = 0.0;
 
-	 if (mm > eps)
-	   {
-	     val = 1.0 - m1m1 / mm;
-	     if (m1m1 > eps)
-	       {
-		 val = Theseus::Kernels::rmax(val, 1.0 - m2m2 / m1m1);
-	       }
-	     else
-	       {
-		 val = 1.0;
-	       }
-	   }
-	 eta_d[e] = Theseus::Kernels::rmin(
-	   Theseus::Kernels::rmax(val, 0.0), 1.0);
-	 }
-   });
+          if (mm > eps)
+            {
+              val = 1.0 - m1m1 / mm;
+              if (m1m1 > eps)
+                {
+                  val = Theseus::Kernels::rmax(val, 1.0 - m2m2 / m1m1);
+                }
+              else
+                {
+                  val = 1.0;
+                }
+            }
+          eta_d[e] = Theseus::Kernels::rmin(
+                                            Theseus::Kernels::rmax(val, 0.0), 1.0);
+        }
+    });
 
   }
 #endif
@@ -342,7 +342,7 @@ namespace Theseus
 
         const mfem::real_t measure = qWgt[ep] *
           AxisymmetricGeometry::MeasureMultiplier(
-            dc.axisymmetric, dc.axisymmetric ? radius[ep] : 0.0);
+                                                  dc.axisymmetric, dc.axisymmetric ? radius[ep] : 0.0);
         mass_int += rho * measure;
         ke_int += ke * measure;
         en_int += rhoE * measure;
@@ -449,11 +449,11 @@ namespace Theseus
       const mfem::Vector &pu = this->Prolongate(u);
       FetchRestrictions(pu, operator_cache.uVol, operator_cache.uInt, operator_cache.uBnd);
       if (this->P)
-	{
-	  if(operator_cache.pdudt.Size() != this->P->Height()){
-	    operator_cache.pdudt.SetSize(this->P->Height());
-	  }
-	}
+        {
+          if(operator_cache.pdudt.Size() != this->P->Height()){
+            operator_cache.pdudt.SetSize(this->P->Height());
+          }
+        }
     }
     mfem::Vector &pdudt = this->P ? operator_cache.pdudt : dudt;
 

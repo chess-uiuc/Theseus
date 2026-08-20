@@ -25,7 +25,7 @@ namespace Theseus
 #ifndef TIMER_SYNC_DEVICE
     explicit ScopedTimer(const char *name)
       : name_(name),
-	start_(clock::now())
+        start_(clock::now())
     {}
 #else
     explicit ScopedTimer(const char *name)
@@ -54,19 +54,19 @@ namespace Theseus
       MPI_Barrier(MPI_COMM_WORLD);
       end = clock::now();
       if(rank == 0)
-	MPI_Reduce(MPI_IN_PLACE,&global_ms, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(MPI_IN_PLACE,&global_ms, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
       else
-	MPI_Reduce(&global_ms, NULL, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&global_ms, NULL, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 #endif
 #ifdef TIMER_OUTPUT_ALLRANKS
       if(nranks > 1 && rank > 0)
-	std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
+        std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
 #endif
       if(rank == 0 ){
-	std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
+        std::printf("[TIMER(%d)] %s : %.6f ms\n", rank, name_, local_ms);
 #ifdef TIMER_BARRIER
-	if(nranks > 1)
-	  std::printf("[TIMER(all)] %s : %.6f ms\n", name_, global_ms);
+        if(nranks > 1)
+          std::printf("[TIMER(all)] %s : %.6f ms\n", name_, global_ms);
 #endif
       }
     }
@@ -105,15 +105,15 @@ namespace Theseus
     void Stop()
     {
       if (!running_)
-	{
-	  return;
-	}
+        {
+          return;
+        }
 
       Sync();
       const auto stop = clock::now();
 
       const double elapsed_ms =
-	std::chrono::duration<double, std::milli>(stop - start_).count();
+        std::chrono::duration<double, std::milli>(stop - start_).count();
 
       total_ms_ += elapsed_ms;
       min_ms_ = std::min(min_ms_, elapsed_ms);
@@ -168,7 +168,7 @@ namespace Theseus
       const double local_mean  = Mean();
 
       const unsigned long long local_count =
-	static_cast<unsigned long long>(count_);
+        static_cast<unsigned long long>(count_);
 
       //
       // Count statistics across ranks.
@@ -218,26 +218,26 @@ namespace Theseus
                       mean_min, mean_max, mean_sum);
 
       if (rank_ != 0)
-	{
-	  return;
-	}
+        {
+          return;
+        }
 
       const double inv_nranks = 1.0 / static_cast<double>(nranks_);
 
       const double count_mean =
-	static_cast<double>(count_sum) * inv_nranks;
+        static_cast<double>(count_sum) * inv_nranks;
 
       const double total_mean =
-	total_sum * inv_nranks;
+        total_sum * inv_nranks;
 
       const double step_min_mean =
-	step_min_sum * inv_nranks;
+        step_min_sum * inv_nranks;
 
       const double step_max_mean =
-	step_max_sum * inv_nranks;
+        step_max_sum * inv_nranks;
 
       const double mean_mean =
-	mean_sum * inv_nranks;
+        mean_sum * inv_nranks;
 
       auto old_flags = os.flags();
       auto old_precision = os.precision();
@@ -277,10 +277,10 @@ namespace Theseus
          << "  Mean timestep    : " << mean_max << " ms\n";
 
       if (mean_max > 0.0)
-	{
-	  os << "  Timesteps/sec    : "
-	     << 1000.0 / mean_max << "\n";
-	}
+        {
+          os << "  Timesteps/sec    : "
+             << 1000.0 / mean_max << "\n";
+        }
 
 #ifdef TIMER_SYNC_DEVICE
       os << "  Device sync      : enabled\n";
@@ -312,18 +312,18 @@ namespace Theseus
     }
 
     void ReduceMinMaxSum(double local,
-			 double &minimum,
-			 double &maximum,
-			 double &sum) const
+                         double &minimum,
+                         double &maximum,
+                         double &sum) const
     {
       MPI_Reduce(&local, &minimum, 1,
-		 MPI_DOUBLE, MPI_MIN, 0, comm_);
+                 MPI_DOUBLE, MPI_MIN, 0, comm_);
 
       MPI_Reduce(&local, &maximum, 1,
-		 MPI_DOUBLE, MPI_MAX, 0, comm_);
+                 MPI_DOUBLE, MPI_MAX, 0, comm_);
 
       MPI_Reduce(&local, &sum, 1,
-		 MPI_DOUBLE, MPI_SUM, 0, comm_);
+                 MPI_DOUBLE, MPI_SUM, 0, comm_);
     }
 
     MPI_Comm comm_ = MPI_COMM_WORLD;

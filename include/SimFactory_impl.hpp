@@ -227,7 +227,7 @@ namespace Theseus {
             std::cerr << "Plato Database (" << path << ") not found." << std::endl;
             return nullptr;
           }
-	  mfem::real_t e_min, e_max;
+          mfem::real_t e_min, e_max;
           std::string empty_str("empty");
           plato_initialize(solver.c_str(), mixture.c_str(), empty_str.c_str(), empty_str.c_str(), path.c_str());
           Theseus::LTETable::fill_table(lteTables.L, lteTableData.rho_grid.GetData(), lteTableData.T_grid.GetData(),
@@ -267,47 +267,47 @@ namespace Theseus {
           //                                     gasModelName, numFluxName);
           std::cerr << "Error: Cannot use Chandrashekar flux with LTE" << std::endl;
           return nullptr;
-          }
-        else if (use_hll)
-          {
-            std::string numFluxName("HLL");
-            using Physics =
-              Theseus::PhysicsTraits<Theseus::LTEGas,
-                                     Theseus::HLLFlux::InviscidFlux>;
-
-            auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>(inviscid, runtime,
-                                                                        vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                        indicator, alpha_max, gas_model,
-                                                                        gasModelName, numFluxName);
-            RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
-            auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
-            operator_cache.lteTableData = std::move(lteData);
-            return rhsOp;
-          }
-        else if (use_llf)
-          {
-            std::string numFluxName("LFR");
-            using Physics =
-              Theseus::PhysicsTraits<Theseus::LTEGas,
-                                     Theseus::LaxFriedrichsFlux::InviscidFlux>;
-
-            auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>
-              (inviscid, runtime,vfes, fes0, pmesh, eta, alpha, grad_u,
-               indicator, alpha_max, gas_model,
-               gasModelName, numFluxName);
-
-            RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
-            auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
-            operator_cache.lteTableData = std::move(lteData);
-            return rhsOp;
-          }
-        else {
-          std::cerr << "Error: Invalid Numerical Flux Type specified: "
-                    << inv_flux_string << "\n"
-                    << "Supported: Chandrashekar, LLF/LFR, HLL"
-                    << std::endl;
-          return nullptr;
         }
+      else if (use_hll)
+        {
+          std::string numFluxName("HLL");
+          using Physics =
+            Theseus::PhysicsTraits<Theseus::LTEGas,
+                                   Theseus::HLLFlux::InviscidFlux>;
+
+          auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>(inviscid, runtime,
+                                                                      vfes, fes0, pmesh, eta, alpha, grad_u,
+                                                                      indicator, alpha_max, gas_model,
+                                                                      gasModelName, numFluxName);
+          RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
+          auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
+          operator_cache.lteTableData = std::move(lteData);
+          return rhsOp;
+        }
+      else if (use_llf)
+        {
+          std::string numFluxName("LFR");
+          using Physics =
+            Theseus::PhysicsTraits<Theseus::LTEGas,
+                                   Theseus::LaxFriedrichsFlux::InviscidFlux>;
+
+          auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>
+            (inviscid, runtime,vfes, fes0, pmesh, eta, alpha, grad_u,
+             indicator, alpha_max, gas_model,
+             gasModelName, numFluxName);
+
+          RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
+          auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
+          operator_cache.lteTableData = std::move(lteData);
+          return rhsOp;
+        }
+      else {
+        std::cerr << "Error: Invalid Numerical Flux Type specified: "
+                  << inv_flux_string << "\n"
+                  << "Supported: Chandrashekar, LLF/LFR, HLL"
+                  << std::endl;
+        return nullptr;
+      }
 
     } else {
       std::cerr << "Error: Invalid Gas Model specified: "

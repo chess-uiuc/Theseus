@@ -202,7 +202,7 @@ namespace Theseus {
     MFEM_VERIFY(nfaces_restr > 0, "nfaces_restr is 0");
 
     AssembleInteriorFaceGeometryTerms(fes, cache);
-    
+
     cache->face_normals.UseDevice();
     cache->face_wt_minus.UseDevice();
     cache->face_wt_plus.UseDevice();
@@ -223,14 +223,14 @@ namespace Theseus {
   void SetupVolumeMarkers(mfem::FiniteElementSpace *fes, CacheT *cache)
   {
     mfem::Mesh *mesh = fes->GetMesh();
-    
+
     cache->num_attr = mesh->attributes.Size() ? mesh->attributes.Max() : 0;
     cache->vol_attr_marker.SetSize(cache->num_attr);
     cache->vol_attr_marker = 1; // process everything
 
     cache->domain_attr_marker.SetSize(cache->num_attr);
     cache->domain_attr_marker = 1; // process everything
-    
+
     // ---- 2) Per-element attribute id array -----------------------------------
     const int ne = mesh->GetNE();
     cache->elem_attr.SetSize(ne);
@@ -260,7 +260,7 @@ namespace Theseus {
     cache->domain_attr_marker.Read();
   }
 
-  
+
   template <typename CacheT>
   void BuildBoundaryFacePermutationMap(mfem::ParMesh *pmesh, CacheT *cache)
   {
@@ -291,26 +291,26 @@ namespace Theseus {
     const auto &bnd_face_attr = pmesh->GetBdrFaceAttributes();
 
     const int nbnd_faces = bnd_faces.Size();
-    
+
     MFEM_VERIFY(bnd_face_attr.Size() == nbnd_faces,
                 "Expected compact boundary-face attribute array");
-    
+
     cache->bnd_attr.SetSize(nbnd_faces);
     cache->bnd_marker_index.SetSize(nbnd_faces);
-    
+
     for (int fslot = 0; fslot < nbnd_faces; ++fslot)
       {
         const int attr = bnd_face_attr[fslot];
         cache->bnd_attr[fslot] = attr;
         cache->bnd_marker_index[fslot] = -1;
-        
+
         if (attr <= 0) { continue; }
-        
+
         for (int mindex = 0; mindex < (int)bdr_marker_vector.size(); ++mindex)
           {
             const auto &marker = bdr_marker_vector[mindex];
             MFEM_VERIFY(attr-1 < marker.Size(), "boundary attribute out of marker range");
-            
+
             if (marker[attr-1])
               {
                 cache->bnd_marker_index[fslot] = mindex;
@@ -326,7 +326,7 @@ namespace Theseus {
     const int nfaces = pmesh->GetNumFaces();
     face_to_be.SetSize(nfaces);
     face_to_be = -1;
-    
+
     for (int be = 0; be < pmesh->GetNBE(); ++be)
       {
         const int face_id = pmesh->GetBdrElementFaceIndex(be);
@@ -351,10 +351,10 @@ namespace Theseus {
     MFEM_VERIFY(cache, "need cache");
     MFEM_VERIFY(cache->ir_face, "cache->ir_face must exist");
     MFEM_VERIFY(cache->ir, "cache->ir must exist");
-    
+
     cache->fqs_bnd.reset(new mfem::FaceQuadratureSpace(*mesh, *cache->ir_face,
                                                        mfem::FaceType::Boundary));
-    
+
     const int dim = mesh->Dimension();
     const int nfp = cache->ir_face->GetNPoints();
 
@@ -381,7 +381,7 @@ namespace Theseus {
     cache->bnd_xyz.SetSize(nbnd_faces * nfp * dim);
     cache->bnd_radius.SetSize(dim > AxisymmetricGeometry::radial_coordinate ?
                               nbnd_faces * nfp : 0);
-    
+
     mfem::real_t *nor_d = cache->bnd_normals.HostWrite();
     mfem::real_t *wt_d  = cache->bnd_wt.HostWrite();
     mfem::real_t *xyz_d = cache->bnd_xyz.HostWrite();
@@ -400,13 +400,13 @@ namespace Theseus {
     {
       const int base_scl = fslot * nfp + fp_restr;
       const int base_vec = base_scl * dim;
-      
+
       for (int d = 0; d < dim; ++d)
         {
           nor_d[base_vec + d] = nor(d);
           xyz_d[base_vec + d] = phys(d);
         }
-      
+
       wt_d[base_scl] = inv_wJ1;
       if (rad_d)
         {
@@ -418,7 +418,7 @@ namespace Theseus {
               ", point " + std::to_string(fp_restr)) : radius;
         }
     };
-    
+
     for (int fslot = 0; fslot < nbnd_faces; ++fslot)
       {
         const int face_id = bnd_faces[fslot];
@@ -458,7 +458,7 @@ namespace Theseus {
   template<typename CacheT>
   void AssembleElementVolumeGeometricTerms(mfem::ElementTransformation &Tr, CacheT *cache)
   {
-    
+
     mfem::real_t *Jinv_h = cache->elJac.HostWrite();
     mfem::real_t *Met_h  = cache->elMetric.HostWrite();
     mfem::real_t *qWgts_h = cache->elQuadratureWeights.HostWrite();
@@ -470,7 +470,7 @@ namespace Theseus {
     mfem::Vector physical(dim);
     const int e = Tr.ElementNo;
     const int nq = cache->Np_x * cache->Np_y * cache->Np_z;
-    
+
     for (int q = 0; q < nq; ++q)
       {
         const mfem::IntegrationPoint &ip = cache->ir_vol->IntPoint(q);
@@ -488,11 +488,11 @@ namespace Theseus {
                 radius, "element " + std::to_string(e) +
                 ", point " + std::to_string(q)) : radius;
           }
-        const mfem::DenseMatrix &adj = Tr.AdjugateJacobian();              
+        const mfem::DenseMatrix &adj = Tr.AdjugateJacobian();
         for (int dir = 0; dir < dim; ++dir)
           {
             adj.GetRow(dir, metric1);  // metric1.Size() == dim
-            
+
             for (int d = 0; d < dim; ++d)
               {
                 const int idxM = (((e*nq + q)*dim + dir)*dim + d);
@@ -511,7 +511,7 @@ namespace Theseus {
     cache->fqs_int.reset(new mfem::FaceQuadratureSpace(*mesh, *cache->ir_face,
                                                        mfem::FaceType::Interior));
     MFEM_VERIFY(pfes, "need ParFiniteElementSpace");
-    
+
     const int dim = mesh->Dimension();
     const int neq = pfes->GetVDim();
     const int nfp = cache->ir_face->GetNPoints();
@@ -519,7 +519,7 @@ namespace Theseus {
     auto &int_faces = pmesh->GetFaceIndices(mfem::FaceType::Interior);
     const int ninterior_faces = int_faces.Size();
 
-    cache->inv_fp_map.SetSize(ninterior_faces * nfp);    
+    cache->inv_fp_map.SetSize(ninterior_faces * nfp);
     for (int face_slot = 0; face_slot < ninterior_faces; ++face_slot)
       {
         for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
@@ -535,14 +535,14 @@ namespace Theseus {
     cache->face_radius.SetSize(
       dim > AxisymmetricGeometry::radial_coordinate ?
       ninterior_faces * nfp : 0);
- 
+
     mfem::real_t *nor_d  = cache->face_normals.HostWrite();
     mfem::real_t *inv1_d = cache->face_wt_minus.HostWrite();
     mfem::real_t *inv2_d = cache->face_wt_plus.HostWrite();
     mfem::real_t *radius_d = cache->face_radius.Size() > 0 ?
                              cache->face_radius.HostWrite() : nullptr;
     const mfem::real_t w0 = cache->ir->IntPoint(0).weight;
-    
+
     auto store = [&](int fslot, int fp, const mfem::Vector &nor,
                      const mfem::Vector &physical,
                      mfem::real_t inv_wJ1, mfem::real_t inv_wJ2)
@@ -561,7 +561,7 @@ namespace Theseus {
               ", point " + std::to_string(fp)) : radius;
         }
     };
-    
+
     mfem::Vector nor(dim);
     mfem::Vector physical(dim);
     // The order of faces in GetFaceIndices(FaceType::Interior) *must*
@@ -569,7 +569,7 @@ namespace Theseus {
     // operator face slots.
     for (int fslot = 0; fslot < ninterior_faces; ++fslot)
       {
-        const int face_id = int_faces[fslot];  
+        const int face_id = int_faces[fslot];
         // bool face_is_flipped = false;
         // for (int fp_restr = 0; fp_restr < nfp; ++fp_restr)
         //   {
@@ -586,14 +586,14 @@ namespace Theseus {
               const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
               const mfem::IntegrationPoint &ip = cache->ir_face->IntPoint(fp_geom);
               tr->SetAllIntPoints(&ip);
-              
+
               const mfem::real_t J1 = tr->GetElement1Transformation().Weight();
               const mfem::real_t J2 = tr->GetElement2Transformation().Weight();
-              
+
               if (dim == 1) { nor(0) = (tr->GetElement1IntPoint().x - 0.5)*2.0; }
               else          { mfem::CalcOrtho(tr->Jacobian(), nor); }
               tr->Transform(ip, physical);
-              
+
               //const mfem::real_t fac = face_is_flipped ? -1.0 : 1.0;
               const mfem::real_t fac = 1.0;
               store(fslot, fp_restr, nor, physical,
@@ -609,14 +609,14 @@ namespace Theseus {
               const int fp_geom = cache->MapFp(fslot, fp_restr);// <-- critical
               const mfem::IntegrationPoint &ip = cache->ir_face->IntPoint(fp_geom);
               sh_tr->SetAllIntPoints(&ip);
-              
+
               const mfem::real_t J1 = sh_tr->GetElement1Transformation().Weight();
               const mfem::real_t J2 = sh_tr->GetElement2Transformation().Weight();
-              
+
               if (dim == 1) { nor(0) = (sh_tr->GetElement1IntPoint().x - 0.5)*2.0; }
               else          { mfem::CalcOrtho(sh_tr->Jacobian(), nor); }
               sh_tr->Transform(ip, physical);
-              
+
               //const mfem::real_t fac = face_is_flipped ? -1.0 : 1.0;
               const mfem::real_t fac1 = 1.0;
               const mfem::real_t fac2 = 0.0;
@@ -859,7 +859,7 @@ namespace Theseus {
 
   template<typename CacheT>
   void BuildPerssonDeviceCache(CacheT &c,
-			       Prandtl::ModalBasis &modalBasis)
+                               Prandtl::ModalBasis &modalBasis)
   {
     // std::shared_ptr<Prandtl::ModalBasis> modalBasis;
     // mfem::Vector rho_p, modes, modesM1, modesM2;
@@ -889,43 +889,43 @@ namespace Theseus {
 
     for (int q = 0; q < ndofs; ++q)
       {
-	nodal = 0.0;
-	nodal(q) = 1.0;
+        nodal = 0.0;
+        nodal(q) = 1.0;
 
-	modalBasis.ComputeModes(nodal, modes);
+        modalBasis.ComputeModes(nodal, modes);
 
-	for (int m = 0; m < ndofs; ++m)
-	  {
-	    // Store the transform transposed.  CheckIndicatorSmoothness assigns
-	    // adjacent modal rows to adjacent accelerator threads, so this layout
-	    // turns their coefficient reads into contiguous transactions.
-	    modal_h[q * ndofs + m] = modes(m);
-	  }
+        for (int m = 0; m < ndofs; ++m)
+          {
+            // Store the transform transposed.  CheckIndicatorSmoothness assigns
+            // adjacent modal rows to adjacent accelerator threads, so this layout
+            // turns their coefficient reads into contiguous transactions.
+            modal_h[q * ndofs + m] = modes(m);
+          }
       }
 
     mfem::Array<int> row;
     for (int m = 0; m < ndofs; ++m)
       {
-	ubdegs.GetRow(m, row);
+        ubdegs.GetRow(m, row);
 
-	bool keep1 = true;
-	bool keep2 = true;
+        bool keep1 = true;
+        bool keep2 = true;
 
-	for (int d = 0; d < dim; ++d)
-	  {
-	    if (row[d] > order - 2)
-	      {
-		keep2 = false;
-	      }
+        for (int d = 0; d < dim; ++d)
+          {
+            if (row[d] > order - 2)
+              {
+                keep2 = false;
+              }
 
-	    if (row[d] > order - 1)
-	      {
-		keep1 = false;
-	      }
-	  }
+            if (row[d] > order - 1)
+              {
+                keep1 = false;
+              }
+          }
 
-	m1_h[m] = keep1 ? 1.0 : 0.0;
-	m2_h[m] = keep2 ? 1.0 : 0.0;
+        m1_h[m] = keep1 ? 1.0 : 0.0;
+        m2_h[m] = keep2 ? 1.0 : 0.0;
       }
 
     c.modal_d = c.modal.Read();

@@ -133,8 +133,8 @@ namespace Theseus
       for (int d = 0; d < dim; ++d) { du_t[d] = du[d] - dun * nhat[d]; }
 
       const mfem::real_t dmass = lambda_minus * alpha_minus
-                                + lambda_zero * alpha_zero
-                                + lambda_plus * alpha_plus;
+        + lambda_zero * alpha_zero
+        + lambda_plus * alpha_plus;
       mfem::real_t diss[Theseus::MAXEQ] = {0.0};
       diss[eq_mass] = dmass;
       for (int d = 0; d < dim; ++d)

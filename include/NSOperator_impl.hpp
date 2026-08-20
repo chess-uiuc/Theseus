@@ -145,10 +145,10 @@ namespace Theseus
         mfem::real_t el_gradP[Theseus::MAXEQ];
         Theseus::PointStateViewRW dP{el_gradP};
         gas.grad_entropy_to_grad_prim(CV, dS, dP);
-	if (dc.axisymmetric)
-	  {
-	    ProjectAxisPrimitiveGradientDirection(gas, dc.elRadius_d[pt], idim, el_gradP);
-	  }
+        if (dc.axisymmetric)
+          {
+            ProjectAxisPrimitiveGradientDirection(gas, dc.elRadius_d[pt], idim, el_gradP);
+          }
         Kernels::el_scatter_assign(el_gradP, ndof, neq, ept, 1.0, grad_prim_el);
 
       });
@@ -257,8 +257,8 @@ namespace Theseus
       }
 
       Theseus::DGSEMIntegrator::AssembleGradVolumePointKernel(
-        dc, Ue_d + element_offset, elJac_d + e*jac_stride,
-        elMetric_d + e*metric_stride, point, du_el_d);
+                                                              dc, Ue_d + element_offset, elJac_d + e*jac_stride,
+                                                              elMetric_d + e*metric_stride, point, du_el_d);
     });
 #else
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
@@ -324,9 +324,9 @@ namespace Theseus
       duBnd.SetSize(psize);
       duBnd.UseDevice();
     }
-    
+
     operator_cache.restr_b->Mult(pu, u_faces);
-    
+
     const mfem::real_t *u_d = u_faces.Read();
     const mfem::real_t *nor_d = dc.bnd_nor_d;
     const mfem::real_t *wt_d = dc.bnd_wt_d;
@@ -479,8 +479,8 @@ namespace Theseus
       }
 
       Theseus::DGSEMIntegrator::AssembleGradInteriorFacePointKernel(
-        dc, u_d + face_offset, nor_d + point_offset*dim,
-        wm_d[point_offset], wp_d[point_offset], fp, rhs_face);
+                                                                    dc, u_d + face_offset, nor_d + point_offset*dim,
+                                                                    wm_d[point_offset], wp_d[point_offset], fp, rhs_face);
     });
 #else
     const int norm_size = nfp * dim;
@@ -571,8 +571,8 @@ namespace Theseus
     const auto idx = this->ess_tdof_list.Read();
     // std::cout << "N ZERO = " << N << std::endl;
     for(int idim = 0;idim < dim;idim++){
-       auto gradu_dim_d = grad_u[idim]->ReadWrite();
-       mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { gradu_dim_d[idx[i]] = 0.0; });
+      auto gradu_dim_d = grad_u[idim]->ReadWrite();
+      mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { gradu_dim_d[idx[i]] = 0.0; });
     }
   }
 
@@ -582,7 +582,7 @@ namespace Theseus
                                                            mfem::Vector &pdudt) const
   {
     Theseus::ScopedTimer timer("MultCNS_InteriorFaces");
-  
+
     auto dc = device_cache;
     const int dim = dc.dim;
     const int neq = dc.num_equations;
@@ -625,11 +625,11 @@ namespace Theseus
     {
       Theseus::ScopedTimer gradrestr("GradInteriorFaceRestrict");
       for(int idim = 0;idim < dim;idim++){
-	operator_cache.restr_f->Mult(*p_grad_prim[idim], int_grad_prim[idim]);
-	grad_prim_d[idim] = int_grad_prim[idim].Read();
+        operator_cache.restr_f->Mult(*p_grad_prim[idim], int_grad_prim[idim]);
+        grad_prim_d[idim] = int_grad_prim[idim].Read();
       }
     }
-  
+
     // If zeroed before accumulation, do it explicitly on device:
     // Potentially, this is not needed at all since I think we overwrite everything
     {
@@ -655,82 +655,82 @@ namespace Theseus
     {
       Theseus::ScopedTimer ifkern("CNSInteriorFaceKernel");
 #ifdef POINT_PARALLEL_INTERIOR_FACES
-    mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
-    {
-      const int f = p / nfp;
-      const int fp = p % nfp;
-      const int face_offset = f*face_size;
-      const int point_offset = f*nfp + fp;
+      mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
+      {
+        const int f = p / nfp;
+        const int fp = p % nfp;
+        const int face_offset = f*face_size;
+        const int point_offset = f*nfp + fp;
 
-      const mfem::real_t *u_face_d = u_d + face_offset;
-      mfem::real_t *rhs_face_d = rhs_d + face_offset;
-      const mfem::real_t *dprim_face_x =
-        (dim > 0) ? grad_prim_d[0] + face_offset : nullptr;
-      const mfem::real_t *dprim_face_y =
-        (dim > 1) ? grad_prim_d[1] + face_offset : nullptr;
-      const mfem::real_t *dprim_face_z =
-        (dim > 2) ? grad_prim_d[2] + face_offset : nullptr;
-      const mfem::real_t radius =
-        dc.axisymmetric ? face_radius_d[point_offset] : 0.0;
+        const mfem::real_t *u_face_d = u_d + face_offset;
+        mfem::real_t *rhs_face_d = rhs_d + face_offset;
+        const mfem::real_t *dprim_face_x =
+          (dim > 0) ? grad_prim_d[0] + face_offset : nullptr;
+        const mfem::real_t *dprim_face_y =
+          (dim > 1) ? grad_prim_d[1] + face_offset : nullptr;
+        const mfem::real_t *dprim_face_z =
+          (dim > 2) ? grad_prim_d[2] + face_offset : nullptr;
+        const mfem::real_t radius =
+          dc.axisymmetric ? face_radius_d[point_offset] : 0.0;
 
-      ws_d[p] = Theseus::DGSEMIntegrator::AssembleViscousFacePointKernel(
-        dc, u_face_d, nor_d + point_offset*dim,
-        inv1_d[point_offset], inv2_d[point_offset],
-        dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d);
-    });
+        ws_d[p] = Theseus::DGSEMIntegrator::AssembleViscousFacePointKernel(
+                                                                           dc, u_face_d, nor_d + point_offset*dim,
+                                                                           inv1_d[point_offset], inv2_d[point_offset],
+                                                                           dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d);
+      });
 #else
-    const int norm_size = nfp*dim;
-    mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
-    {
-      const int face_offset = f*face_size;
-      const int n_offset = f*norm_size;
-      const int w_offset = f*nfp;
+      const int norm_size = nfp*dim;
+      mfem::forall(nfaces, [=] MFEM_HOST_DEVICE (int f)
+      {
+        const int face_offset = f*face_size;
+        const int n_offset = f*norm_size;
+        const int w_offset = f*nfp;
 
-      const mfem::real_t *u_face_d = u_d + face_offset;
-      mfem::real_t *rhs_face_d = rhs_d + face_offset;
-      const mfem::real_t *nor_face_d = nor_d + n_offset;
-      const mfem::real_t *w_minus_d = inv1_d + w_offset;
-      const mfem::real_t *w_plus_d = inv2_d + w_offset;
-      const mfem::real_t *radius_face_d = dc.axisymmetric ?
-        face_radius_d + w_offset : nullptr;
-      const mfem::real_t *dprim_face_x = (dim > 0) ? grad_prim_d[0] + face_offset : nullptr;
-      const mfem::real_t *dprim_face_y = (dim > 1) ? grad_prim_d[1] + face_offset : nullptr;
-      const mfem::real_t *dprim_face_z = (dim > 2) ? grad_prim_d[2] + face_offset : nullptr;
+        const mfem::real_t *u_face_d = u_d + face_offset;
+        mfem::real_t *rhs_face_d = rhs_d + face_offset;
+        const mfem::real_t *nor_face_d = nor_d + n_offset;
+        const mfem::real_t *w_minus_d = inv1_d + w_offset;
+        const mfem::real_t *w_plus_d = inv2_d + w_offset;
+        const mfem::real_t *radius_face_d = dc.axisymmetric ?
+          face_radius_d + w_offset : nullptr;
+        const mfem::real_t *dprim_face_x = (dim > 0) ? grad_prim_d[0] + face_offset : nullptr;
+        const mfem::real_t *dprim_face_y = (dim > 1) ? grad_prim_d[1] + face_offset : nullptr;
+        const mfem::real_t *dprim_face_z = (dim > 2) ? grad_prim_d[2] + face_offset : nullptr;
 
-      // Call one fused kernel for inviscid and viscous facial terms
-      mfem::real_t ws = Theseus::DGSEMIntegrator::AssembleViscousElementFaceKernel(dc, u_face_d, nor_face_d,
-                                                                                   w_minus_d, w_plus_d,
-                                                                                   dprim_face_x,
-                                                                                   dprim_face_y,
-                                                                                   dprim_face_z,
-                                                                                   radius_face_d,
-                                                                                   rhs_face_d);
-      ws_d[f] = ws;
-    });
+        // Call one fused kernel for inviscid and viscous facial terms
+        mfem::real_t ws = Theseus::DGSEMIntegrator::AssembleViscousElementFaceKernel(dc, u_face_d, nor_face_d,
+                                                                                     w_minus_d, w_plus_d,
+                                                                                     dprim_face_x,
+                                                                                     dprim_face_y,
+                                                                                     dprim_face_z,
+                                                                                     radius_face_d,
+                                                                                     rhs_face_d);
+        ws_d[f] = ws;
+      });
 #endif
     }
 
-    { 
+    {
       Theseus::ScopedTimer ifscatter("CNSInteriorFaceScatter");
       operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
-      pdudt += faces_dudt; // on device? 
+      pdudt += faces_dudt; // on device?
     }
 
     mfem::real_t max_char_speed_facial = 0.0;
     {
       Theseus::ScopedTimer ifsws("CNSIFWSReduction");
-    // Finish up on the host:
-    //  - Reduce for rank-local max_char_speed
-    const mfem::real_t *ws = operator_cache.ifWaveSpeed.HostRead();
+      // Finish up on the host:
+      //  - Reduce for rank-local max_char_speed
+      const mfem::real_t *ws = operator_cache.ifWaveSpeed.HostRead();
 #ifdef POINT_PARALLEL_INTERIOR_FACES
-    const int num_wave_speeds = npoints;
+      const int num_wave_speeds = npoints;
 #else
-    const int num_wave_speeds = nfaces;
+      const int num_wave_speeds = nfaces;
 #endif
-    for(int i = 0; i < num_wave_speeds; ++i)
-      {
-        max_char_speed_facial = std::max(max_char_speed_facial, ws[i]);
-      }
+      for(int i = 0; i < num_wave_speeds; ++i)
+        {
+          max_char_speed_facial = std::max(max_char_speed_facial, ws[i]);
+        }
     }
 
     return max_char_speed_facial;
@@ -858,7 +858,7 @@ namespace Theseus
                                              dim, nfp, neq, fp, gradPrim_x, gradPrim_y,
                                              gradPrim_z);
       Theseus::Kernels::el_gather_state(u_face_d, nfp, neq, fp, state1);
-    
+
       const mfem::real_t ws = \
         Theseus::BC::ApplyViscousBoundaryCondition(dc, bc, state1, gradPrim_x, gradPrim_y,
                                                    gradPrim_z, nor_point, radius, fluxN);
@@ -867,7 +867,7 @@ namespace Theseus
     });
 
     operator_cache.restr_b->MultTranspose(rhs_faces, faces_dudt);
-    pdudt += faces_dudt; // on device? (likely yes) 
+    pdudt += faces_dudt; // on device? (likely yes)
 
     // Finish up on the host:
     //  - Reduce for rank-local max_char_speed
@@ -932,7 +932,7 @@ namespace Theseus
     for(int idim = 0;idim < dim;idim++){
       gradPrim_d[idim] = vol_grad_prim[idim].Read();
     }
-  
+
     // Write-only for RHS
     mfem::real_t *dUe_d = dUe.Write();
 
@@ -992,15 +992,15 @@ namespace Theseus
 
       const int element_offset = e * estride;
       ws_d[p] = DGSEMIntegrator::AssembleVolumePointKernel(
-        dc, Ue_d + element_offset, elJac_d + e*jac_stride,
-        elMetric_d + e*metric_stride, point, dUe_d + element_offset);
+                                                           dc, Ue_d + element_offset, elJac_d + e*jac_stride,
+                                                           elMetric_d + e*metric_stride, point, dUe_d + element_offset);
     });
 #endif
 
     // Inside the FORALL below, executed on device
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
     {
-    
+
       const mfem::real_t *jac_el    = elJac_d    + e * jac_stride;
       const mfem::real_t *metric_el = elMetric_d + e * metric_stride;
       const mfem::real_t *radius_el = dc.axisymmetric ?
@@ -1022,7 +1022,7 @@ namespace Theseus
 #else
       mfem::real_t cs_el =
         Theseus::DGSEMIntegrator::AssembleElementVolumeKernel(
-          dc, u_el, jac_el, metric_el, du_el);
+                                                              dc, u_el, jac_el, metric_el, du_el);
 #endif
 #ifdef SUBCELL_FV_BLENDING
       mfem::real_t alpha_fv = alpha_d[e];
@@ -1045,7 +1045,7 @@ namespace Theseus
       }
 #endif
       AddAxisymmetricEulerElementSource(
-        dc, u_el, radius_el, jac_el, metric_el, du_el);
+                                        dc, u_el, radius_el, jac_el, metric_el, du_el);
 #ifdef POINT_PARALLEL_VOLUME
       ws_d[e*ndof] = cs_el;
 #else
@@ -1063,7 +1063,7 @@ namespace Theseus
                                                                    grad_prim_el[0], grad_prim_el[1],
                                                                    grad_prim_el[2], du_el);
 #endif
-    
+
     });
 
 #ifdef POINT_PARALLEL_VOLUME
@@ -1084,14 +1084,14 @@ namespace Theseus
       }
 
       Theseus::DGSEMIntegrator::AssembleViscousVolumePointKernel(
-        dc, Ue_d + element_offset, elJac_d + e*jac_stride,
-        elMetric_d + e*metric_stride,
-        dc.axisymmetric ? elRadius_d + e*jac_stride : nullptr,
-        grad_prim_el[0], grad_prim_el[1], grad_prim_el[2], point,
-        dUe_d + element_offset);
+                                                                 dc, Ue_d + element_offset, elJac_d + e*jac_stride,
+                                                                 elMetric_d + e*metric_stride,
+                                                                 dc.axisymmetric ? elRadius_d + e*jac_stride : nullptr,
+                                                                 grad_prim_el[0], grad_prim_el[1], grad_prim_el[2], point,
+                                                                 dUe_d + element_offset);
     });
 #endif
-  
+
     // The rest is identical to Euler operator
     // Scatter RHS back to storage
     operator_cache.restr_v->AddMultTranspose(dUe, pdudt);
@@ -1139,7 +1139,7 @@ namespace Theseus
         }
       }
     const std::vector<mfem::Vector *> &pGradPrim = this->P ? p_grad_ : grad_prim;
-  
+
     mfem::real_t max_char_speed = MultCNS_Volume(u, pGradPrim, pdudt);
 
     mfem::real_t max_char_speed_faces = MultCNS_InteriorFaces(u, pGradPrim, pdudt);
