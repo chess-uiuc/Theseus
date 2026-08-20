@@ -446,10 +446,10 @@ namespace Theseus
       }
 
     pmesh->ExchangeFaceNbrData();
-    if (debug_simulation)
-      {
-	PrintFacePartitionDiagnostics();
-      }
+    // if (debug_simulation)
+    //   {
+    // 	PrintFacePartitionDiagnostics();
+    //   }
 #ifdef SUBCELL_FV_BLENDING
     fec0 = std::make_shared<mfem::DG_FECollection>(0, dim);
     fes0 = std::make_shared<mfem::ParFiniteElementSpace>(pmesh.get(), fec0.get());
