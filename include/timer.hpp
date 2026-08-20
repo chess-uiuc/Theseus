@@ -239,8 +239,9 @@ namespace Theseus
       const double mean_mean =
 	mean_sum * inv_nranks;
 
+      auto old_flags = os.flags();
+      auto old_precision = os.precision();
       os << std::fixed << std::setprecision(3);
-
       os << "\n"
          << "========================================================================\n"
          << "Theseus timestep performance\n"
@@ -294,6 +295,8 @@ namespace Theseus
 #endif
 
       os << "========================================================================\n";
+      os.flags(old_flags);
+      os.precision(old_precision);
     }
 
   private:
