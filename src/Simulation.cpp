@@ -95,7 +95,7 @@ namespace Theseus
       }
   }
 
-  constexpr bool debug_simulation = true;
+  constexpr bool debug_simulation = false;
 
   int Simulation::LoadConfig(const std::string &config_file_path)
   {
