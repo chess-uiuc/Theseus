@@ -127,6 +127,14 @@ target_link_libraries(axisymmetry_config_tests PRIVATE ${THESEUS_MFEM_TARGET} MP
 
 add_test(NAME AxisymmetryConfigTests COMMAND axisymmetry_config_tests)
 
+add_executable(axisymmetric_geometry_tests
+   unit_test_main.cpp
+   axisymmetric_geometry_tests.cpp
+)
+
+target_include_directories(axisymmetric_geometry_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
 if(ENABLE_CUDA)
     set_source_files_properties(
         axisymmetric_geometry_tests.cpp
@@ -144,15 +152,6 @@ if(ENABLE_CUDA)
         >
     )
 endif()
-
-add_executable(axisymmetric_geometry_tests
-   unit_test_main.cpp
-   axisymmetric_geometry_tests.cpp
-)
-
-target_include_directories(axisymmetric_geometry_tests
-    PRIVATE ${PROJECT_SOURCE_DIR}/include
-)
 
 target_link_libraries(axisymmetric_geometry_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
 
@@ -235,21 +234,9 @@ if(THESEUS_WITH_PLATO)
       table_lookup_test.cpp
    )
 
-   target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
-
-   target_include_directories(table_lookup_tests
-         PRIVATE
-         ${PROJECT_SOURCE_DIR}/include
-         ${CMAKE_PREFIX_PATH}/include
-         ${PROJECT_BINARY_DIR}/generated
-   )
-
-   target_link_directories(table_lookup_tests
-         PUBLIC ${CMAKE_PREFIX_PATH}/lib
-   )
    if(ENABLE_CUDA)
 	 set_source_files_properties(
-		table_lookup_tests.cpp
+		table_lookup_test.cpp
          	PROPERTIES LANGUAGE CUDA
     	 )
 
@@ -264,6 +251,19 @@ if(THESEUS_WITH_PLATO)
                >
          )
    endif()
+
+   target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
+
+   target_include_directories(table_lookup_tests
+         PRIVATE
+         ${PROJECT_SOURCE_DIR}/include
+         ${CMAKE_PREFIX_PATH}/include
+         ${PROJECT_BINARY_DIR}/generated
+   )
+
+   target_link_directories(table_lookup_tests
+         PUBLIC ${CMAKE_PREFIX_PATH}/lib
+   )
 
    target_link_libraries(table_lookup_tests
           PRIVATE

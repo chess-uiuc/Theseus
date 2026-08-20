@@ -23,7 +23,6 @@ fill_single_dof_state(Theseus::StateLayout &layout,
                       const real_t u[3],
                       real_t e_int_density)
 {
-    const int ndofs = 1;
     const int nscalars = 0;
     const int num_eq = dim+2+nscalars;
 
