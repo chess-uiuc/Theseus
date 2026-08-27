@@ -28,7 +28,7 @@ namespace Theseus
     {
 #ifdef SUTHERLAND
       // mu0 * T0pTs / (T + Ts) * (T / T0) * std::sqrt(T / T0);
-      const mfem::real_t temptr = eos.temperature(phys, L, S, thermoTables);
+      const mfem::real_t temptr = eos.temperature(phys, L, S, lteTables);
       const mfem::real_t Trel = temptr / phys.T0;
       const mfem::real_t T0pTs = phys.T0 + phys.Ts;
       return phys.mu0 * T0pTs * Trel * std::sqrt(Trel) / (temptr + phys.Ts);

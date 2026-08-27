@@ -199,7 +199,7 @@ namespace Theseus
     MFEM_HOST_DEVICE
     inline void primitive_to_conserved(const InStateView &Sp, OutStateView &Sc) const
     {
-      return eos.entropy_to_conserved(phys, L, Sp, Sc);
+      return eos.primitive_to_conserved(phys, L, Sp, Sc);
     }
  
     // --- Transport -----------------------------------------------------------

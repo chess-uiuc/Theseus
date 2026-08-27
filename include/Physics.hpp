@@ -26,18 +26,18 @@ namespace Theseus
     mfem::real_t R_gas;
     mfem::real_t cp;
     mfem::real_t mu;
+    mfem::real_t mu0;
 
     MFEM_HOST_DEVICE PhysicsConstants() = default;
 
-    PhysicsConstants(mfem::real_t gamma, mfem::real_t Pr, mfem::real_t R_gas, mfem::real_t mu)
+    PhysicsConstants(mfem::real_t gamma, mfem::real_t Pr, mfem::real_t R_gas, mfem::real_t mu, mfem::real_t mu0=1.716e-5)
       : gamma(gamma), Pr(Pr), R_gas(R_gas), mu(mu),
-        gammaInverse(1.0 / gamma), gammaM1(gamma - 1.0), gammaP1(gamma + 1.0),
+        gammaInverse(1.0 / gamma), gammaM1(gamma - 1.0), gammaP1(gamma + 1.0), mu0(mu0),
         gammaM1Inverse(1.0 / gammaM1), gammaP1Inverse(1.0 / gammaP1),
         gammaM1_gammaInverse(gammaM1 * gammaInverse), gamma_gammaM1Inverse(gamma * gammaM1Inverse),
         PrInverse(1.0 / Pr), cp(gamma_gammaM1Inverse * R_gas) {}
 
     mfem::real_t mu_bulk = 2.0 / 3.0;
-    mfem::real_t mu0 = 1.716e-5;
     mfem::real_t T0 = 273.15;
     mfem::real_t Ts = 110.4;
   };
