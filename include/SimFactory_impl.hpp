@@ -117,7 +117,8 @@ namespace Theseus {
     Theseus::PhysicsConstants physics_constants(runtime.value("gamma", 1.4),
                                                 runtime.value("Pr", 0.72),
                                                 runtime.value("R_gas", 287.05),
-                                                runtime.value("mu", 0.02));
+                                                runtime.value("mu", 0.02),
+                                                runtime.value("mu0", 1.716e-5));
     Theseus::StateLayout layout(dim, num_dofs_scalar);
 
     if (use_cpg)
