@@ -1,23 +1,24 @@
 # Timestep and CFL estimation
 
-Theseus keeps timestep selection separate from timestep diagnostics.
-
-For a fixed timestep, the configured `runTime.dt` is immutable.  The step sent
-to the ODE solver is shortened only to reach the final time, the next
-time-based visualization, or the next checkpoint exactly.  No stability scan
-or MPI reduction occurs on ordinary fixed-timestep steps.  An estimated CFL is
+For fixed timestep, the configured `runTime.dt` is constant.  The actual DT
+sent to the ODE solver may be shortened in order to fall exactly on an
+upcoming configured event (e.g. I/O, or final time).  An estimated CFL is
 computed every `runTime.cfl_check_interval` steps; this interval defaults to
 `print_interval`.  The reported nominal value uses the configured fixed
-timestep.  If the most recent step was shortened for I/O, its smaller actual
-CFL is also reported.
+timestep, and if the most recent step was shortened for I/O, its smaller actual
+CFL is also reported just for good measure.
 
-For a variable timestep,
+For fixed CFL mode (variable DT),
 
 ```
 dt = target_cfl / stability_rate
 ```
 
-and growth is limited by `runTime.max_dt_growth`, which defaults to 1.2.
+and growth in DT is limited by `runTime.max_dt_growth`, which defaults to 1.2.
+Growth limiting is done to prevent gigantic increases in DT (gigantic decreases
+are not limited).  This is an ad-hoc measure to prevent things like transients,
+shocks, or other flow-features (or the numerics that deal with them) from introducing
+sudden significant (overly optimistic) increases in DT.
 
 More precisely, after step $n$ the next nominal timestep is
 
@@ -107,7 +108,7 @@ interior and boundary face points.
 
 ### Viscous contribution
 
-For viscous builds, the estimate uses reference spectral radii of the coupled
+For viscous flows, the estimate uses reference spectral radii of the coupled
 periodic scalar BR1 auxiliary-gradient and divergence operators for orders 1
 through 12, with a 25-percent margin.  Higher orders use the continuation
 $s_d(p)=0.5(p+1)^4$.  At volume node $q$, define
@@ -134,7 +135,7 @@ $$
 
 All transport and thermodynamic quantities are evaluated from the local state
 through the same gas model used by the residual, including Sutherland and LTE
-models.  For inviscid builds, $\sigma_{\mathrm{diff}}=0$.
+models.  For inviscid flows, $\sigma_{\mathrm{diff}}=0$.
 
 ### Fixed-timestep reporting
 
@@ -152,16 +153,20 @@ C_{\mathrm{actual}} = \Delta t_{\mathrm{actual}}\,\sigma(U),
 $$
 
 which is necessarily no larger than the nominal value for the same state.
-Both values use the state after the completed step.  No stability scan or MPI
-reduction is performed between configured fixed-DT check intervals.
+Both values use the state after the completed step. For performance reasons,
+when fixed DT mode is used, no CFL computation is performed except at check/print
+intervals given by the user.
+
+#### NOTE:
 
 This is still an inexpensive stability estimate, not a runtime eigensolve of
-the complete nonlinear Jacobian.  The reference BR1 calculation includes both
-the auxiliary-gradient equation and the divergence of its diffusive flux, with
-central interface traces in each operator.  Lifting interface quantities into
-the volume representation is a general DG operation and is not specific to
-BR1.  Full compressible and physical-boundary spectra remain validation work.
+the complete nonlinear Jacobian (which would introduce significant overhead).
+The reference BR1 calculation includes both the auxiliary-gradient equation
+and the divergence of its diffusive flux, with central interface traces in each
+operator. Full compressible and physical-boundary spectra remain validation work.
 
-The tabulated reference values can be reproduced offline with
+The tabulated reference values used by the code can be reproduced offline with
 `scripts/reference_stability_spectra.py`.  This utility is not called by the
-solver and adds no initialization or per-step cost.
+solver and adds no initialization or per-step cost. Its values are hard-coded
+into the table in `include/StabilityEstimate.hpp`.
+
