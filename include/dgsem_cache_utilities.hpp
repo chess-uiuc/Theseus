@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "mfem.hpp"
+#include "StabilityEstimate.hpp"
 #include "AxisymmetricGeometry.hpp"
 #include "dgsem_cache.hpp"
 #include "ModalBasis.hpp"
@@ -160,6 +161,14 @@ namespace Theseus {
     Dhat2_T *= 2.0;
     Dhat2_T(0, 0) += 1.0 / cache->ir->IntPoint(0).weight;
     Dhat2_T(Np - 1, Np - 1) -= 1.0 / cache->ir->IntPoint(Np - 1).weight;
+
+    cache->stabilityAdvectionScale = ReferenceAdvectionSpectralScale(p);
+    cache->stabilityDiffusionScale = ReferenceBR1DiffusionSpectralScale(p);
+    const mfem::real_t endpoint_lift =
+      1.0 / cache->ir->IntPoint(0).weight;
+    cache->stabilitySurfaceScale =
+      cache->stabilityAdvectionScale / endpoint_lift;
+
     Dhat2_T.Transpose();
     D_T.Transpose();
 

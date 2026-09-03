@@ -42,6 +42,9 @@ namespace Theseus
     int ndof_scalar_el = 0;
     int num_face_points = 0;
     int num_interior_faces = 0;
+    mfem::real_t stabilityAdvectionScale = 0.0;
+    mfem::real_t stabilityDiffusionScale = 0.0;
+    mfem::real_t stabilitySurfaceScale = 1.0;
     bool axisymmetric = AxisymmetricGeometry::enabled;
 
     // Host Only: Integration rules, operators, restrictions
@@ -124,6 +127,9 @@ namespace Theseus
     mutable mfem::Vector elWaveSpeed;
     mutable mfem::Vector ifWaveSpeed; // size ninterior faces * points per face
     mutable mfem::Vector bndWaveSpeed; // size nbnd faces
+    mutable mfem::Vector stabilityAdvectiveRate;
+    mutable mfem::Vector stabilitySurfaceRate;
+    mutable mfem::Vector stabilityDiffusiveRate;
     OperatorGasModel gas;
     InviscidFlux iflux;
     std::unique_ptr<Theseus::LTETable::Data> lteTableData;

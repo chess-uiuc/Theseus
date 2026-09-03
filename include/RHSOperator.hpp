@@ -10,6 +10,7 @@
 #include "ModalBasis.hpp"
 #include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
+#include "StabilityEstimate.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_cache_utilities.hpp"
 
@@ -101,6 +102,8 @@ namespace Theseus
     { std::cout << "RHSOperatorBase::ComputeIntegralMeasures empty." << std::endl; }
     virtual void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override
     { std::cout << "RHSOperatorBase::Mult empty." << std::endl; }
+    virtual StabilityEstimate EstimateStability(const mfem::Vector &u) const
+    { MFEM_ABORT("RHSOperatorBase::EstimateStability called on base class."); }
     virtual std::string GasModelName() const {
       return std::string("RHSOperatorBase::GasModel: NONE");
     }
@@ -167,6 +170,7 @@ namespace Theseus
 #endif
 
     void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override;
+    StabilityEstimate EstimateStability(const mfem::Vector &u) const override;
     void ComputeIntegralMeasures(const mfem::Vector &u, Theseus::IntegralMeasures &diag) const override;
     virtual mfem::real_t FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const = 0;
 
