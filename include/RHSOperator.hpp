@@ -10,6 +10,7 @@
 #include "ModalBasis.hpp"
 #include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
+#include "StabilityEstimate.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_cache_utilities.hpp"
 
@@ -19,7 +20,6 @@ namespace Theseus
                           public mfem::ParNonlinearForm
   {
   protected:
-    mutable mfem::real_t max_char_speed;
     std::shared_ptr<mfem::ParFiniteElementSpace> vfes;
     std::shared_ptr<mfem::ParFiniteElementSpace> fes0;
     std::shared_ptr<mfem::ParMesh> pmesh;
@@ -88,11 +88,6 @@ namespace Theseus
 
     IntegralMeasures GetIntegralMeasuresBaseline() const { return diag0; }
 
-    inline mfem::real_t GetMaxCharSpeed() const
-    {
-      return max_char_speed;
-    }
-
     inline mfem::real_t& GetTimeRef()
     {
       return t;
@@ -101,6 +96,8 @@ namespace Theseus
     { std::cout << "RHSOperatorBase::ComputeIntegralMeasures empty." << std::endl; }
     virtual void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override
     { std::cout << "RHSOperatorBase::Mult empty." << std::endl; }
+    virtual StabilityEstimate EstimateStability(const mfem::Vector &u) const
+    { MFEM_ABORT("RHSOperatorBase::EstimateStability called on base class."); }
     virtual std::string GasModelName() const {
       return std::string("RHSOperatorBase::GasModel: NONE");
     }
@@ -167,8 +164,9 @@ namespace Theseus
 #endif
 
     void Mult(const mfem::Vector &u, mfem::Vector &dudt) const override;
+    StabilityEstimate EstimateStability(const mfem::Vector &u) const override;
     void ComputeIntegralMeasures(const mfem::Vector &u, Theseus::IntegralMeasures &diag) const override;
-    virtual mfem::real_t FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const = 0;
+    virtual void FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const = 0;
 
     std::string GasModelName() const override { return gasModelName; }
     std::string NumFluxName() const override { return numFluxName; }

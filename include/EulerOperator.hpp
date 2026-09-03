@@ -41,10 +41,10 @@ namespace Theseus
     {}
 
     ~EulerOperator() = default;
-    mfem::real_t FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const override;
-    mfem::real_t MultEuler_Volume(const mfem::Vector &pu, mfem::Vector &pdudt) const;
-    mfem::real_t MultEuler_InteriorFaces(const mfem::Vector &pu, mfem::Vector &pdudt) const;
-    mfem::real_t MultEuler_BoundaryFaces(const mfem::Vector &pu, mfem::Vector &pdudt) const;
+    void FlowMult(const mfem::Vector &pu, mfem::Vector &pdudt) const override;
+    void MultEuler_Volume(const mfem::Vector &pu, mfem::Vector &pdudt) const;
+    void MultEuler_InteriorFaces(const mfem::Vector &pu, mfem::Vector &pdudt) const;
+    void MultEuler_BoundaryFaces(const mfem::Vector &pu, mfem::Vector &pdudt) const;
 
   };
   

@@ -28,6 +28,7 @@ namespace Theseus
     int num_dofs_scalar;
     int num_dofs_system;
     int print_interval;
+    int cfl_check_interval;
     int ti;
     int nsteps_max;
 
@@ -45,8 +46,9 @@ namespace Theseus
     std::string paraview_folder;
 
     mfem::real_t t, t_final, dt, dt_real;
+    mfem::real_t dt_fixed;
     mfem::real_t cfl;
-    mfem::real_t hmin;
+    mfem::real_t max_dt_growth;
     mfem::real_t Re, Ma;
     mfem::real_t next_save_t;
     mfem::real_t save_dt1;

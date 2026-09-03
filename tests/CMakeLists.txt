@@ -113,6 +113,19 @@ target_include_directories(checkpoint_config_tests
 
 add_test(NAME CheckpointConfigTests COMMAND checkpoint_config_tests)
 
+add_executable(time_step_control_tests
+   unit_test_main.cpp
+   time_step_control_tests.cpp
+)
+
+target_include_directories(time_step_control_tests
+    PRIVATE ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(time_step_control_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+
+add_test(NAME TimeStepControlTests COMMAND time_step_control_tests)
+
 # Axisymmetry configuration and mesh contract tests
 add_executable(axisymmetry_config_tests
    unit_test_main.cpp

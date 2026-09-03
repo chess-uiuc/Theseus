@@ -6,6 +6,259 @@
 
 namespace Theseus
 {
+  template<typename PhysicsT>
+  StabilityEstimate RHSOperator<PhysicsT>::EstimateStability(const mfem::Vector &u) const
+  {
+    const mfem::Vector &pu = this->Prolongate(u);
+    const int restricted_size = operator_cache.restr_v->Height();
+    if (operator_cache.uVol.Size() != restricted_size)
+      {
+        operator_cache.uVol.SetSize(restricted_size);
+        operator_cache.uVol.UseDevice();
+      }
+    operator_cache.restr_v->Mult(pu, operator_cache.uVol);
+
+    const mfem::real_t advection_scale = operator_cache.stabilityAdvectionScale;
+    const mfem::real_t diffusion_scale = operator_cache.stabilityDiffusionScale;
+    const mfem::real_t surface_scale = operator_cache.stabilitySurfaceScale;
+
+    const auto dc = device_cache;
+    const auto gas_model = *gas;
+    const mfem::real_t *state = operator_cache.uVol.Read();
+    const mfem::real_t *jacobian = operator_cache.elJac.Read();
+    const mfem::real_t *metric = operator_cache.elMetric.Read();
+    const int points = dc.num_elements * dc.ndof_scalar_el;
+    const int dofs = dc.ndof_scalar_el;
+    const int equations = dc.num_equations;
+    const int dimensions = dc.dim;
+
+    mfem::Vector &advective = operator_cache.stabilityAdvectiveRate;
+    mfem::Vector &diffusive = operator_cache.stabilityDiffusiveRate;
+    if (advective.Size() != points)
+      {
+        advective.SetSize(points);
+        advective.UseDevice();
+        diffusive.SetSize(points);
+        diffusive.UseDevice();
+      }
+    mfem::real_t *advective_rate = advective.Write();
+    mfem::real_t *diffusive_rate = diffusive.Write();
+    mfem::forall(points, [=] MFEM_HOST_DEVICE (int point)
+    {
+      const int element = point / dofs;
+      const int node = point % dofs;
+      const mfem::real_t *element_state = state + element * dofs * equations;
+      mfem::real_t point_state[MAXEQ];
+      Kernels::el_gather_state(element_state, dofs, equations, node, point_state);
+      PointStateView S{point_state};
+      const mfem::real_t inverse_jacobian = 1.0 / jacobian[point];
+      mfem::real_t directional_sum = 0.0;
+      mfem::real_t metric_square_sum = 0.0;
+      for (int reference_direction = 0; reference_direction < dimensions;
+           ++reference_direction)
+        {
+          mfem::real_t velocity_dot_metric = 0.0;
+          mfem::real_t metric_norm_squared = 0.0;
+          for (int physical_direction = 0; physical_direction < dimensions;
+               ++physical_direction)
+            {
+              const mfem::real_t value = metric[
+                (point * dimensions + reference_direction) * dimensions
+                + physical_direction];
+              velocity_dot_metric += gas_model.velocity(S, physical_direction) * value;
+              metric_norm_squared += value * value;
+            }
+          directional_sum += (Kernels::rabs(velocity_dot_metric)
+                              + gas_model.sound_speed(S)
+                                * Kernels::rsqrt(metric_norm_squared))
+                             * inverse_jacobian;
+          metric_square_sum += metric_norm_squared
+                               * inverse_jacobian * inverse_jacobian;
+        }
+      advective_rate[point] = advection_scale * directional_sum;
+#ifdef PARABOLIC
+      const mfem::real_t density = gas_model.density(S);
+      const mfem::real_t gamma = gas_model.gamma(S);
+      const mfem::real_t shear_viscosity = gas_model.viscosity(S);
+      const mfem::real_t longitudinal_viscosity =
+        mfem::real_t(4.0 / 3.0) * shear_viscosity
+        + gas_model.bulk_viscosity(S);
+      const mfem::real_t momentum_diffusivity =
+        Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
+      const mfem::real_t thermal_diffusivity =
+        gas_model.thermal_conductivity(S) * gamma
+        / (density * gas_model.cp(S));
+      const mfem::real_t effective_diffusivity =
+        Kernels::rmax(momentum_diffusivity, thermal_diffusivity);
+      diffusive_rate[point] = diffusion_scale * effective_diffusivity
+                              * metric_square_sum;
+#else
+      diffusive_rate[point] = 0.0;
+#endif
+    });
+
+    StabilityEstimate estimate;
+    const mfem::real_t *advective_host = advective.HostRead();
+    const mfem::real_t *diffusive_host = diffusive.HostRead();
+    for (int point = 0; point < points; ++point)
+      {
+        estimate.advective_rate = std::max(estimate.advective_rate,
+                                            advective_host[point]);
+        estimate.diffusive_rate = std::max(estimate.diffusive_rate,
+                                            diffusive_host[point]);
+      }
+
+    // Surface corrections carry the endpoint quadrature/Jacobian scaling in
+    // fw_minus/fw_plus.  Compute their normal-aligned acoustic rates directly
+    // instead of consuming flux-specific wave-speed return values, whose units
+    // historically differ between numerical flux implementations.
+    const int interior_size = operator_cache.restr_f->Height();
+    const int face_points = dc.num_face_points;
+    const int interior_points = interior_size / (2 * equations);
+    if (interior_points > 0)
+      {
+        if (operator_cache.uInt.Size() != interior_size)
+          {
+            operator_cache.uInt.SetSize(interior_size);
+            operator_cache.uInt.UseDevice();
+          }
+        operator_cache.restr_f->Mult(pu, operator_cache.uInt);
+        mfem::Vector &surface = operator_cache.stabilitySurfaceRate;
+        if (surface.Size() < interior_points)
+          {
+            surface.SetSize(interior_points);
+            surface.UseDevice();
+          }
+        const mfem::real_t *face_state = operator_cache.uInt.Read();
+        const mfem::real_t *normal = dc.nor_d;
+        const mfem::real_t *weight_minus = dc.fw_minus_d;
+        const mfem::real_t *weight_plus = dc.fw_plus_d;
+        mfem::real_t *surface_rate = surface.Write();
+        mfem::forall(interior_points, [=] MFEM_HOST_DEVICE (int point)
+        {
+          const int face = point / face_points;
+          const int face_point = point % face_points;
+          const int face_size = 2 * face_points * equations;
+          const mfem::real_t *states = face_state + face * face_size;
+          mfem::real_t minus_state[MAXEQ];
+          mfem::real_t plus_state[MAXEQ];
+          for (int equation = 0; equation < equations; ++equation)
+            {
+              minus_state[equation] = states[(0 * equations + equation)
+                                             * face_points + face_point];
+              plus_state[equation] = states[(1 * equations + equation)
+                                            * face_points + face_point];
+            }
+          PointStateView minus{minus_state};
+          PointStateView plus{plus_state};
+          mfem::real_t normal_squared = 0.0;
+          mfem::real_t minus_normal_velocity = 0.0;
+          mfem::real_t plus_normal_velocity = 0.0;
+          for (int direction = 0; direction < dimensions; ++direction)
+            {
+              const mfem::real_t normal_component =
+                normal[point * dimensions + direction];
+              normal_squared += normal_component * normal_component;
+              minus_normal_velocity += gas_model.velocity(minus, direction)
+                                       * normal_component;
+              plus_normal_velocity += gas_model.velocity(plus, direction)
+                                      * normal_component;
+            }
+          const mfem::real_t normal_magnitude = Kernels::rsqrt(normal_squared);
+          const mfem::real_t normal_wave_speed = Kernels::rmax(
+            Kernels::rabs(minus_normal_velocity)
+              + gas_model.sound_speed(minus) * normal_magnitude,
+            Kernels::rabs(plus_normal_velocity)
+              + gas_model.sound_speed(plus) * normal_magnitude);
+          surface_rate[point] = normal_wave_speed
+            * Kernels::rmax(Kernels::rabs(weight_minus[point]),
+                            Kernels::rabs(weight_plus[point]))
+            * surface_scale;
+        });
+        const mfem::real_t *surface_host = surface.HostRead();
+        for (int point = 0; point < interior_points; ++point)
+          estimate.surface_rate = std::max(estimate.surface_rate,
+                                            surface_host[point]);
+      }
+
+    const int boundary_size = operator_cache.restr_b->Height();
+    const int boundary_points = boundary_size / equations;
+    if (boundary_points > 0)
+      {
+        if (operator_cache.uBnd.Size() != boundary_size)
+          {
+            operator_cache.uBnd.SetSize(boundary_size);
+            operator_cache.uBnd.UseDevice();
+          }
+        operator_cache.restr_b->Mult(pu, operator_cache.uBnd);
+        mfem::Vector &surface = operator_cache.stabilitySurfaceRate;
+        const int surface_offset = interior_points;
+        if (surface.Size() < surface_offset + boundary_points)
+          {
+            surface.SetSize(surface_offset + boundary_points);
+            surface.UseDevice();
+          }
+        const mfem::real_t *face_state = operator_cache.uBnd.Read();
+        const mfem::real_t *normal = dc.bnd_nor_d;
+        const mfem::real_t *weight = dc.bnd_wt_d;
+        const int *boundary_marker = dc.bnd_marker_index_d;
+        const BCDescriptor *boundary_conditions = dc.bc_descr_d;
+        const mfem::real_t *boundary_data = dc.bc_vector_d;
+        mfem::real_t *surface_rate = surface.Write() + surface_offset;
+        mfem::forall(boundary_points, [=] MFEM_HOST_DEVICE (int point)
+        {
+          const int face = point / face_points;
+          const int face_point = point % face_points;
+          const int marker = boundary_marker[face];
+          if (marker < 0)
+            {
+              surface_rate[point] = 0.0;
+              return;
+            }
+          const mfem::real_t *states = face_state
+            + face * face_points * equations;
+          mfem::real_t interior_state[MAXEQ];
+          for (int equation = 0; equation < equations; ++equation)
+            interior_state[equation] = states[equation * face_points + face_point];
+          PointStateView interior{interior_state};
+          mfem::real_t normal_squared = 0.0;
+          mfem::real_t normal_velocity = 0.0;
+          for (int direction = 0; direction < dimensions; ++direction)
+            {
+              const mfem::real_t normal_component =
+                normal[point * dimensions + direction];
+              normal_squared += normal_component * normal_component;
+              normal_velocity += gas_model.velocity(interior, direction)
+                                 * normal_component;
+            }
+          const mfem::real_t normal_wave_speed =
+            Kernels::rabs(normal_velocity)
+            + gas_model.sound_speed(interior) * Kernels::rsqrt(normal_squared);
+          mfem::real_t boundary_wave_speed = normal_wave_speed;
+          const BCDescriptor &condition = boundary_conditions[marker];
+          if (condition.type == int(BCType::SupersonicInflow))
+            {
+              PointStateView exterior{boundary_data + condition.data_index};
+              mfem::real_t exterior_normal_velocity = 0.0;
+              for (int direction = 0; direction < dimensions; ++direction)
+                exterior_normal_velocity += gas_model.velocity(exterior, direction)
+                                            * normal[point * dimensions + direction];
+              boundary_wave_speed = Kernels::rmax(
+                boundary_wave_speed,
+                Kernels::rabs(exterior_normal_velocity)
+                  + gas_model.sound_speed(exterior) * Kernels::rsqrt(normal_squared));
+            }
+          surface_rate[point] = boundary_wave_speed * Kernels::rabs(weight[point])
+                                * surface_scale;
+        });
+        const mfem::real_t *surface_host = surface.HostRead() + surface_offset;
+        for (int point = 0; point < boundary_points; ++point)
+          estimate.surface_rate = std::max(estimate.surface_rate,
+                                            surface_host[point]);
+      }
+    return estimate;
+  }
+
 
   template<typename PhysicsT>
   void RHSOperator<PhysicsT>::Finalize(mfem::real_t time)
@@ -488,11 +741,9 @@ namespace Theseus
       mfem::forall(psize, [=] MFEM_HOST_DEVICE (int i) { pdudt_d[i] = 0.0; });
     }
 
-    // max_char_speed is consumed by external components
-    // between steps
     {
       Theseus::ScopedTimer timer("FlowMult");
-      max_char_speed = FlowMult(u, pdudt);
+      FlowMult(u, pdudt);
     }
 
     if (this->Serial())
