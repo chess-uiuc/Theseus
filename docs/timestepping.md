@@ -106,6 +106,15 @@ lifting factor, then $s_f(p)=s_a(p)/\ell_{\mathrm{end}}$ avoids applying it
 twice.  Finally, $\sigma_{\mathrm{face}}$ is the maximum of $\sigma_f$ over all
 interior and boundary face points.
 
+Dissipative numerical fluxes evaluate any characteristic speeds they require
+internally; those values are not returned, stored, or reduced by the residual
+assembly.  In particular, the scalar dissipation added to the Chandrashekar
+face flux uses the mapped normal coefficient
+$\max_s(|\boldsymbol{u}_s\cdot\boldsymbol{n}|+c_s\|\boldsymbol{n}\|)$; tangential
+velocity does not inflate this dissipation.  The timestep estimator evaluates
+its normal-aligned bound independently of the selected numerical flux, so its
+result is invariant under a change of flux implementation.
+
 ### Viscous contribution
 
 For viscous flows, the estimate uses reference spectral radii of the coupled
@@ -169,4 +178,3 @@ The tabulated reference values used by the code can be reproduced offline with
 `scripts/reference_stability_spectra.py`.  This utility is not called by the
 solver and adds no initialization or per-step cost. Its values are hard-coded
 into the table in `include/StabilityEstimate.hpp`.
-

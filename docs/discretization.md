@@ -14,10 +14,10 @@ $$
 $$
 
 the semidiscrete residual combines element-volume derivatives with numerical
-fluxes on interior and boundary faces. The inviscid operator supports
-entropy-conservative or dissipative two-state numerical fluxes selected by the
-case configuration. Optional subcell finite-volume blending adds a shock-robust
-residual without changing the meaning of the evolved conservative state $U$.
+fluxes on interior and boundary faces. The inviscid operator by default uses
+entropy-stable Chandrashekar two-point numerical fluxes.  Optional subcell
+finite-volume blending adds a shock-robust residual without changing the
+form (or physical meaning) of the conservative state $U$.
 
 Explicit $s$-stage Runge-Kutta methods advance the resulting method-of-lines
 system in time.
@@ -76,9 +76,9 @@ $$
    symmetry, inflow, or outflow condition.
 
 The arrays that initially contain $\nabla S$ are overwritten pointwise by
-$\nabla V$ before viscous flux evaluation. This keeps the BR1 lifting in entropy
-variables while allowing the transport kernels to consume the primitive
-gradients they require.
+$\nabla V$ before viscous flux evaluation. This means BR1 aux equations
+are those for the gradient of the entropy variables while allowing the
+transport kernels to consume the primitive gradients they require.
 
 ## Axisymmetric CNS
 

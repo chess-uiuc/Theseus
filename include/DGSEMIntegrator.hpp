@@ -18,7 +18,7 @@ namespace Theseus
 
     template<typename ContextType>
     MFEM_HOST_DEVICE inline
-    static mfem::real_t AssembleElementVolumeKernel(const ContextType &ctx,
+    static void AssembleElementVolumeKernel(const ContextType &ctx,
                                                     const mfem::real_t *el_u, const mfem::real_t *elJac_d,
                                                     const mfem::real_t *elMetric_d, mfem::real_t *el_dudt)
     {
@@ -34,7 +34,6 @@ namespace Theseus
       mfem::real_t f[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
       mfem::real_t state1[Theseus::MAXEQ];
       mfem::real_t state2[Theseus::MAXEQ];
-      mfem::real_t max_char_speed = 0.0;
 
       { // X-direction (metric row 0)
         // Zero'ing probably unnecessary: Chandrashekar flux overwrites it every time
@@ -52,8 +51,8 @@ namespace Theseus
                     Kernels::el_gather_state(el_u, dof, neq, id2, state2);
                     const mfem::real_t *met2 = elMetric_d + id2*dim*dim;
 
-                    const mfem::real_t cs = ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2, met1, met2, f);
-                    max_char_speed = Kernels::rmax(cs, max_char_speed);
+                    ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2,
+                                                met1, met2, f);
 
                     const mfem::real_t c1 = Dhat2_d[m + Np_x*i];
                     const mfem::real_t c2 = Dhat2_d[i + Np_x*m];
@@ -80,8 +79,8 @@ namespace Theseus
                     Kernels::el_gather_state(el_u, dof, neq, id2, state2);
                     const mfem::real_t *met2 = elMetric_d + id2*dim*dim + dim;
                     // ComputeVolumeFlux *overwrites* f, so don't worry about reuse
-                    const mfem::real_t cs = ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2, met1, met2, f);
-                    max_char_speed = Kernels::rmax(max_char_speed, cs);
+                    ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2,
+                                                met1, met2, f);
 
                     const mfem::real_t c1 = Dhat2_d[m + Np_y*j]; // column j, entry m
                     const mfem::real_t c2 = Dhat2_d[j + Np_y*m]; // column m, entry j
@@ -107,8 +106,8 @@ namespace Theseus
                     Kernels::el_gather_state(el_u, dof, neq, id2, state2);
                     const mfem::real_t *met2 = elMetric_d + id2*dim*dim + 2*dim;
 
-                    const mfem::real_t cs = ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2, met1, met2, f);
-                    max_char_speed = Kernels::rmax(max_char_speed, cs);
+                    ctx.iflux.ComputeVolumeFlux(ctx.gas, state1, state2,
+                                                met1, met2, f);
 
                     const mfem::real_t c1 = Dhat2_d[m + Np_z*k];
                     const mfem::real_t c2 = Dhat2_d[k + Np_z*m];
@@ -120,12 +119,11 @@ namespace Theseus
       // const int NPtot = Np_x * Np_y * Np_z; // = Np_x * Np_x * Np_x (!)
       Kernels::el_scale(elJac_d, -1.0, dof, neq, el_dudt);
 
-      return max_char_speed;
     }
 
     template<typename ContextType>
     MFEM_HOST_DEVICE inline
-    static mfem::real_t AssembleVolumePointKernel(
+    static void AssembleVolumePointKernel(
                                                   const ContextType &ctx, const mfem::real_t *el_u,
                                                   const mfem::real_t *elJac_d, const mfem::real_t *elMetric_d,
                                                   const int point, mfem::real_t *el_dudt)
@@ -145,7 +143,6 @@ namespace Theseus
       mfem::real_t state_upper[Theseus::MAXEQ];
       mfem::real_t flux[Theseus::MAXEQ];
       mfem::real_t point_rate[Theseus::MAXEQ] = {0.0};
-      mfem::real_t max_char_speed = 0.0;
 
       for (int m = 0; m < Np_x; ++m)
         {
@@ -156,11 +153,9 @@ namespace Theseus
           const int upper_point = k*Np_y*Np_x + j*Np_x + upper;
           Kernels::el_gather_state(el_u, dof, neq, lower_point, state_lower);
           Kernels::el_gather_state(el_u, dof, neq, upper_point, state_upper);
-          const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
-                                                                      ctx.gas, state_lower, state_upper,
-                                                                      elMetric_d + lower_point*dim*dim,
-                                                                      elMetric_d + upper_point*dim*dim, flux);
-          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+          ctx.iflux.ComputeVolumeFlux(ctx.gas, state_lower, state_upper,
+                                      elMetric_d + lower_point*dim*dim,
+                                      elMetric_d + upper_point*dim*dim, flux);
           const mfem::real_t coefficient = Dhat2_d[m + Np_x*i];
           for (int q = 0; q < neq; ++q)
             {
@@ -181,11 +176,10 @@ namespace Theseus
                                        el_u, dof, neq, lower_point, state_lower);
               Kernels::el_gather_state(
                                        el_u, dof, neq, upper_point, state_upper);
-              const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
-                                                                          ctx.gas, state_lower, state_upper,
-                                                                          elMetric_d + lower_point*dim*dim + dim,
-                                                                          elMetric_d + upper_point*dim*dim + dim, flux);
-              max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+              ctx.iflux.ComputeVolumeFlux(
+                ctx.gas, state_lower, state_upper,
+                elMetric_d + lower_point*dim*dim + dim,
+                elMetric_d + upper_point*dim*dim + dim, flux);
               const mfem::real_t coefficient = Dhat2_d[m + Np_y*j];
               for (int q = 0; q < neq; ++q)
                 {
@@ -207,11 +201,10 @@ namespace Theseus
                                        el_u, dof, neq, lower_point, state_lower);
               Kernels::el_gather_state(
                                        el_u, dof, neq, upper_point, state_upper);
-              const mfem::real_t char_speed = ctx.iflux.ComputeVolumeFlux(
-                                                                          ctx.gas, state_lower, state_upper,
-                                                                          elMetric_d + lower_point*dim*dim + 2*dim,
-                                                                          elMetric_d + upper_point*dim*dim + 2*dim, flux);
-              max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+              ctx.iflux.ComputeVolumeFlux(
+                ctx.gas, state_lower, state_upper,
+                elMetric_d + lower_point*dim*dim + 2*dim,
+                elMetric_d + upper_point*dim*dim + 2*dim, flux);
               const mfem::real_t coefficient = Dhat2_d[m + Np_z*k];
               for (int q = 0; q < neq; ++q)
                 {
@@ -222,11 +215,10 @@ namespace Theseus
 
       Kernels::el_scatter_assign(
                                  point_rate, dof, neq, point, -1.0/elJac_d[point], el_dudt);
-      return max_char_speed;
     }
 
     template<typename ContextT>
-    MFEM_HOST_DEVICE static mfem::real_t AssembleFacePointKernel(const ContextT &ctx,
+    MFEM_HOST_DEVICE static void AssembleFacePointKernel(const ContextT &ctx,
                                                                  const mfem::real_t *u_face,
                                                                  const mfem::real_t *nor_point,
                                                                  const mfem::real_t w_minus,
@@ -243,37 +235,31 @@ namespace Theseus
         qPlus[q] = u_face[ctx.iface_idx(1, fp, q)];
       }
 
-      const mfem::real_t char_speed =
-        ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
+      ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
 
       for(int q = 0; q < neq; ++q){
         rhs_face[ctx.iface_idx(0, fp, q)] = -w_minus * point_flux[q];
         rhs_face[ctx.iface_idx(1, fp, q)] =  w_plus * point_flux[q];
       }
 
-      return char_speed;
     }
 
     template<typename ContextT>
-    MFEM_HOST_DEVICE static mfem::real_t AssembleElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
+    MFEM_HOST_DEVICE static void AssembleElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
                                                                    const mfem::real_t *nor_face,const mfem::real_t *w_minus,
                                                                    const mfem::real_t *w_plus, mfem::real_t *rhs_face)
     {
-      mfem::real_t max_char_speed = 0.0;
       const int nfp = ctx.num_face_points;
       const int dim = ctx.dim;
       for (int fp = 0; fp < nfp; ++fp)
         {
-          const mfem::real_t char_speed =
-            AssembleFacePointKernel(ctx, u_face, nor_face + fp*dim,
-                                    w_minus[fp], w_plus[fp], fp, rhs_face);
-          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+          AssembleFacePointKernel(ctx, u_face, nor_face + fp*dim,
+                                  w_minus[fp], w_plus[fp], fp, rhs_face);
         }
-      return max_char_speed;
     }
 
     template<typename ContextT>
-    MFEM_HOST_DEVICE static mfem::real_t AssembleViscousFacePointKernel(
+    MFEM_HOST_DEVICE static void AssembleViscousFacePointKernel(
                                                                         const ContextT &ctx, const mfem::real_t *u_face,
                                                                         const mfem::real_t *nor_point, const mfem::real_t w_minus,
                                                                         const mfem::real_t w_plus, const mfem::real_t *dprim_face_x,
@@ -303,8 +289,7 @@ namespace Theseus
         }
       }
 
-      const mfem::real_t char_speed =
-        ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
+      ctx.iflux.ComputeFaceFlux(ctx.gas, qMinus, qPlus, nor_point, point_flux);
 
       NavierStokesFlux::ComputeViscousFluxKernel(
                                                  ctx.gas, qMinus, gradPrim_minus[0], gradPrim_minus[1],
@@ -328,34 +313,30 @@ namespace Theseus
         rhs_face[ctx.iface_idx(1, fp, q)] =  w_plus * point_flux[q];
       }
 
-      return char_speed;
     }
 
     template<typename ContextT>
-    MFEM_HOST_DEVICE static mfem::real_t AssembleViscousElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
+    MFEM_HOST_DEVICE static void AssembleViscousElementFaceKernel(const ContextT &ctx, const mfem::real_t *u_face,
                                                                           const mfem::real_t *nor_face,const mfem::real_t *w_minus,
                                                                           const mfem::real_t *w_plus, const mfem::real_t *dprim_face_x,
                                                                           const mfem::real_t *dprim_face_y, const mfem::real_t*dprim_face_z,
                                                                           const mfem::real_t *face_radius,
                                                                           mfem::real_t *rhs_face)
     {
-      mfem::real_t max_char_speed = 0.0;
       const int nfp = ctx.num_face_points;
       const int dim = ctx.dim;
       for (int fp = 0; fp < nfp; ++fp)
         {
           const mfem::real_t radius =
             ctx.axisymmetric ? face_radius[fp] : 0.0;
-          const mfem::real_t char_speed = AssembleViscousFacePointKernel(
-                                                                         ctx, u_face, nor_face + fp*dim, w_minus[fp], w_plus[fp],
-                                                                         dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face);
-          max_char_speed = Kernels::rmax(max_char_speed, char_speed);
+          AssembleViscousFacePointKernel(
+            ctx, u_face, nor_face + fp*dim, w_minus[fp], w_plus[fp],
+            dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face);
         }
-      return max_char_speed;
     }
 
     template<typename ContextT>
-    MFEM_HOST_DEVICE inline static mfem::real_t ComputeFVFluxesKernel(const ContextT &ctx,
+    MFEM_HOST_DEVICE inline static void ComputeFVFluxesKernel(const ContextT &ctx,
                                                                       const mfem::real_t *el_u,
                                                                       const mfem::real_t *elJac,
                                                                       const mfem::real_t *el_metric_xi,
@@ -371,7 +352,6 @@ namespace Theseus
       const int npe = Np_x * Np_y * Np_z;
       const mfem::real_t *qWgt = ctx.subcell_weights_d;
 
-      mfem::real_t max_char_speed = 0.0;
       mfem::real_t flux_num[Theseus::MAXEQ];
       mfem::real_t du_subcell[Theseus::MAXEQ];
       mfem::real_t state1_local[Theseus::MAXEQ];
@@ -395,10 +375,8 @@ namespace Theseus
                   Kernels::el_gather_state(el_u, npe, neq, id2, state2_local);
                   const mfem::real_t *nor = el_metric_xi + id2*dim;
 
-                  max_char_speed = \
-                    Kernels::rmax(max_char_speed,
-                                  ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
-                                                            state2_local, nor, flux_num));
+                  ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
+                                            state2_local, nor, flux_num);
                   for(int q = 0; q < neq;q++){
                     du_subcell[q] -= flux_num[q];
                   }
@@ -439,12 +417,8 @@ namespace Theseus
                       Kernels::el_gather_state(el_u, npe, neq, id2,
                                                state2_local);
                       const mfem::real_t *nor = el_metric_eta + id2*dim;
-                      max_char_speed = \
-                        Kernels::rmax(max_char_speed,
-                                      ctx.iflux.ComputeFaceFlux(ctx.gas,
-                                                                state1_local,
-                                                                state2_local,
-                                                                nor, flux_num));
+                      ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
+                                                state2_local, nor, flux_num);
                       for(int q = 0;q < neq;q++){
                         du_subcell[q] -= flux_num[q];
                       }
@@ -482,10 +456,8 @@ namespace Theseus
                           Kernels::el_gather_state(el_u, npe, neq, id2,
                                                    state2_local);
                           const mfem::real_t *nor = el_metric_zeta + id2*dim;
-                          max_char_speed = \
-                            Kernels::rmax(max_char_speed,
-                                          ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
-                                                                    state2_local, nor, flux_num));
+                          ctx.iflux.ComputeFaceFlux(ctx.gas, state1_local,
+                                                    state2_local, nor, flux_num);
                           for(int q = 0;q < neq;q++){
                             du_subcell[q] -= flux_num[q];
                           }
@@ -508,7 +480,6 @@ namespace Theseus
                 }
             }
         }
-      return max_char_speed;
     }
 
 

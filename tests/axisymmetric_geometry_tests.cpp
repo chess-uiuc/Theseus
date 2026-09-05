@@ -8,6 +8,7 @@
 #include "AxisymmetricGeometry.hpp"
 #include "AxisymmetricSource.hpp"
 #include "GasModel.hpp"
+#include "StabilityEstimate.hpp"
 #include "bc_kernels.hpp"
 #include "dgsem_cache_utilities.hpp"
 
@@ -35,6 +36,31 @@ namespace
       elMetric.SetSize(points * dim * dim);
       elQuadratureWeights.SetSize(points);
       elRadius.SetSize(points);
+    }
+  };
+
+  struct SegmentGeometryCache
+  {
+    bool axisymmetric = false;
+    int dim = 1;
+    int Np_x = 4;
+    int Np_y = 1;
+    int Np_z = 1;
+    mfem::IntegrationRules rules{0, mfem::Quadrature1D::GaussLobatto};
+    const mfem::IntegrationRule *ir_vol = nullptr;
+    mfem::Vector elJac;
+    mfem::Vector elMetric;
+    mfem::Vector elQuadratureWeights;
+    mfem::Vector elRadius;
+
+    explicit SegmentGeometryCache(int elements)
+    {
+      const int integration_order = 2*Np_x - 3;
+      ir_vol = &rules.Get(mfem::Geometry::SEGMENT, integration_order);
+      const int points = elements*ir_vol->GetNPoints();
+      elJac.SetSize(points);
+      elMetric.SetSize(points);
+      elQuadratureWeights.SetSize(points);
     }
   };
 
@@ -138,6 +164,55 @@ namespace
           *mesh.GetElementTransformation(element), &cache);
       }
   }
+}
+
+TEST(affine_segment_geometry_gives_expected_cfl_and_mesh_scaling)
+{
+  constexpr int order = 3;
+  constexpr mfem::real_t velocity = 0.75;
+  constexpr mfem::real_t sound_speed = 1.25;
+  constexpr mfem::real_t target_cfl = 0.4;
+
+  auto rate_for_length = [&](const mfem::real_t length) {
+    mfem::Mesh mesh = mfem::Mesh::MakeCartesian1D(1, length);
+    SegmentGeometryCache cache(mesh.GetNE());
+    Theseus::AssembleElementVolumeGeometricTerms(
+      *mesh.GetElementTransformation(0), &cache);
+
+    // MFEM places its Gauss-Lobatto rule on Geometry::SEGMENT == [0,1].
+    EXPECT_CLOSE(cache.ir_vol->IntPoint(0).x, 0.0, 1.0e-14);
+    EXPECT_CLOSE(cache.ir_vol->IntPoint(cache.ir_vol->GetNPoints()-1).x,
+                 1.0, 1.0e-14);
+
+    const mfem::real_t expected_rate =
+      Theseus::ReferenceAdvectionSpectralScale(order)
+      * (std::abs(velocity) + sound_speed) / length;
+    for (int point = 0; point < cache.ir_vol->GetNPoints(); ++point)
+      {
+        // For x = x_left + length*xi with xi in [0,1], J=length and
+        // adj(J)=1.  These are the exact arrays consumed by EstimateStability.
+        EXPECT_CLOSE(cache.elJac[point], length, 1.0e-14);
+        EXPECT_CLOSE(cache.elMetric[point], 1.0, 1.0e-14);
+
+        const mfem::real_t computed_rate =
+          Theseus::ReferenceAdvectionSpectralScale(order)
+          * Theseus::MappedDirectionalAcousticRate(
+              velocity*cache.elMetric[point],
+              cache.elMetric[point]*cache.elMetric[point], sound_speed,
+              1.0/cache.elJac[point]);
+        EXPECT_CLOSE(computed_rate, expected_rate, 1.0e-13);
+      }
+
+    Theseus::StabilityEstimate estimate{expected_rate, 0.0, 0.0};
+    const mfem::real_t timestep = target_cfl/estimate.TotalRate();
+    EXPECT_CLOSE(estimate.CFL(timestep), target_cfl, 1.0e-14);
+    return expected_rate;
+  };
+
+  const mfem::real_t rate_h = rate_for_length(2.0);
+  const mfem::real_t rate_2h = rate_for_length(4.0);
+  EXPECT_CLOSE(rate_2h, 0.5*rate_h, 1.0e-13);
+  return 0;
 }
 
 TEST(straight_mesh_radius_cache_matches_physical_coordinate)

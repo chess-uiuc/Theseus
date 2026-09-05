@@ -16,7 +16,7 @@ namespace Theseus
     // The split-form volume operator only needs a consistent two-point flux and
     // a characteristic-speed estimate.  Roe upwinding is applied at faces.
     template<typename GasT>
-    MFEM_HOST_DEVICE inline static mfem::real_t
+    MFEM_HOST_DEVICE inline static void
     ComputeVolumeFluxKernel(const GasT &gas,
                             const mfem::real_t *q1,
                             const mfem::real_t *q2,
@@ -42,27 +42,13 @@ namespace Theseus
             }
         }
 
-      PointStateView S1{q1};
-      PointStateView S2{q2};
-      mfem::real_t un1 = 0.0;
-      mfem::real_t un2 = 0.0;
-      mfem::real_t met_mag2 = 0.0;
-      for (int d = 0; d < dim; ++d)
-        {
-          un1 += gas.velocity(S1, d) * met[d];
-          un2 += gas.velocity(S2, d) * met[d];
-          met_mag2 += met[d] * met[d];
-        }
-      const mfem::real_t met_mag = Kernels::rsqrt(met_mag2);
-      return Kernels::rmax(Kernels::rabs(un1) + gas.sound_speed(S1) * met_mag,
-                           Kernels::rabs(un2) + gas.sound_speed(S2) * met_mag);
     }
 
     // Classical Roe flux for a calorically perfect gas.  The decomposition is
     // written in normal/tangential-vector form so the same kernel works in 1-D,
     // 2-D, and 3-D and for non-unit MFEM face normals.
     template<typename GasModelT>
-    MFEM_HOST_DEVICE inline static mfem::real_t
+    MFEM_HOST_DEVICE inline static void
     ComputeFaceFluxKernel(const GasModelT &gas,
                           const mfem::real_t *qL,
                           const mfem::real_t *qR,
@@ -172,14 +158,12 @@ namespace Theseus
           flux[eq] = central - 0.5 * diss[eq];
         }
 
-      return Kernels::rmax(lambda_zero,
-                           Kernels::rmax(lambda_minus, lambda_plus));
     }
 
     struct InviscidFlux
     {
       template<typename GasModelT>
-      MFEM_HOST_DEVICE inline mfem::real_t
+      MFEM_HOST_DEVICE inline void
       ComputeVolumeFlux(const GasModelT &gas,
                         const mfem::real_t *q1,
                         const mfem::real_t *q2,
@@ -187,18 +171,18 @@ namespace Theseus
                         const mfem::real_t *met2,
                         mfem::real_t *flux) const
       {
-        return ComputeVolumeFluxKernel(gas, q1, q2, met1, met2, flux);
+        ComputeVolumeFluxKernel(gas, q1, q2, met1, met2, flux);
       }
 
       template<typename GasModelT>
-      MFEM_HOST_DEVICE inline mfem::real_t
+      MFEM_HOST_DEVICE inline void
       ComputeFaceFlux(const GasModelT &gas,
                       const mfem::real_t *qminus,
                       const mfem::real_t *qplus,
                       const mfem::real_t *nor,
                       mfem::real_t *flux) const
       {
-        return ComputeFaceFluxKernel(gas, qminus, qplus, nor, flux);
+        ComputeFaceFluxKernel(gas, qminus, qplus, nor, flux);
       }
     };
   }

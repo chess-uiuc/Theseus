@@ -68,10 +68,9 @@ namespace Theseus
               velocity_dot_metric += gas_model.velocity(S, physical_direction) * value;
               metric_norm_squared += value * value;
             }
-          directional_sum += (Kernels::rabs(velocity_dot_metric)
-                              + gas_model.sound_speed(S)
-                                * Kernels::rsqrt(metric_norm_squared))
-                             * inverse_jacobian;
+          directional_sum += MappedDirectionalAcousticRate(
+            velocity_dot_metric, metric_norm_squared,
+            gas_model.sound_speed(S), inverse_jacobian);
           metric_square_sum += metric_norm_squared
                                * inverse_jacobian * inverse_jacobian;
         }
@@ -741,11 +740,9 @@ namespace Theseus
       mfem::forall(psize, [=] MFEM_HOST_DEVICE (int i) { pdudt_d[i] = 0.0; });
     }
 
-    // max_char_speed is consumed by external components
-    // between steps
     {
       Theseus::ScopedTimer timer("FlowMult");
-      max_char_speed = FlowMult(u, pdudt);
+      FlowMult(u, pdudt);
     }
 
     if (this->Serial())
