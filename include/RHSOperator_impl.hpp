@@ -68,10 +68,9 @@ namespace Theseus
               velocity_dot_metric += gas_model.velocity(S, physical_direction) * value;
               metric_norm_squared += value * value;
             }
-          directional_sum += (Kernels::rabs(velocity_dot_metric)
-                              + gas_model.sound_speed(S)
-                                * Kernels::rsqrt(metric_norm_squared))
-                             * inverse_jacobian;
+          directional_sum += MappedDirectionalAcousticRate(
+            velocity_dot_metric, metric_norm_squared,
+            gas_model.sound_speed(S), inverse_jacobian);
           metric_square_sum += metric_norm_squared
                                * inverse_jacobian * inverse_jacobian;
         }

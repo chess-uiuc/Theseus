@@ -4,10 +4,22 @@
 #pragma once
 
 #include "mfem.hpp"
+#include "theseus_kernels.hpp"
 #include <algorithm>
 
 namespace Theseus
 {
+  MFEM_HOST_DEVICE inline mfem::real_t MappedDirectionalAcousticRate(
+    const mfem::real_t velocity_dot_metric,
+    const mfem::real_t metric_norm_squared,
+    const mfem::real_t sound_speed,
+    const mfem::real_t inverse_jacobian)
+  {
+    return (Kernels::rabs(velocity_dot_metric)
+            + sound_speed*Kernels::rsqrt(metric_norm_squared))
+      * inverse_jacobian;
+  }
+
   struct StabilityEstimate
   {
     mfem::real_t advective_rate = 0.0;
