@@ -13,6 +13,33 @@ namespace Theseus
 {
   namespace NavierStokesFlux
   {
+    template<typename GasT>
+    MFEM_HOST_DEVICE inline static mfem::real_t
+    MaximumNormalWaveSpeed(const GasT &gas,
+                           const mfem::real_t *state1,
+                           const mfem::real_t *state2,
+                           const mfem::real_t *direction)
+    {
+      PointStateView S1{state1};
+      PointStateView S2{state2};
+      mfem::real_t velocity_dot_direction1 = 0.0;
+      mfem::real_t velocity_dot_direction2 = 0.0;
+      mfem::real_t direction_norm_squared = 0.0;
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          velocity_dot_direction1 += gas.velocity(S1, d) * direction[d];
+          velocity_dot_direction2 += gas.velocity(S2, d) * direction[d];
+          direction_norm_squared += direction[d] * direction[d];
+        }
+      const mfem::real_t direction_norm =
+        Kernels::rsqrt(direction_norm_squared);
+      return Kernels::rmax(
+        Kernels::rabs(velocity_dot_direction1)
+          + gas.sound_speed(S1) * direction_norm,
+        Kernels::rabs(velocity_dot_direction2)
+          + gas.sound_speed(S2) * direction_norm);
+    }
+
     // Inviscid / Euler Flux
     template<typename GasT>
     MFEM_HOST_DEVICE inline static void

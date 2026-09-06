@@ -22,7 +22,6 @@ namespace Theseus
   protected:
     using Base::operator_cache;
     using Base::device_cache;
-    using Base::max_char_speed;
   private:
     std::vector<std::shared_ptr<mfem::ParGridFunction> > grad_u;
   public:
@@ -44,7 +43,7 @@ namespace Theseus
     {}
 
     // Top level RHS routine
-    mfem::real_t FlowMult(const mfem::Vector &u, mfem::Vector &dudt) const override;
+    void FlowMult(const mfem::Vector &u, mfem::Vector &dudt) const override;
 
     // Gradient Operator Interface (BR1 aux rhs)
     void GradOperator(const mfem::Vector &u, std::vector<mfem::Vector *> &grad_u) const;
@@ -57,18 +56,18 @@ namespace Theseus
                                         std::vector<mfem::Vector *> &gradEntropy) const;
 
     // NavierStokes RHS Interface
-    mfem::real_t MultCNS(const mfem::Vector &u,
-                         const std::vector<mfem::Vector *> &grad_prim,
-                         mfem::Vector &pdudt) const;
-    mfem::real_t MultCNS_Volume(const mfem::Vector &pu,
-                                const std::vector<mfem::Vector *> &p_grad_prim,
-                                mfem::Vector &pdudt) const;
-    mfem::real_t MultCNS_InteriorFaces(const mfem::Vector &pu,
-                                       const std::vector<mfem::Vector *> &p_grad_prim,
-                                       mfem::Vector &pdudt) const;
-    mfem::real_t MultCNS_BoundaryFaces(const mfem::Vector &pu,
-                                       const std::vector<mfem::Vector *> &p_grad_prim,
-                                       mfem::Vector &pdudt) const;
+    void MultCNS(const mfem::Vector &u,
+                 const std::vector<mfem::Vector *> &grad_prim,
+                 mfem::Vector &pdudt) const;
+    void MultCNS_Volume(const mfem::Vector &pu,
+                        const std::vector<mfem::Vector *> &p_grad_prim,
+                        mfem::Vector &pdudt) const;
+    void MultCNS_InteriorFaces(const mfem::Vector &pu,
+                               const std::vector<mfem::Vector *> &p_grad_prim,
+                               mfem::Vector &pdudt) const;
+    void MultCNS_BoundaryFaces(const mfem::Vector &pu,
+                               const std::vector<mfem::Vector *> &p_grad_prim,
+                               mfem::Vector &pdudt) const;
   };
 
 }

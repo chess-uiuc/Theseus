@@ -144,7 +144,7 @@ namespace Theseus {
 
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    mfem::real_t SlipWallInviscidFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
+    void SlipWallInviscidFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
                                       const mfem::real_t *nor, mfem::real_t *fluxN)
     {
       
@@ -162,17 +162,14 @@ namespace Theseus {
       Theseus::PointStateViewRW S{state2};
       Theseus::Flow::RotateState(gasModel.L, unit_nor, S);
       const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(S, gasModel);
-      const mfem::real_t v = gasModel.velocity(S, 0); // the "x" component is v*n
-      const mfem::real_t c = gasModel.sound_speed(S);
       const int mom_eq = gasModel.L.eq_mom0;
       for(int idim = 0;idim < dim;idim++)
         fluxN[mom_eq+idim] = p_star * nor[idim];
-      return std::abs(v) + c;
     }
 
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    mfem::real_t NoSlipAdiabWallFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
+    void NoSlipAdiabWallFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
                                      const mfem::real_t *gradPrim_x, const mfem::real_t *gradPrim_y,
                                      const mfem::real_t *gradPrim_z,
                                      const mfem::real_t *nor, const mfem::real_t vWall[Theseus::MAXDIM],
@@ -200,8 +197,6 @@ namespace Theseus {
       Theseus::PointStateViewRW S{state2};
       Theseus::Flow::RotateState(gasModel.L, unit_nor, S);
       const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(S, gasModel);
-      const mfem::real_t v = gasModel.velocity(S, 0); // the "x" component is v*n
-      const mfem::real_t c = gasModel.sound_speed(S);
       const int mom_eq = gasModel.L.eq_mom0;
       for(int idim = 0;idim < dim;idim++)
         fluxN[mom_eq+idim] = p_star * nor[idim];
@@ -225,12 +220,11 @@ namespace Theseus {
       for(int j = 0; j < neq;j++){
         fluxN[j] -= vflux_n[j];
       }
-      return std::abs(v) + c;
     }
 
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    mfem::real_t NoSlipIsothWallFluxKernel(const GasModelT &gasModel,
+    void NoSlipIsothWallFluxKernel(const GasModelT &gasModel,
 					   const mfem::real_t *state1,
 					   const mfem::real_t *gradPrim_x,
 					   const mfem::real_t *gradPrim_y,
@@ -267,9 +261,6 @@ namespace Theseus {
       Theseus::Flow::RotateState(gasModel.L, unit_nor, Srot);
 
       const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(Srot, gasModel);
-      const mfem::real_t vn = gasModel.velocity(Srot, 0);
-      const mfem::real_t c  = gasModel.sound_speed(Srot);
-
       for (int idim = 0; idim < dim; ++idim)
 	{
 	  fluxN[mom_eq + idim] = p_star * nor[idim];
@@ -315,13 +306,12 @@ namespace Theseus {
 	  fluxN[eq] -= vflux_n[eq];
 	}
 
-      return std::abs(vn) + c;
     }
 
 
     template <typename DeviceCacheT>
     MFEM_HOST_DEVICE
-    mfem::real_t ApplyBoundaryConditionInviscid(const DeviceCacheT &dc,
+    void ApplyBoundaryConditionInviscid(const DeviceCacheT &dc,
                                           const Theseus::BCDescriptor &bc,
                                           const mfem::real_t *state1,
                                           const mfem::real_t *nor,
@@ -333,15 +323,18 @@ namespace Theseus {
       switch (static_cast<Theseus::BCType>(bc.type))
         {
         case Theseus::BCType::SlipWall:
-          return SlipWallInviscidFluxKernel(gas, state1, nor, fluxN);
+          SlipWallInviscidFluxKernel(gas, state1, nor, fluxN);
+          return;
           
         case Theseus::BCType::SupersonicOutflow:
-          return dc.iflux.ComputeFaceFlux(gas, state1, state1, nor, fluxN);
+          dc.iflux.ComputeFaceFlux(gas, state1, state1, nor, fluxN);
+          return;
           
         case Theseus::BCType::SupersonicInflow:
           {
             const mfem::real_t *bc_state = vector_data + bc.data_index;
-            return dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            return;
           }
           
         case Theseus::BCType::Symmetry:
@@ -366,27 +359,28 @@ namespace Theseus {
               mfem::real_t mm = -2.0*nv*unorm[idim] + mom[idim];
               S2.set_momentum(gas.L, idim, mm);
             }
-            return dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            return;
           }
         case Theseus::BCType::Axis:
           {
             mfem::real_t bc_state[Theseus::MAXEQ];
             ReflectAxisState(gas, state1, bc_state);
-            return dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            dc.iflux.ComputeFaceFlux(gas, state1, bc_state, nor, fluxN);
+            return;
           }
         default:
           {
             const int neq = dc.num_equations;
             for (int eq = 0; eq < neq; ++eq) { fluxN[eq] = 0.0; }
-            return 0.0;
+            return;
           }
         }
-      return 0.0;
     }
 
     template <typename DeviceCacheT>
     MFEM_HOST_DEVICE
-    mfem::real_t ApplyViscousBoundaryCondition(const DeviceCacheT &dc,
+    void ApplyViscousBoundaryCondition(const DeviceCacheT &dc,
                                          const Theseus::BCDescriptor &bc,
                                          const mfem::real_t *state1,
                                          const mfem::real_t *gradPrim_x,
@@ -406,8 +400,8 @@ namespace Theseus {
         case Theseus::BCType::SupersonicInflow:
         case Theseus::BCType::SupersonicOutflow:
         case Theseus::BCType::Symmetry:
-          return ApplyBoundaryConditionInviscid(
-            dc, bc, state1, nor, fluxN);
+          ApplyBoundaryConditionInviscid(dc, bc, state1, nor, fluxN);
+          return;
 
         case Theseus::BCType::NoSlipAdiab:
           {
@@ -417,9 +411,10 @@ namespace Theseus {
               vWall[idim] = bc_vec_data[idim];
             }
             const mfem::real_t qWall = bc_vec_data[dim];
-            return NoSlipAdiabWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
-                                             gradPrim_z, nor, vWall, qWall,
-                                             dc.axisymmetric, radius, fluxN);
+            NoSlipAdiabWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
+                                      gradPrim_z, nor, vWall, qWall,
+                                      dc.axisymmetric, radius, fluxN);
+            return;
           }
         case Theseus::BCType::NoSlipIso:
           {
@@ -429,14 +424,14 @@ namespace Theseus {
               vWall[idim] = bc_vec_data[idim];
             }
             const mfem::real_t tWall = bc_vec_data[dim];
-            return NoSlipIsothWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
-                                             gradPrim_z, nor, vWall, tWall,
-                                             dc.axisymmetric, radius, fluxN);
+            NoSlipIsothWallFluxKernel(gas, state1, gradPrim_x, gradPrim_y,
+                                      gradPrim_z, nor, vWall, tWall,
+                                      dc.axisymmetric, radius, fluxN);
+            return;
           }
         case Theseus::BCType::Axis:
           {
-            const mfem::real_t wave_speed = ApplyBoundaryConditionInviscid(
-              dc, bc, state1, nor, fluxN);
+            ApplyBoundaryConditionInviscid(dc, bc, state1, nor, fluxN);
             mfem::real_t viscous_flux[Theseus::MAXEQ][Theseus::MAXDIM];
             NavierStokesFlux::ComputeViscousFluxKernel(
               gas, state1, gradPrim_x, gradPrim_y, gradPrim_z,
@@ -449,16 +444,15 @@ namespace Theseus {
                       nor[direction] * viscous_flux[equation][direction];
                   }
               }
-            return wave_speed;
+            return;
           }
         default:
           {
             const int neq = dc.num_equations;
             for (int eq = 0; eq < neq; ++eq) { fluxN[eq] = 0.0; }
-            return 0.0;
+            return;
           }
         }
-      return 0.0;
     }
   }
 }

@@ -112,6 +112,11 @@ jobs:
           cmake --build build -- -k 0
           ldd build/theseus || true
 
+      - name: Integration test (timestep and CFL)
+        run: >-
+          ctest --test-dir build
+          -R '^TimestepCFLIntegration$' --output-on-failure
+
       - name: Configure axisymmetric integration build
         env:
           CC: ${{ env.CC }}
@@ -132,20 +137,11 @@ jobs:
       - name: Build axisymmetric integration executable
         run: cmake --build build-axisymmetric -- -k 0
 
-      - name: Integration test (restart)
+      - name: Axisymmetric integration test suite
         run: >-
           ctest --test-dir build-axisymmetric
-          -R '^CheckpointRestartIntegration$' --output-on-failure
-
-      - name: Integration test (inviscid axisymmetry)
-        run: >-
-          ctest --test-dir build-axisymmetric
-          -R '^AxisymmetricInviscidSphereIntegration$' --output-on-failure
-
-      - name: Integration test (viscous axisymmetry)
-        run: >-
-          ctest --test-dir build-axisymmetric
-          -R '^AxisymmetricViscousSphereIntegration$' --output-on-failure
+          -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration)$'
+          --output-on-failure
 
       - name: Example smoke test (Euler, IsentropicVortex)
         run: |

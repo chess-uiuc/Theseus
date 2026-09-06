@@ -29,6 +29,7 @@ def run_case(executable: Path, source: Path, mpiexec: Path,
         "paraview": False,
         "clock_simulation": False,
         "final_time": min(runtime["final_time"], 0.02),
+        "print_interval": 1,
     })
 
     with tempfile.TemporaryDirectory(prefix="theseus-axis-sphere-") as tmp:
