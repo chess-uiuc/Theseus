@@ -128,6 +128,7 @@ namespace Theseus
     const std::string gasModelName;
     const std::string numFluxName;
     const std::string flowModelName;
+    const bool viscousFlowModel;
     std::shared_ptr<const Gas> gas;
     std::shared_ptr<const GasModelInterface> gas_interface;
   public:
@@ -145,7 +146,9 @@ namespace Theseus
     : RHSOperatorBase(vfes_, fes0_, pmesh_, eta_, alpha_,
                       indicator_, alpha_max, alpha_min),
       gasModelName(gasModelName_), numFluxName(numFluxName_),
-      flowModelName(flowModelName_), gas(std::move(gas_)), 
+      flowModelName(flowModelName_),
+      viscousFlowModel(flowModelName_ == "NavierStokes"),
+      gas(std::move(gas_)),
       gas_interface(std::make_shared<Theseus::GasModelInterfaceT<Gas>>(gas))
     {
       operator_cache.gas = *gas;

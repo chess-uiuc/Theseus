@@ -21,6 +21,7 @@ namespace Theseus
     const mfem::real_t advection_scale = operator_cache.stabilityAdvectionScale;
     const mfem::real_t diffusion_scale = operator_cache.stabilityDiffusionScale;
     const mfem::real_t surface_scale = operator_cache.stabilitySurfaceScale;
+    const bool viscous = viscousFlowModel;
 
     const auto dc = device_cache;
     const auto gas_model = *gas;
@@ -75,25 +76,28 @@ namespace Theseus
                                * inverse_jacobian * inverse_jacobian;
         }
       advective_rate[point] = advection_scale * directional_sum;
-#ifdef PARABOLIC
-      const mfem::real_t density = gas_model.density(S);
-      const mfem::real_t gamma = gas_model.gamma(S);
-      const mfem::real_t shear_viscosity = gas_model.viscosity(S);
-      const mfem::real_t longitudinal_viscosity =
-        mfem::real_t(4.0 / 3.0) * shear_viscosity
-        + gas_model.bulk_viscosity(S);
-      const mfem::real_t momentum_diffusivity =
-        Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
-      const mfem::real_t thermal_diffusivity =
-        gas_model.thermal_conductivity(S) * gamma
-        / (density * gas_model.cp(S));
-      const mfem::real_t effective_diffusivity =
-        Kernels::rmax(momentum_diffusivity, thermal_diffusivity);
-      diffusive_rate[point] = diffusion_scale * effective_diffusivity
-                              * metric_square_sum;
-#else
-      diffusive_rate[point] = 0.0;
-#endif
+      if (viscous)
+        {
+          const mfem::real_t density = gas_model.density(S);
+          const mfem::real_t gamma = gas_model.gamma(S);
+          const mfem::real_t shear_viscosity = gas_model.viscosity(S);
+          const mfem::real_t longitudinal_viscosity =
+            mfem::real_t(4.0 / 3.0) * shear_viscosity
+            + gas_model.bulk_viscosity(S);
+          const mfem::real_t momentum_diffusivity =
+            Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
+          const mfem::real_t thermal_diffusivity =
+            gas_model.thermal_conductivity(S) * gamma
+            / (density * gas_model.cp(S));
+          const mfem::real_t effective_diffusivity =
+            Kernels::rmax(momentum_diffusivity, thermal_diffusivity);
+          diffusive_rate[point] = diffusion_scale * effective_diffusivity
+                                  * metric_square_sum;
+        }
+      else
+        {
+          diffusive_rate[point] = 0.0;
+        }
     });
 
     StabilityEstimate estimate;

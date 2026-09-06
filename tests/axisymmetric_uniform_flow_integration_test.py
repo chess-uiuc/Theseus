@@ -28,6 +28,7 @@ def run_case(executable: Path, source: Path, mpiexec: Path,
         (source / "TestCases/NavierStokes/2D/LidDrivenCavity/"
          "LidDrivenCavity.msh").resolve()
     )
+    runtime["print_interval"] = 1
 
     with tempfile.TemporaryDirectory(prefix="theseus-axis-uniform-") as tmp:
         runtime["output_file_path"] = tmp

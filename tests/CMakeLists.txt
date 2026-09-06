@@ -126,6 +126,16 @@ target_link_libraries(time_step_control_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI
 
 add_test(NAME TimeStepControlTests COMMAND time_step_control_tests)
 
+add_test(
+    NAME TimestepCFLIntegration
+    COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/timestep_cfl_integration_test.py
+            --executable $<TARGET_FILE:theseus>
+            --source ${PROJECT_SOURCE_DIR}
+            --mpiexec ${MPIEXEC_EXECUTABLE}
+            --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
+)
+
 # Axisymmetry configuration and mesh contract tests
 add_executable(axisymmetry_config_tests
    unit_test_main.cpp
