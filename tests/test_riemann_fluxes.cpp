@@ -245,6 +245,35 @@ TEST(RiemannFlux_FiniteStrongState_2D)
     return 0;
 }
 
+TEST(ChandrashekarFlux_DissipationIgnoresCommonTangentialVelocity_2D)
+{
+    Theseus::PhysicsConstants phys(1.4, 0.72, 287.05, 0.02);
+    Theseus::StateLayout layout(2, 1);
+    Theseus::IdealGasModel gasModel(phys, layout);
+    Theseus::ChandrashekarFlux::InviscidFlux flux_operator;
+    mfem::Vector qL(4), qR(4), qL_boosted(4), qR_boosted(4), normal(2);
+    mfem::Vector flux(4), boosted_flux(4);
+
+    set_state_2d(qL, 1.1, 12.0, 0.0, 95000.0, phys.gamma);
+    set_state_2d(qR, 0.9, -7.0, 0.0, 88000.0, phys.gamma);
+    set_state_2d(qL_boosted, 1.1, 12.0, 1200.0, 95000.0, phys.gamma);
+    set_state_2d(qR_boosted, 0.9, -7.0, 1200.0, 88000.0, phys.gamma);
+    normal(0) = 1.0;
+    normal(1) = 0.0;
+
+    flux_operator.ComputeFaceFlux(gasModel, qL.HostRead(), qR.HostRead(),
+                                  normal.HostRead(), flux.HostWrite());
+    flux_operator.ComputeFaceFlux(
+      gasModel, qL_boosted.HostRead(), qR_boosted.HostRead(),
+      normal.HostRead(), boosted_flux.HostWrite());
+
+    // A common tangential boost changes other conserved flux components but
+    // must not change the mass dissipation across this face.
+    EXPECT_CLOSE(flux(0), boosted_flux(0), 1.0e-11);
+
+    return 0;
+}
+
 TEST(RoeFlux_ResolvesStationaryContact_2D)
 {
     Theseus::PhysicsConstants phys(1.4, 0.72, 287.05, 0.02);

@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 #include "Simulation.hpp"
+#include "TimeStepControl.hpp"
 #include "AxisymmetryConfig.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
@@ -137,7 +138,19 @@ namespace Theseus
     std::cout.precision(precision);
 
     cfl = runtime.value("cfl", 1.0);
+    max_dt_growth = runtime.value("max_dt_growth", 1.2);
+    if (max_dt_growth < 1.0)
+      {
+        std::cerr << "Error: runTime.max_dt_growth must be at least one." << std::endl;
+        return 1;
+      }
     print_interval = runtime.value("print_interval", debug_simulation ?  1 : 100);
+    cfl_check_interval = runtime.value("cfl_check_interval", print_interval);
+    if (cfl_check_interval <= 0)
+      {
+        std::cerr << "Error: runTime.cfl_check_interval must be greater than zero." << std::endl;
+        return 1;
+      }
     output_file_path = runtime["output_file_path"].get<std::string>();
     paraview_folder = runtime.value("paraview_folder", "ParaView");
     try
@@ -212,9 +225,22 @@ namespace Theseus
     clock_simulation = runtime["clock_simulation"].get<bool>();
     variable_dt = runtime["variable_dt"].get<bool>();
 
-    if (runtime.contains("dt") && !variable_dt)
+    if (variable_dt && cfl <= 0.0)
       {
-        dt = runtime.value("dt", 1e-4);
+        std::cerr << "Error: runTime.cfl must be greater than zero when variable_dt is true."
+                  << std::endl;
+        return 1;
+      }
+    if (!variable_dt)
+      {
+        if (!runtime.contains("dt") || runtime["dt"].get<mfem::real_t>() <= 0.0)
+          {
+            std::cerr << "Error: runTime.dt must be greater than zero when variable_dt is false."
+                      << std::endl;
+            return 1;
+          }
+        dt_fixed = runtime["dt"].get<mfem::real_t>();
+        dt = dt_fixed;
       }
     t_final = runtime["final_time"].get<mfem::real_t>();
 
@@ -555,7 +581,6 @@ namespace Theseus
 
     const auto &gasModel = rhsOp->GetGasModelInterface();
     auto stateLayout = gasModel.layout();
-    auto physicsConstants = gasModel.phys();
 
     mfem::Vector bc_vector_data;
     mfem::Vector bc_scalar_data;
@@ -1091,8 +1116,6 @@ namespace Theseus
                   << "================================================" << std::endl;
       }
     const auto &gasModel = rhsOp->GetGasModelInterface();
-    auto stateLayout = gasModel.layout();
-    auto physicsConstants = gasModel.phys();
 
     IntegralMeasures diag;
     diag.mass = 0.0;
@@ -1109,61 +1132,28 @@ namespace Theseus
 
     Theseus::IntegralMeasures diag0 = rhsOp->GetIntegralMeasuresBaseline();
 
-    // Get the minimum characteristic element size and compute the initial time step if time step is variable
-    mfem::real_t heff = mfem::infinity();
-    hmin = mfem::infinity();
-    for (int i = 0; i < pmesh->GetNE(); i++)
-      {
-        hmin = std::min(pmesh->GetElementSize(i, 1), hmin);
-      }
-    if(mfem::Mpi::Root() && debug_simulation){
-      std::cout << "Found minimum cell size: " << hmin << std::endl;
-    }
-    MPI_Allreduce(MPI_IN_PLACE, &hmin, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
-                  MPI_MIN, pmesh->GetComm());
-    // Asymptotically should be hmin / (p+1)^2 due to node clustering, but is pretty wrong at low
-    // order.  This form attempts to smoothly transition to asymptotic form with increasing order
-    mfem::real_t p1 = order + 1;
-    mfem::real_t alpha1 = std::min(mfem::real_t(1.0),
-                                   std::max(mfem::real_t(0.0), (p1 - 3.0) / 3.0));
-    heff = hmin / ((1.0 - alpha1) * p1 + alpha1 * p1 * p1);
+    auto global_stability = [this](StabilityEstimate estimate)
+    {
+      mfem::real_t rates[3] = {estimate.advective_rate, estimate.surface_rate,
+                               estimate.diffusive_rate};
+      MPI_Allreduce(MPI_IN_PLACE, rates, 3,
+                    mfem::MPITypeMap<mfem::real_t>::mpi_type,
+                    MPI_MAX, pmesh->GetComm());
+      estimate.advective_rate = rates[0];
+      estimate.surface_rate = rates[1];
+      estimate.diffusive_rate = rates[2];
+      return estimate;
+    };
 
-    if (debug_simulation && mfem::Mpi::Root()){
-      std::cout << "Minimum nodal spacing (h_eff): " << heff << std::endl;
-    }
-    const mfem::real_t nuscale = \
-      std::max(1.0, physicsConstants.gamma/physicsConstants.Pr);
-#ifdef PARABOLIC
-    if (debug_simulation && mfem::Mpi::Root()){
-      std::cout << "Viscosity scale (nuscale): " << nuscale << std::endl;
-    }
-#endif
-    if (variable_dt && cfl > 0.0)
+    StabilityEstimate stability;
+    if (variable_dt)
       {
-        mfem::Vector z(sol->Size());
-        rhsOp->Mult(*sol, z);
-        mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
-        MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1,  mfem::MPITypeMap<mfem::real_t>::mpi_type,
-                      MPI_MAX, pmesh->GetComm());
-        mfem::real_t dt_adv = heff / max_char_speed;
-        dt = cfl / dim * dt_adv;
-        if(debug_simulation && mfem::Mpi::Root()){
-          std::cout << "Found max_char_speed = " << max_char_speed << std::endl
-                    << "Advective timestep = " << dt_adv << std::endl
-                    << "Inviscid DT = " << dt << std::endl;
-        }
-#ifdef PARABOLIC
-        mfem::real_t nu_eff = nuscale * physicsConstants.mu / diag0.min_dens;
-        mfem::real_t dt_diff = heff * heff / nu_eff;
-        dt = cfl / dim / (1.0/dt_adv + 1.0/dt_diff);
-        if(debug_simulation && mfem::Mpi::Root()){
-          std::cout << "Found minimum density: " << diag0.min_dens << std::endl
-                    << "Found effective visc: " << nu_eff << std::endl
-                    << "Diffusive timestep: " << dt_diff << std::endl;
-        }
-#endif
+        stability = global_stability(rhsOp->EstimateStability(*sol));
+        MFEM_VERIFY(stability.TotalRate() > 0.0,
+                    "The stability rate must be positive for variable timestepping.");
+        dt = cfl / stability.TotalRate();
         if(mfem::Mpi::Root()){
-          std::cout << "Fixed CFL: " << cfl << std::endl
+          std::cout << "Target CFL: " << cfl << std::endl
                     << "Initial Timestep DT: " << dt << std::endl;
         }
       } else {
@@ -1244,8 +1234,13 @@ namespace Theseus
               }
             }
 
-          // Compute the time step size
-          dt_real = std::min(dt, t_final - t);
+          // Preserve the nominal fixed/variable step.  Only dt_real is shortened
+          // to land exactly on time-based output and checkpoint events.
+          const mfem::real_t next_visualization = visualize ? next_save_t : mfem::infinity();
+          const mfem::real_t next_checkpoint = checkpoint_config.SaveEnabled()
+            ? next_checkpoint_t : mfem::infinity();
+          dt_real = LimitTimeStepToEvents(dt, t,
+                                          {t_final, next_visualization, next_checkpoint});
 
           // Perform the time step
           if(ti > 1){
@@ -1260,43 +1255,40 @@ namespace Theseus
           }
           ti++;
 
-          mfem::real_t cfl_rep = 0.0;
-          if (ti % print_interval == 0 || (variable_dt && cfl > 0) || debug_simulation){
+          const bool print_diagnostics = (ti % print_interval == 0) || debug_simulation;
+          const bool check_fixed_cfl = !variable_dt
+            && ((ti % cfl_check_interval == 0) || debug_simulation);
+          if (print_diagnostics){
             rhsOp->ComputeIntegralMeasures(*sol, diag);
           }
-          // Update the time step size with CFL?
-          if ((variable_dt && cfl > 0) || (ti%print_interval == 0) || debug_simulation)
+          mfem::real_t nominal_cfl = 0.0;
+          mfem::real_t actual_cfl = 0.0;
+          if (variable_dt || check_fixed_cfl)
             {
-              mfem::real_t max_char_speed = rhsOp->GetMaxCharSpeed();
-              MPI_Allreduce(MPI_IN_PLACE, &max_char_speed, 1, mfem::MPITypeMap<mfem::real_t>::mpi_type,
-                            MPI_MAX, pmesh->GetComm());
-              mfem::real_t dt_adv = heff / max_char_speed;
-              mfem::real_t dt_est = dt_adv;
-#ifdef PARABOLIC
-              mfem::real_t nu_eff = nuscale * physicsConstants.mu / diag.min_dens;
-              mfem::real_t dt_diff = heff * heff / nu_eff;
-              mfem::real_t dt_m1 = 1.0 / (1.0/dt_adv + 1.0/dt_diff);
-              dt_est = dt_m1;
-#endif
+              stability = global_stability(rhsOp->EstimateStability(*sol));
               if(variable_dt){
-                dt = cfl / dim * dt_est;
+                MFEM_VERIFY(stability.TotalRate() > 0.0,
+                            "The stability rate must be positive for variable timestepping.");
+                const mfem::real_t estimated_dt = cfl / stability.TotalRate();
+                dt = std::min(estimated_dt, max_dt_growth * dt);
               } else {
-                cfl_rep = dim * dt / dt_est;
+                nominal_cfl = stability.CFL(dt_fixed);
+                actual_cfl = stability.CFL(dt_real);
+                if (mfem::Mpi::Root())
+                  {
+                    std::cout << "Estimated CFL: " << nominal_cfl;
+                    if (dt_real < dt_fixed)
+                      std::cout << " (actual shortened-step CFL: " << actual_cfl << ")";
+                    std::cout << std::endl;
+                  }
               }
 
               if(debug_simulation && mfem::Mpi::Root()){
-#ifdef PARABOLIC
-                std::cout << "DT(adv, diff, sim): (" << dt_adv << ", " << dt_diff
-                          << ", " << dt << ")" << std::endl
-                          << "Effective viscosity: " << nu_eff << std::endl;
-#else
-                std::cout << "DT(adv, sim): (" << dt_adv << ", " << dt << ")" << std::endl;
-#endif
-                if(!variable_dt){
-                  std::cout << "CFL: "<< cfl_rep << std::endl;
-                }
-                std::cout << "Max wavespeed: " << max_char_speed << std::endl
-                          << "Max specific volume: " << 1.0 / diag.min_dens << std::endl;
+                std::cout << "Stability rates (volume, surface, diffusive, total): ("
+                          << stability.advective_rate << ", "
+                          << stability.surface_rate << ", "
+                          << stability.diffusive_rate << ", "
+                          << stability.TotalRate() << ")" << std::endl;
               }
 
             }
@@ -1319,7 +1311,8 @@ namespace Theseus
                 }
             }
           // Visualize the solution?
-          if (visualize && (done || t >= next_save_t || ti % vis_steps == 0))
+          if (visualize && (done || TimeEventReached(t, next_save_t)
+                            || ti % vis_steps == 0))
             {
 
               UpdateVisualizationFields();
@@ -1333,7 +1326,8 @@ namespace Theseus
             }
 
 
-          if (checkpoint_config.SaveEnabled() && (done || t >= next_checkpoint_t))
+          if (checkpoint_config.SaveEnabled()
+              && (done || TimeEventReached(t, next_checkpoint_t)))
             {
               SaveCheckpoint();
               next_checkpoint_t += checkpoint_config.Interval();
@@ -1349,8 +1343,6 @@ namespace Theseus
                   Ostr << "time step: " << ti << ", time: " << t;
                   if(variable_dt){
                     Ostr << ", dt: " << dt;
-                  } else {
-                    Ostr << ", cfl: " << cfl_rep;
                   }
                   Ostr << std::endl
                        << "rho(" << diag.min_dens << "," << diag.max_dens << "), "

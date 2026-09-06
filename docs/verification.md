@@ -11,8 +11,8 @@ The quick and nightly workflows build two executables:
 
 - a Cartesian build used by the existing CTest suite, example smokes, and
   golden-data regressions;
-- an axisymmetric build configured with `-DAXISYMMETRIC=ON` for the restart and
-  sphere integration tests below.
+- an axisymmetric build configured with `-DAXISYMMETRIC=ON` for the complete
+  axisymmetric integration suite below.
 
 The axisymmetric integration tests are separate CI steps so a failure identifies
 the affected capability directly. Their CTest XML, CMake cache, and build logs
@@ -22,7 +22,10 @@ are included in failure artifacts.
 
 | CTest name | Configuration and execution | Required result |
 | --- | --- | --- |
+| `TimestepCFLIntegration` | Cartesian order-3 CNS cavity, one and two MPI ranks | The initial variable timestep matches the independently calculated mapped advective-plus-viscous stability rate; serial and MPI timesteps agree. Fixed-DT reporting occurs at the configured check interval, and a final-time-shortened step reports a proportionally smaller actual CFL. |
 | `CheckpointRestartIntegration` | Axisymmetric Euler uniform flow, two MPI ranks, two cycles | A restarted cycle produces byte-identical per-rank checkpoint state and ParaView output to an uninterrupted run. Metadata must contain the required format, state, geometry, MPI, and discretization fields and identify axisymmetric geometry. |
+| `AxisymmetricUniformFlowIntegration` | Exact Euler and CNS uniform axial flow, one and two MPI ranks | Density and pressure remain at the exact values, conserved-integral changes remain negligible, and serial/MPI results agree. |
+| `AxisymmetricEntropyWaveConvergence` | Exact Euler entropy wave over three mesh levels | Cylindrical L2 errors decrease and both observed convergence rates are at least `1.7`. |
 | `AxisymmetricInviscidSphereIntegration` | Mach 2 Euler sphere, one and two MPI ranks | Both runs complete with finite positive density and pressure, develop nonuniform density and pressure ranges, and agree in their final reported ranges within `1e-5` absolute tolerance. |
 | `AxisymmetricViscousSphereIntegration` | Mach 0.3, `Re_D=100`, order-3 CNS sphere, one and two MPI ranks | The same positivity, body-flow-response, and serial/MPI agreement requirements as the inviscid sphere case. |
 
@@ -34,15 +37,12 @@ yet a quantitative validation of wake separation distance; that requires
 suitable subsonic characteristic boundaries, steady-state and mesh-convergence
 studies, and automated separation-point extraction.
 
-Run the three CI integration tests locally with an axisymmetric build:
+Run the axisymmetric CI integration suite locally with:
 
 ```sh
 ctest --test-dir build-axisymmetric \
-  -R '^CheckpointRestartIntegration$' --output-on-failure
-ctest --test-dir build-axisymmetric \
-  -R '^AxisymmetricInviscidSphereIntegration$' --output-on-failure
-ctest --test-dir build-axisymmetric \
-  -R '^AxisymmetricViscousSphereIntegration$' --output-on-failure
+  -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration)$' \
+  --output-on-failure
 ```
 
 ## Additional permanent axisymmetric tests

@@ -6,6 +6,8 @@
 #pragma once
 
 #include "mfem.hpp"
+#include "NavierStokesFlux.hpp"
+#include "theseus_kernels.hpp"
 
 namespace Theseus
 {
@@ -16,7 +18,7 @@ namespace Theseus
     // Will be ctx.iflux.ComputeVolumeFlux
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    inline static mfem::real_t ComputeVolumeFluxKernel(const GasModelT &gasModel,
+    inline static void ComputeVolumeFluxKernel(const GasModelT &gasModel,
                                                  const mfem::real_t* q1,
                                                  const mfem::real_t* q2,
                                                  const mfem::real_t* met1,
@@ -39,8 +41,6 @@ namespace Theseus
       mfem::real_t mom_hat[3] = {0,0,0};
       mfem::real_t h_hat = 0;
       mfem::real_t vn = 0;
-      mfem::real_t v2_1 = 0;
-      mfem::real_t v2_2 = 0;
       
       for (int d=0; d<dim; ++d)
         {
@@ -48,8 +48,6 @@ namespace Theseus
           const mfem::real_t v2 = gasModel.velocity(S2, d);
           const mfem::real_t vbar = mfem::real_t(0.5)*(v1+v2);
           
-          v2_1 += v1*v1;
-          v2_2 += v2*v2;
           vn   += vbar * met[d];
           
           mom_hat[d] = rho_ln * vbar;
@@ -60,14 +58,6 @@ namespace Theseus
       
       const mfem::real_t p1 = gasModel.pressure(S1);
       const mfem::real_t p2 = gasModel.pressure(S2);
-      
-      const mfem::real_t speed1 = Kernels::rsqrt(v2_1);
-      const mfem::real_t speed2 = Kernels::rsqrt(v2_2);
-      
-      const mfem::real_t c1 = gasModel.sound_speed(S1);
-      const mfem::real_t c2 = gasModel.sound_speed(S2);
-      
-      const mfem::real_t lambda_max = Kernels::rmax(speed1 + c1, speed2 + c2);
       
       // Single-component ideal-gas-specific KEPEC bits
       // TODO: Update/Craft KPEC fluxes for mixtures (and passive scalar components)
@@ -99,11 +89,10 @@ namespace Theseus
       // TODO: Updte for scalars, sigh
       // for (s=0; s<num_scalars; ++s) F_tilde[XXXX]= XXX
       
-      return lambda_max;
     }
 
     template<typename GasModelT>
-    MFEM_HOST_DEVICE inline static mfem::real_t ComputeFaceFluxKernel(const GasModelT &gasModel,const mfem::real_t *state1,
+    MFEM_HOST_DEVICE inline static void ComputeFaceFluxKernel(const GasModelT &gasModel,const mfem::real_t *state1,
                                                                 const mfem::real_t *state2, const mfem::real_t *nor,
                                                                 mfem::real_t *flux)
     {
@@ -123,38 +112,33 @@ namespace Theseus
       mfem::real_t mom2[3] = {0.0, 0.0, 0.0};
       mfem::real_t hhat = 0.0;
       mfem::real_t diss = 0.0;
-      mfem::real_t v21 = 0.0;
-      mfem::real_t v22 = 0.0;
       mfem::real_t vn = 0.0;
-      mfem::real_t nor_mag = 0.0;
+      mfem::real_t vn1 = 0.0;
+      mfem::real_t vn2 = 0.0;
+      mfem::real_t nor_norm_squared = 0.0;
 
       for(int idim = 0;idim < dim;idim++){
-        nor_mag += nor[idim]*nor[idim];
         mom1[idim] = gasModel.momentum(S1, idim);
         mom2[idim] = gasModel.momentum(S2, idim);
         const mfem::real_t v1 = mom1[idim]/rho1;
         const mfem::real_t v2 = mom2[idim]/rho2;
         const mfem::real_t vbar = 0.5 * (v1 + v2);
         const mfem::real_t dv = v2 - v1;
-        v21 += v1*v1;
-        v22 += v2*v2;
         vn += vbar * nor[idim];
+        vn1 += v1 * nor[idim];
+        vn2 += v2 * nor[idim];
+        nor_norm_squared += nor[idim] * nor[idim];
         mom[idim] = rho_ln * vbar;
         hhat += -0.25 * (v1*v1 + v2*v2) + vbar * vbar;
         diss += 0.5 * drho * v1*v2 + rho_mean * dv * vbar;
       }
-      nor_mag = std::sqrt(nor_mag);
-      
       const mfem::real_t p1 = gasModel.pressure(S1);
       const mfem::real_t p2 = gasModel.pressure(S2);
 
-      const mfem::real_t vmag1 = std::sqrt(v21);
-      const mfem::real_t vmag2 = std::sqrt(v22);
-
-      const mfem::real_t c1 = gasModel.sound_speed(S1);
-      const mfem::real_t c2 = gasModel.sound_speed(S2);
-
-      const mfem::real_t lambda_max = Kernels::rmax(vmag1 + c1, vmag2 + c2);
+      const mfem::real_t nor_norm = Kernels::rsqrt(nor_norm_squared);
+      const mfem::real_t lambda_max = Kernels::rmax(
+        Kernels::rabs(vn1) + gasModel.sound_speed(S1) * nor_norm,
+        Kernels::rabs(vn2) + gasModel.sound_speed(S2) * nor_norm);
 
       const mfem::real_t beta1 = 0.5 * rho1 / p1;
       const mfem::real_t beta2 = 0.5 * rho2 / p2;
@@ -174,30 +158,30 @@ namespace Theseus
       const int mom0_eq = gasModel.L.eq_mom0;
       const int ener_eq = gasModel.L.eq_energy;
       
-      flux[mass_eq] = rho_ln * vn - 0.5 * lambda_max * (rho2 - rho1) * nor_mag;
+      flux[mass_eq] = rho_ln * vn - 0.5 * lambda_max * (rho2 - rho1);
       for (int d = 0; d < dim; d++)
         {
-          flux[mom0_eq + d] = vn * mom[d] + p_hat * nor[d] - 0.5 * lambda_max * (mom2[d]-mom1[d]) * nor_mag;
+          flux[mom0_eq + d] = vn * mom[d] + p_hat * nor[d]
+            - 0.5 * lambda_max * (mom2[d]-mom1[d]);
         }
-      flux[ener_eq] = rho_ln * vn * hhat - 0.5 * lambda_max * diss * nor_mag;
+      flux[ener_eq] = rho_ln * vn * hhat - 0.5 * lambda_max * diss;
       
-      return lambda_max;
     }
     struct InviscidFlux {
  
       template<typename GasModelT>
-      MFEM_HOST_DEVICE inline mfem::real_t ComputeVolumeFlux(const GasModelT &gasModel,
+      MFEM_HOST_DEVICE inline void ComputeVolumeFlux(const GasModelT &gasModel,
                                                        const mfem::real_t *q1, const mfem::real_t *q2,
                                                        const mfem::real_t *met1, const mfem::real_t *met2,
                                                        mfem::real_t *F_tilde) const{
-        return ComputeVolumeFluxKernel(gasModel, q1, q2, met1, met2, F_tilde); 
+        ComputeVolumeFluxKernel(gasModel, q1, q2, met1, met2, F_tilde);
       }
 
       template<typename GasModelT>
-      MFEM_HOST_DEVICE inline mfem::real_t ComputeFaceFlux(const GasModelT &gasModel,const mfem::real_t *qminus,
+      MFEM_HOST_DEVICE inline void ComputeFaceFlux(const GasModelT &gasModel,const mfem::real_t *qminus,
                                                      const mfem::real_t *qplus, const mfem::real_t *nor,
                                                      mfem::real_t *flux) const {
-        return ComputeFaceFluxKernel(gasModel, qminus, qplus, nor, flux); 
+        ComputeFaceFluxKernel(gasModel, qminus, qplus, nor, flux);
       }
     };
   };
