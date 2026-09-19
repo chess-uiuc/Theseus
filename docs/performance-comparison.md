@@ -99,13 +99,6 @@ The `-m` option supports three forms:
 Absolute paths are recommended when comparing builds from different source
 trees or when meshes live on platform scratch storage.
 
-## Local MPI execution
-
-On the local macOS development platform, follow the MPI recipe in
-[`AGENTS.md`](../AGENTS.md). In particular, run the comparison from Bash after
-exporting the documented `mpiexec` wrapper. OpenMPI also needs localhost socket
-permission in the Codex sandbox.
-
 ## Results
 
 The output directory contains:
