@@ -101,7 +101,9 @@ Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p
   -r DEVICE     Compute device to run on (e.g. cpu, hip, or cuda, default: cpu)
   -k            Disable output check
   -l LIST       List file with one config.json path per line (comments (#) allowed)
-  -m MESHNAME   Replace the meshname with this one
+  -m MESH       Replace the configured mesh. A filename keeps the configured
+                directory; a relative path is resolved from the launch directory;
+                an absolute path is used unchanged.
   -x REFLEVEL   Mesh refinement level
   -y ORDER      Polynomial order for spatial discretization
   -z            Disable visualization output
@@ -137,6 +139,11 @@ while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       :)  echo "Option -$OPTARG requires an argument." >&2; usage; exit 2;;
   esac
 done
+
+if [[ "${DT_OVERRIDE}" -eq 1 && "${CFL_OVERRIDE}" -eq 1 ]]; then
+  echo "ERROR: choose either -t TIMESTEP or -s CFL, not both." >&2
+  exit 2
+fi
 
 if [[ ! -x "${EXE}" ]]; then
   echo "ERROR: Theseus executable not found at ${EXE}" >&2
@@ -196,13 +203,13 @@ run_one() {
       nsteps=100
   fi
 
-  "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
+  "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}" "${TOP}"\
       "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" << 'PY'
 import json
 import sys
 import os
 
-src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s = sys.argv[1:]
+src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, launch_dir, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s = sys.argv[1:]
 
 nsteps = int(nsteps_s)
 dt = float(dt_s)
@@ -235,9 +242,13 @@ if order_override:
    rt["order"] = order
 
 if mesh_override:
-    current_file = rt["mesh_file"]
-    current_dir = os.path.dirname(current_file)
-    rt["mesh_file"] = os.path.join(current_dir, meshname) if current_dir else meshname
+    if os.path.isabs(meshname):
+        rt["mesh_file"] = meshname
+    elif os.path.dirname(meshname):
+        rt["mesh_file"] = os.path.abspath(os.path.join(launch_dir, meshname))
+    else:
+        current_dir = os.path.dirname(rt["mesh_file"])
+        rt["mesh_file"] = os.path.join(current_dir, meshname) if current_dir else meshname
 
 if ref_override:
     ref_lvl = int(reflvl_s)
@@ -249,6 +260,7 @@ if dt_override:
 
 if cfl_override:
     cfl = float(cfl_s)
+    rt["variable_dt"] = True
     rt["cfl"] = cfl
 
 if nsteps_override:

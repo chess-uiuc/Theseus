@@ -38,6 +38,16 @@ add_test(
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/compare_viz_tests.py
 )
 
+add_test(
+    NAME PerformanceTimerParserTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/performance_timers_tests.py
+)
+
+add_test(
+    NAME ComparePerformanceTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/compare_performance_tests.py
+)
+
 add_executable(unit_testing_stub
     unit_test_main.cpp
     test_stub.cpp
