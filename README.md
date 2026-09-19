@@ -68,6 +68,12 @@ scripts/run_theseus.sh -b "$(pwd)/build" -c TestCases/Euler/2D/IsentropicVortex/
 scripts/run_theseus.sh -b "$(pwd)/build" -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json -t "0.0001" -n 100
 ```
 
+## Development performance comparisons
+
+Theseus can run one identical case across two or more timer-enabled builds and
+compare overall timestep performance with detailed construct timers. See the
+[performance comparison guide](docs/performance-comparison.md).
+
 ## Documentation
 
 We're working on putting together more detailed documentation.  [Start here](docs/README.md)
