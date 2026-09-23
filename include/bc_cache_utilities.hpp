@@ -28,7 +28,8 @@ namespace Theseus
       ScalarConstant = 1,
       VectorConstant = 2,
       VectorAndScalarConstant = 3,
-      NumBCDataKinds = 4
+      RadialCPG = 4,
+      NumBCDataKinds = 5
     };
 
   struct BCDescriptor

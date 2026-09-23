@@ -140,7 +140,7 @@ jobs:
       - name: Axisymmetric integration test suite
         run: >-
           ctest --test-dir build-axisymmetric
-          -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration)$'
+          -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration|PXChamberIntegration)$'
           --output-on-failure
 
       - name: Example smoke test (Euler, IsentropicVortex)

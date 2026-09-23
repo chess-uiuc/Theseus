@@ -308,3 +308,14 @@ if(THESEUS_WITH_PLATO)
 
         add_test(NAME ThermoTableTestingSuite COMMAND table_lookup_tests)
 endif()
+
+add_executable(radial_profile_tests radial_profile_tests.cpp)
+target_include_directories(radial_profile_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME RadialProfileTests COMMAND radial_profile_tests
+  ${PROJECT_SOURCE_DIR}/TestCases/Axisymmetric/NavierStokes/PXChamber/Tuvw_jet_inlet_profile.dat)
+if(AXISYMMETRIC)
+  add_test(NAME PXChamberIntegration
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/px_chamber_integration_test.py
+      --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
+      --mpiexec ${MPIEXEC_EXECUTABLE})
+endif()

@@ -787,6 +787,7 @@ namespace Theseus {
     device_cache.bc_scalar_d = cache.bc_scalar_data.Read();
     device_cache.bc_vector_d = cache.bc_vector_data.Read();
     device_cache.bc_descr_d = cache.bc_descriptors.Read();
+    device_cache.bc_point_descr_d = cache.bc_point_descriptors.Read();
 
     // POD gas model
     device_cache.gas = cache.gas.to_device(cache);

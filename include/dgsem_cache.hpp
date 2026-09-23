@@ -119,6 +119,7 @@ namespace Theseus
     mfem::Array<int> bnd_marker_index;
     mfem::Array<int> bnd_marker_to_bc_descr;
     mfem::Array<Theseus::BCDescriptor> bc_descriptors;
+    mfem::Array<Theseus::BCDescriptor> bc_point_descriptors;
     mfem::Vector bc_scalar_data;
     mfem::Vector bc_vector_data;
 
@@ -210,6 +211,7 @@ namespace Theseus
     const int *bnd_attr_d = nullptr;
     const int *bnd_marker_index_d = nullptr;
     const Theseus::BCDescriptor *bc_descr_d = nullptr;
+    const Theseus::BCDescriptor *bc_point_descr_d = nullptr;
     const mfem::real_t *bc_scalar_d = nullptr;
     const mfem::real_t *bc_vector_d = nullptr;
     const int *bnd_marker_to_bc_descr_d = nullptr;
