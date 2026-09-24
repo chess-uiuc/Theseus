@@ -1,0 +1,78 @@
+{
+  "compileTime": {
+    "PARABOLIC": true,
+    "AXISYMMETRIC": true,
+    "SUBCELL_FV_BLENDING": true,
+    "SUTHERLAND": false,
+    "USE_FILTER": false
+  },
+  "runTime": {
+    "order": 1,
+    "dim": 2,
+    "num_equations": 4,
+    "precision": 15,
+    "visualize": true,
+    "output_file_path": ".",
+    "nancheck": true,
+    "nancheck_steps": 1,
+    "clock_simulation": false,
+    "variable_dt": false,
+    "dt": 1e-09,
+    "final_time": 1e-07,
+    "flow_model": "cns",
+    "Pr": 0.72,
+    "mu": 1.8e-05,
+    "R_gas": 287.05,
+    "gamma": 1.4,
+    "ser_ref_levels": 0,
+    "mesh_file": "TestCases/Axisymmetric/NavierStokes/PXChamber/px_chamber_axi.msh",
+    "conditions": {
+      "initial_conditions": {
+        "cpg_state": {
+          "pressure": 10000.0,
+          "temperature": 300.0
+        }
+      },
+      "boundary_conditions": {
+        "Axis": {
+          "type": "axis"
+        },
+        "Inflow": {
+          "type": "cpg-radial-profile",
+          "file": "TestCases/Axisymmetric/NavierStokes/PXChamber/Tuvw_jet_inlet_profile.dat",
+          "flag": 0,
+          "pressure": 10000.0
+        },
+        "Left": {
+          "type": "no-slip-isothermal",
+          "velocity": {
+            "value": [
+              0.0,
+              0.0
+            ]
+          },
+          "temperature": {
+            "value": 300.0
+          }
+        },
+        "Top": {
+          "type": "cpg-exterior-state",
+          "pressure": 10000.0,
+          "temperature": 300.0,
+          "ux": 0.0,
+          "ur": 0.0
+        },
+        "Right": {
+          "type": "supersonic-outflow"
+        }
+      }
+    },
+    "numerical_flux": "LLF",
+    "ode_solver": "RK3SSP",
+    "gas_model": "cpg",
+    "paraview": true,
+    "visit": false,
+    "vis_steps": 100,
+    "alpha_max": 0.5
+  }
+}

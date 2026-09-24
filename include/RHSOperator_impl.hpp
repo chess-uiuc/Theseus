@@ -1,3 +1,4 @@
+#include "RadialProfile.hpp"
 // Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
 //
 // This file is part of Theseus.
@@ -81,9 +82,9 @@ namespace Theseus
           const mfem::real_t density = gas_model.density(S);
           const mfem::real_t gamma = gas_model.gamma(S);
           const mfem::real_t shear_viscosity = gas_model.viscosity(S);
+	  const mfem::real_t stokes_coeff = gas_model.bulk_viscosity(S);
           const mfem::real_t longitudinal_viscosity =
-            mfem::real_t(4.0 / 3.0) * shear_viscosity
-            + gas_model.bulk_viscosity(S);
+            (mfem::real_t(2.0) - stokes_coeff) * shear_viscosity;
           const mfem::real_t momentum_diffusivity =
             Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
           const mfem::real_t thermal_diffusivity =
@@ -281,6 +282,29 @@ namespace Theseus
     operator_cache.bc_descriptors = bc_descriptors;
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
+    // Resolve stationary radial data once, in boundary restriction point order.
+    const int nfp = operator_cache.num_face_points;
+    const int npoints = operator_cache.bnd_marker_index.Size()*nfp;
+    operator_cache.bc_point_descriptors.SetSize(npoints);
+    for (int p=0; p<npoints; ++p) {
+      const int marker=operator_cache.bnd_marker_index[p/nfp];
+      BCDescriptor bc{}; bc.type=int(BCType::Invalid);
+      if (marker>=0) bc=bc_descriptors[marker];
+      if (bc.data_kind==int(BCDataKind::RadialCPG)) {
+        const auto *data=bc_vector_data.HostRead()+bc.data_index;
+        const double pressure=data[0], gamma=data[1], R=data[2];
+        RadialProfile profile;
+        for (int i=0;i<int(data[3]);++i)
+          profile.rows.push_back({data[4+4*i],data[5+4*i],data[6+4*i],data[7+4*i]});
+        const auto v=profile.Evaluate(operator_cache.bnd_xyz[p*operator_cache.dim+1]);
+        const auto u=CPGState(pressure,v[1],v[2],v[3],gamma,R);
+        mfem::Vector payload(4);
+        for(int q=0;q<4;++q) payload[q]=u[q];
+        bc.data_index=AppendBCVectorPayload(operator_cache.bc_vector_data,payload);
+        bc.data_kind=int(BCDataKind::VectorConstant);
+      }
+      operator_cache.bc_point_descriptors[p]=bc;
+    }
     ValidateAxisBoundaryGeometry(operator_cache);
 
 #ifdef SUBCELL_FV_BLENDING

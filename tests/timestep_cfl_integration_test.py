@@ -89,8 +89,9 @@ def expected_initial_rate(config: dict) -> float:
     advection_rate = advection_scale*2.0*sound_speed/cell_width
 
     viscosity = runtime["mu"]
-    bulk_viscosity = 2.0/3.0
-    momentum_diffusivity = 4.0*viscosity/3.0 + bulk_viscosity
+    stokes_coeff = 2.0/3.0
+    long_visc = (2.0 - stokes_coeff)*viscosity
+    momentum_diffusivity = max(viscosity, long_visc)  # 4.0*viscosity/3.0 + bulk_viscosity
     thermal_diffusivity = viscosity*gamma/runtime["Pr"]
     effective_diffusivity = max(momentum_diffusivity, thermal_diffusivity)
     diffusion_scale = 1.25*82.9000427145

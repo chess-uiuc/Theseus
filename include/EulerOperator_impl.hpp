@@ -359,7 +359,7 @@ namespace Theseus
       if(bc_index < 0){
         return;
       }
-      const Theseus::BCDescriptor &bc = dc.bc_descr_d[bc_index];
+      const Theseus::BCDescriptor &bc = dc.bc_point_descr_d[p];
       if (bc.type == int(Theseus::BCType::Invalid))
         {
           return;

@@ -96,3 +96,34 @@ topology at the specified output cycle:
 The workflow files are the executable source of truth for CI commands. Update
 this matrix whenever a case, step count, tolerance, build configuration, or
 required assertion changes.
+
+## PX chamber startup
+
+The [PX chamber case record](px-chamber.md) describes the stationary CPG radial
+profile, boundary conditions, meshes, and current modeling limitations.
+
+| Test | What is run and checked |
+| --- | --- |
+| `RadialProfileTests` | Primitive interpolation, axis extension, signed velocity and CPG state conversion; selection of the supplied profile blocks; rejection of a missing flag, duplicate radii, negative temperature, and evaluation above radial coverage. |
+| `prescribed_state_boundary_correction_uses_exterior_entropy` in `AxisymmetricGeometryTests` | The boundary correction is zero for matching entropy states and equals the expected difference for a known perturbation. |
+| `PXChamberIntegration` | Generates the 864-quadrilateral coarse chamber mesh and runs 20 steps of size `1e-8 s` to `2e-7 s`: quiescent 300 K gas on one rank, then the supplied heated profile on one and two MPI ranks. |
+
+The integration test reads the final written VTK fields. It checks positive,
+finite density, pressure and reconstructed CPG temperature; quiescent-state
+preservation; and a heated-case maximum temperature above 301 K. It compares
+serial/MPI density, pressure and temperature extrema and the maximum absolute
+interior nodal radial velocity on the axis. Uniform-state tolerances are
+`rtol=1e-10, atol=1e-9`; serial/MPI statistics use `rtol=1e-9, atol=1e-8`.
+It does not compare the complete fields or require exactly zero nodal radial
+velocity during heated startup.
+
+The profile and boundary-correction tests run in the regular CTest suite.
+`PXChamberIntegration` is explicitly selected by the Quick and Nightly
+axisymmetric CI steps. These are startup/regression checks, not demonstrations
+of steady state, conservation-budget closure, mesh convergence, or quantitative
+agreement with the reference plasma calculation.
+
+The supplied 75,375-cell mesh is included in the case and is the runner's
+default. It completed a separate two-rank, 100-step startup to `1e-7 s`, but
+that full-mesh run is **not** part of automated CI. A separate coarse run reached
+`2e-4 s` in 20,000 steps; it is also outside the short CI test.
