@@ -124,7 +124,7 @@ $s_d(p)=0.5(p+1)^4$.  At volume node $q$, define
 
 $$
 \nu_{\mathrm{mom}} =
- \frac{\max\left(\mu,\frac{4}{3}\mu+\mu_b\right)}{\rho},
+ \frac{\max\left(\mu,(2-\beta)\mu\right)}{\rho},
 \qquad
 \alpha = \frac{\kappa\gamma}{\rho c_p},
 \qquad
