@@ -25,7 +25,7 @@ namespace Theseus
     const bool viscous = viscousFlowModel;
 
     const auto dc = device_cache;
-    const auto gas_model = *gas;
+    const auto gas_model = dc.gas;
     const mfem::real_t *state = operator_cache.uVol.Read();
     const mfem::real_t *jacobian = operator_cache.elJac.Read();
     const mfem::real_t *metric = operator_cache.elMetric.Read();
@@ -285,6 +285,8 @@ namespace Theseus
     // Resolve stationary radial data once, in boundary restriction point order.
     const int nfp = operator_cache.num_face_points;
     const int npoints = operator_cache.bnd_marker_index.Size()*nfp;
+    const double *bndxyz = operator_cache.bnd_xyz.HostRead();
+    const int dim = operator_cache.dim;
     operator_cache.bc_point_descriptors.SetSize(npoints);
     for (int p=0; p<npoints; ++p) {
       const int marker=operator_cache.bnd_marker_index[p/nfp];
@@ -296,7 +298,7 @@ namespace Theseus
         RadialProfile profile;
         for (int i=0;i<int(data[3]);++i)
           profile.rows.push_back({data[4+4*i],data[5+4*i],data[6+4*i],data[7+4*i]});
-        const auto v=profile.Evaluate(operator_cache.bnd_xyz[p*operator_cache.dim+1]);
+        const auto v=profile.Evaluate(bndxyz[p*dim+1]);
         const auto u=CPGState(pressure,v[1],v[2],v[3],gamma,R);
         mfem::Vector payload(4);
         for(int q=0;q<4;++q) payload[q]=u[q];
