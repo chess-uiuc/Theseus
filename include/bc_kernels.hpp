@@ -47,6 +47,16 @@ namespace Theseus {
 
       switch (static_cast<Theseus::BCType>(bc.type))
         {
+        case Theseus::BCType::PrescribedState:
+          {
+            mfem::real_t entropy[Theseus::MAXEQ];
+            Theseus::PointStateView S{dc.bc_vector_d + bc.data_index};
+            Theseus::PointStateViewRW E{entropy};
+            gas.entropy_state(S,E);
+            for (int q=0;q<neq;++q) fluxN[q]=entropy[q]-state1[q];
+            return;
+          }
+
         case Theseus::BCType::NoSlipAdiab:
           {
             const mfem::real_t *vector_data = dc.bc_vector_d;
@@ -330,6 +340,7 @@ namespace Theseus {
           dc.iflux.ComputeFaceFlux(gas, state1, state1, nor, fluxN);
           return;
           
+        case Theseus::BCType::PrescribedState:
         case Theseus::BCType::SupersonicInflow:
           {
             const mfem::real_t *bc_state = vector_data + bc.data_index;
@@ -402,6 +413,17 @@ namespace Theseus {
         case Theseus::BCType::Symmetry:
           ApplyBoundaryConditionInviscid(dc, bc, state1, nor, fluxN);
           return;
+
+        case Theseus::BCType::PrescribedState:
+          {
+            ApplyBoundaryConditionInviscid(dc,bc,state1,nor,fluxN);
+            mfem::real_t visc[Theseus::MAXEQ][Theseus::MAXDIM];
+            NavierStokesFlux::ComputeViscousFluxKernel(
+              gas,state1,gradPrim_x,gradPrim_y,gradPrim_z,visc,dc.axisymmetric,radius);
+            for(int q=0;q<dc.num_equations;++q)
+              for(int d=0;d<dim;++d) fluxN[q]-=visc[q][d]*nor[d];
+            return;
+          }
 
         case Theseus::BCType::NoSlipAdiab:
           {

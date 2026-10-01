@@ -364,7 +364,7 @@ namespace Theseus
           return;
         }
 
-      const Theseus::BCDescriptor &bc = dc.bc_descr_d[bc_index];
+      const Theseus::BCDescriptor &bc = dc.bc_point_descr_d[p];
       if (bc.type == int(Theseus::BCType::Invalid))
         {
           return;
@@ -379,7 +379,8 @@ namespace Theseus
       const mfem::real_t *nor_face_d = nor_d + norm_offset;
       const mfem::real_t *nor_point = nor_face_d + fp * dim;
 
-      // Legacy one-sided boundary lifting uses +1/(w0*J1)
+      // Scale the boundary contribution by +1/(w0*J1); the boundary
+      // restriction transpose below maps it into the volume representation.
       const mfem::real_t scale = wt_d[w_offset + fp];
 
       mfem::real_t *rhs_face[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
@@ -799,7 +800,7 @@ namespace Theseus
       if(bc_index < 0){
         return;
       }
-      const Theseus::BCDescriptor &bc = dc.bc_descr_d[bc_index];
+      const Theseus::BCDescriptor &bc = dc.bc_point_descr_d[p];
       if (bc.type == int(Theseus::BCType::Invalid))
         {
           return;

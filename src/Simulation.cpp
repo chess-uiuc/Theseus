@@ -8,6 +8,7 @@
 #include "AxisymmetryConfig.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
+#include "RadialProfile.hpp"
 #include "json.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -283,7 +284,22 @@ namespace Theseus
     signature = runtime["conditions"]["initial_conditions"].value("signature", 0);
     std::string IC_key = runtime["conditions"]["initial_conditions"].value("function", "LidDrivenCavityIC");
 
-    if (signature == 0)
+    if (runtime["conditions"]["initial_conditions"].contains("cpg_state"))
+      {
+        const auto &v=runtime["conditions"]["initial_conditions"]["cpg_state"];
+        const auto model=to_lower(runtime.value("gas_model",std::string("cpg")));
+        MFEM_VERIFY(dim==2 && num_equations==4 &&
+                    (model=="cpg" || model=="ideal" || model=="ideal_gas" || model.empty()),
+                    "cpg_state requires 2D CPG");
+        const auto state=CPGState(v.at("pressure").get<double>(),v.at("temperature").get<double>(),
+                                 v.value("ux",0.0),v.value("ur",0.0),
+                                 runtime.value("gamma",1.4),runtime.value("R_gas",287.05));
+        u0=std::make_unique<mfem::VectorFunctionCoefficient>(4,
+          [state](const mfem::Vector &,mfem::Vector &u) {
+            for(int q=0;q<4;++q) u[q]=state[q];
+          });
+      }
+    else if (signature == 0)
       {
         u0 = std::make_unique<mfem::VectorFunctionCoefficient>
           (num_equations,
@@ -782,15 +798,25 @@ namespace Theseus
               {
                 bc_descr.type = int(Theseus::BCType::NoSlipIso);
                 bc_descr.data_kind = int(Theseus::BCDataKind::VectorAndScalarConstant);
-                if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &&
-                      bc_props.contains("temperature") && bc_props["temperature"].contains("scalar")))
-                  { std::cerr << "Error: no-slip-isothermal requires velocity.vector and temperature.scalar." << std::endl; return 1; }
+                if (!(bc_props.contains("velocity") && (bc_props["velocity"].contains("vector") || bc_props["velocity"].contains("value")) &&
+                      bc_props.contains("temperature") && (bc_props["temperature"].contains("scalar") || bc_props["temperature"].contains("value"))))
+                  { std::cerr << "Error: no-slip-isothermal requires velocity (vector or value) and temperature (scalar or value)." << std::endl; return 1; }
                 {
-                  std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
-                  std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
-                  // std::string state_key = bc_props["vector"].get<std::string>();
-                  auto vel_bc = Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(velBC_key);
-                  auto temp_bc = Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(tempBC_key);
+                  mfem::Vector vel_bc(dim); vel_bc=0.0;
+                  if (bc_props["velocity"].contains("value")) {
+                    const auto values=bc_props["velocity"]["value"].get<std::vector<double>>();
+                    MFEM_VERIFY(values.size()==size_t(dim), "Wall velocity dimension mismatch");
+                    for(int d=0;d<dim;++d) {
+                      MFEM_VERIFY(std::isfinite(values[d]), "Wall velocity must be finite");
+                      vel_bc[d]=values[d];
+                    }
+                  } else vel_bc=Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(
+                    bc_props["velocity"]["vector"].get<std::string>());
+                  const double temp_bc=bc_props["temperature"].contains("value") ?
+                    bc_props["temperature"]["value"].get<double>() :
+                    Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(
+                      bc_props["temperature"]["scalar"].get<std::string>());
+                  MFEM_VERIFY(std::isfinite(temp_bc) && temp_bc>0, "Wall temperature must be positive");
 
                   mfem::Vector bc_data(vel_bc.Size() + 1);
                   std::ostringstream Ostr;
@@ -814,6 +840,36 @@ namespace Theseus
                   }
                   rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
                 }
+              }
+            else if (type == "cpg-exterior-state" || type == "cpg-radial-profile")
+              {
+                const auto model=to_lower(runtime.value("gas_model",std::string("cpg")));
+                MFEM_VERIFY(dim==2 && num_equations==4 &&
+                            (model=="cpg" || model=="ideal" || model=="ideal_gas" || model.empty()),
+                            "CPG exterior BC requires 2D CPG; LTE is not supported");
+                const double pressure=bc_props.at("pressure").get<double>();
+                const double gamma=runtime.value("gamma",1.4), R=runtime.value("R_gas",287.05);
+                CPGState(pressure,300,0,0,gamma,R); // validate thermodynamic parameters
+                mfem::Vector payload;
+                if(type=="cpg-radial-profile") {
+                  const auto profile=RadialProfile::Read(bc_props.at("file").get<std::string>(),
+                                                        bc_props.value("flag",0));
+                  payload.SetSize(4+4*profile.rows.size());
+                  payload[0]=pressure; payload[1]=gamma; payload[2]=R;
+                  payload[3]=profile.rows.size();
+                  for(size_t i=0;i<profile.rows.size();++i)
+                    for(int q=0;q<4;++q) payload[4+4*i+q]=profile.rows[i][q];
+                  bc_descr.data_kind=int(BCDataKind::RadialCPG);
+                } else {
+                  const auto state=CPGState(pressure,bc_props.at("temperature").get<double>(),
+                                            bc_props.value("ux",0.0),bc_props.value("ur",0.0),gamma,R);
+                  payload.SetSize(4);
+                  for(int q=0;q<4;++q) payload[q]=state[q];
+                  bc_descr.data_kind=int(BCDataKind::VectorConstant);
+                }
+                bc_descr.type=int(BCType::PrescribedState);
+                bc_descr.data_index=AppendBCVectorPayload(bc_vector_data,payload);
+                rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
               }
             else if (type == "supersonic-outflow")
               {

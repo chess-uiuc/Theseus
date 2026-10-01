@@ -83,10 +83,11 @@ MSHREF_OVERRIDE=0
 MSHREF_LVL="default"
 DISABLE_VIZ=0
 ALLOW_RESTART=0
+WIPE_RUNDIR=0
 
 usage() {
   cat <<EOF
-Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-R] [-z] (-c CONFIG.json | -l LIST.txt)
+Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-R] [-w] [-z] (-c CONFIG.json | -l LIST.txt)
 
   -n STEPS      Number of steps to run (default: None, use case default)
   -t TIMESTEP   Fixed timestep size (default: None, use case default)
@@ -102,6 +103,7 @@ Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p
   -k            Disable output check
   -l LIST       List file with one config.json path per line (comments (#) allowed)
   -m MESHNAME   Replace the meshname with this one
+  -w            Wipe out the run directory before starting
   -x REFLEVEL   Mesh refinement level
   -y ORDER      Polynomial order for spatial discretization
   -z            Disable visualization output
@@ -113,7 +115,7 @@ EOF
 }
 
 # ---- Parse args
-while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
+while getopts ":Rzkwx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
   case $opt in
       n) NSTEPS="${OPTARG}"; NSTEPS_OVERRIDE=1;;
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
@@ -130,6 +132,7 @@ while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       R) ALLOW_RESTART=1;;
       l) LISTFILE="${OPTARG}";;
       m) MESHNAME="${OPTARG}"; MESH_OVERRIDE=1;;
+      w) WIPE_RUNDIR=1;;
       x) MSHREF_LVL="${OPTARG}"; MSHREF_OVERRIDE=1;;
       y) ORDER="${OPTARG}"; ORDER_OVERRIDE=1;;
       h) usage; exit 0;;
@@ -184,7 +187,16 @@ run_one() {
   local runname
   runname="$(basename "$(dirname "${cfg_abs}")")"   # e.g., LidDrivenCavity
   local work="${RUNDIR}/${runname}"
-  rm -rf "${work}"
+  if [[ ${ALLOW_RESTART} -eq 0 ]]; then
+     rm -rf "${work}"
+  else
+      if [[ ${WIPE_RUNDIR} -eq 1 ]]; then
+	  printf "WARNING: Restart AND Wipe enabled, removing target work directory."
+      fi
+  fi
+  if [[ ${WIPE_RUNDIR} -eq 1 ]]; then
+      rm -rf "${work}"
+  fi
   mkdir -p "${work}"
   local outdir="${work}"
 

@@ -46,7 +46,7 @@ namespace Theseus
     template<typename HostDataT>
     LTEGasModel<EOSImpl, TransportImpl>  to_device(HostDataT &host_data) {
       LTEGasModel<EOSImpl, TransportImpl> retVal(phys, L, T, eos, transport);
-      T.tables = {
+      retVal.T.tables = {
         host_data.lteTableData->lte_table.Read(),
         host_data.lteTableData->inv_table.Read(),
         host_data.lteTableData->rho_grid.Read(),
