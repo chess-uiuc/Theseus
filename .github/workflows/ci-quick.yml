@@ -34,13 +34,18 @@ jobs:
           echo "FC=mpifort" >> $GITHUB_ENV
 
       - name: Configure SSH for private deps
+        env:
+          PLATO_DEPLOY_KEY: ${{ secrets.PLATO_DEPLOY_KEY }}
+          THERMO_DATABASE_DEPLOY_KEY: ${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.PLATO_DEPLOY_KEY }}" > ~/.ssh/plato_key
-          echo "${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}" > ~/.ssh/database_key
+          printf '%s\n' "$PLATO_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/plato_key
+          printf '%s\n' "$THERMO_DATABASE_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/database_key
           chmod 600 ~/.ssh/plato_key
           chmod 600 ~/.ssh/database_key
+          ssh-keygen -y -f ~/.ssh/plato_key > /dev/null
+          ssh-keygen -y -f ~/.ssh/database_key > /dev/null
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           cat > ~/.ssh/config <<'EOF'
           Host github-plato
