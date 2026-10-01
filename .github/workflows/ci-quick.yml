@@ -10,6 +10,12 @@ permissions:
 
 jobs:
   build-test:
+    # Settings > Secrets and variables > Actions > Variables:
+    # TRUSTED_CI_USERS = ["github-login-1", "github-login-2"]
+    # These users are trusted to run PR code with the private dependency keys.
+    if: >-
+      github.event_name != 'pull_request_target' ||
+      contains(fromJSON(vars.TRUSTED_CI_USERS || '[]'), github.event.pull_request.user.login)
     name: Ubuntu/GCC
     runs-on: ubuntu-22.04
     env:

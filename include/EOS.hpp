@@ -258,6 +258,7 @@ namespace Theseus
     }
 
     template<typename InStateView, typename OutStateView>
+    MFEM_HOST_DEVICE
     inline void primitive_to_conserved(const PhysicsConstants &phys, const StateLayout &L,
                                        const InStateView &prim, OutStateView &cons) const
     {

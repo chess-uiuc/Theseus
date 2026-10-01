@@ -6,14 +6,14 @@
 #pragma once
 
 #include "mfem.hpp"
-#include "DissipationOperator.hpp"
 #include "NavierStokesFlux.hpp"
 #include "theseus_kernels.hpp"
+#include "DissipationOperator.hpp"
 
 namespace Theseus
 {
 
-  namespace ChandrashekarFlux
+  namespace RanochaFlux
   {
     // Two-point entropy-conservative numerical flux for the volume discretization.
     // Will be ctx.iflux.ComputeVolumeFlux
@@ -39,53 +39,43 @@ namespace Theseus
       const mfem::real_t rho2 = gasModel.density(S2);
       const mfem::real_t rho_ln = Kernels::ComputeLogMean(rho1, rho2, 1e-4);
       
-      mfem::real_t mom_hat[3] = {0,0,0};
-      mfem::real_t h_hat = 0;
+      mfem::real_t vbar[3] = {0,0,0};
+      mfem::real_t p_prod_mean[3] = {0,0,0};
+      mfem::real_t ke_flux = 0;
       mfem::real_t vn = 0;
+      
+      const mfem::real_t p1 = gasModel.pressure(S1);
+      const mfem::real_t p2 = gasModel.pressure(S2);
+      const mfem::real_t pbar = mfem::real_t(0.5) * (p1 + p2);
       
       for (int d=0; d<dim; ++d)
         {
           const mfem::real_t v1 = gasModel.velocity(S1, d);
           const mfem::real_t v2 = gasModel.velocity(S2, d);
-          const mfem::real_t vbar = mfem::real_t(0.5)*(v1+v2);
-          
-          vn   += vbar * met[d];
-          
-          mom_hat[d] = rho_ln * vbar;
-          
-          h_hat += -mfem::real_t(0.25)*(v1*v1 + v2*v2) + vbar*vbar;
+          vbar[d] = mfem::real_t(0.5)*(v1+v2);
+          vn   += vbar[d] * met[d];
+
+          ke_flux += mfem::real_t(0.5) * (v1*v2);
+          p_prod_mean[d] = mfem::real_t(0.5) * (p1*v2 + p2*v1);
         }
-      
-      
-      const mfem::real_t p1 = gasModel.pressure(S1);
-      const mfem::real_t p2 = gasModel.pressure(S2);
-      
-      // Single-component ideal-gas-specific KEPEC bits
-      // TODO: Update/Craft KPEC fluxes for mixtures (and passive scalar components)
-      const mfem::real_t beta1 = mfem::real_t(0.5) * rho1 / p1;
-      const mfem::real_t beta2 = mfem::real_t(0.5) * rho2 / p2;
-      const mfem::real_t beta_ln = Kernels::ComputeLogMean(beta1, beta2, 1e-4);
-      
-      const mfem::real_t p_hat = mfem::real_t(0.5) * (rho1 + rho2) / (beta1 + beta2);
-      
-      const mfem::real_t gm11 = gasModel.gamma(S1);
-      const mfem::real_t gm12 = gasModel.gamma(S2);
-      const mfem::real_t gm1_av_inv = mfem::real_t(2.0) / (gm11 + gm12 - mfem::real_t(2.0));
-      
-      h_hat += mfem::real_t(0.5) / beta_ln * gm1_av_inv + p_hat / rho_ln;
-      
+
+      const mfem::real_t inv_beta_ln = (p1 * p2) / Kernels::ComputeLogMean(rho1 * p2, rho2 * p1, 1e-4);
+
+      mfem::real_t inv_gm1 = mfem::real_t(1.0) / (gasModel.gamma(S1) - mfem::real_t(1.0));
+      mfem::real_t ie_flux = inv_beta_ln * inv_gm1;
+
       // F_tilde layout: [rho, rhoV, rhoE]
-      // NOTE: Caller *must* zero(or own) F_tilde (size: neq)
-      // NOTE: HRM!  Why ZERO?  It appears that F_tilde is overwritten below
       const int mass_eq = gasModel.L.eq_mass;
       const int mom0_eq = gasModel.L.eq_mom0;
       const int ener_eq = gasModel.L.eq_energy;
       F_tilde[mass_eq] = rho_ln * vn;
+      F_tilde[ener_eq] = 0.0;
       for (int d=0; d<dim; ++d)
-        {
-          F_tilde[mom0_eq + d] = vn * mom_hat[d] + p_hat * met[d];
-        }
-      F_tilde[ener_eq] = rho_ln * vn * h_hat;
+      {
+        F_tilde[mom0_eq + d] = rho_ln * vn * vbar[d] + pbar * met[d];
+        F_tilde[ener_eq] += p_prod_mean[d] * met[d];
+      }
+      F_tilde[ener_eq] += rho_ln * (ie_flux + ke_flux) * vn;
     }
 
     template<typename GasModelT>
@@ -102,51 +92,45 @@ namespace Theseus
       const mfem::real_t rho1 = gasModel.density(S1);
       const mfem::real_t rho2 = gasModel.density(S2);
       const mfem::real_t rho_ln = Kernels::ComputeLogMean(rho1, rho2, 1e-4);
-
-      mfem::real_t mom[3] = {0.0, 0.0, 0.0};
-      mfem::real_t hhat = 0.0;
-      mfem::real_t vn = 0.0;
+      mfem::real_t vbar[3] = {0.0, 0.0, 0.0};
+      mfem::real_t p_prod_mean[3] = {0.0, 0.0, 0.0};
       mfem::real_t diss[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
+      mfem::real_t ke_flux = 0.0;
+      mfem::real_t vn = 0.0;
+
+      const mfem::real_t p1 = gasModel.pressure(S1);
+      const mfem::real_t p2 = gasModel.pressure(S2);
+      const mfem::real_t pbar = 0.5 * (p1 + p2);
 
       for(int idim = 0;idim < dim;idim++){
         const mfem::real_t v1 = gasModel.velocity(S1, idim);
         const mfem::real_t v2 = gasModel.velocity(S2, idim);
-        const mfem::real_t vbar = 0.5 * (v1 + v2);
-
-        vn += vbar * nor[idim];
-
-        mom[idim] = rho_ln * vbar;
-        hhat += -0.25 * (v1*v1 + v2*v2) + vbar * vbar;
+        vbar[idim] = 0.5 * (v1 + v2);
+        vn += vbar[idim] * nor[idim];
+        ke_flux += 0.5 * (v1*v2);
+        p_prod_mean[idim] = 0.5 * (p1*v2 + p2*v1);
       }
 
-      const mfem::real_t p1 = gasModel.pressure(S1);
-      const mfem::real_t p2 = gasModel.pressure(S2);
+      const mfem::real_t inv_beta_ln = (p1 * p2) / Kernels::ComputeLogMean(rho1 * p2, rho2 * p1, 1e-4);
 
-      const mfem::real_t beta1 = 0.5 * rho1 / p1;
-      const mfem::real_t beta2 = 0.5 * rho2 / p2;
-      const mfem::real_t beta_ln = Kernels::ComputeLogMean(beta1, beta2, 1e-4);
-      
-      const mfem::real_t p_hat = 0.5 * (rho1 + rho2) / (beta1 + beta2);
+      mfem::real_t inv_gm1 = mfem::real_t(1.0) / (gasModel.gamma(S1) - mfem::real_t(1.0));
+      mfem::real_t ie_flux = inv_beta_ln * inv_gm1;
 
-      // Use the average gamma for now
-      const mfem::real_t gm11 = gasModel.gamma(S1);
-      const mfem::real_t gm12 = gasModel.gamma(S2); 
-      const mfem::real_t gm1_av_inv = 2.0/(gm11 + gm12 - 2.0);
-      
-      hhat += 0.5 / beta_ln * gm1_av_inv + p_hat / rho_ln;
       const int mass_eq = gasModel.L.eq_mass;
       const int mom0_eq = gasModel.L.eq_mom0;
       const int ener_eq = gasModel.L.eq_energy;
 
       // Dissipative part of the flux based on Roe's approximate Riemann solver
       Roe_dissipation(gasModel, S1, S2, nor, diss);
-      
+
       flux[mass_eq] = rho_ln * vn - diss[mass_eq];
+      flux[ener_eq] = 0.0;
       for (int d = 0; d < dim; d++)
         {
-          flux[mom0_eq + d] = vn * mom[d] + p_hat * nor[d] - diss[mom0_eq + d];
+          flux[mom0_eq + d] = rho_ln * vn * vbar[d] + pbar * nor[d] - diss[mom0_eq + d];
+          flux[ener_eq] += p_prod_mean[d] * nor[d];
         }
-      flux[ener_eq] = rho_ln * vn * hhat - diss[ener_eq];
+      flux[ener_eq] += rho_ln * (ie_flux + ke_flux) * vn - diss[ener_eq];
     }
     struct InviscidFlux {
  
