@@ -93,25 +93,8 @@ namespace Theseus {
 	    Theseus::PointStateView S{state1};
 	    Theseus::PointStateViewRW F{fluxN};
 
-	    /*
-	     * Need the entropy state / beta corresponding to Twall and Vwall.
-	     *
-	     * Legacy Prandtl does this (roughly):
-	     *   beta = isothermal_wall_beta(S, Twall, gas);
-	     *   F[mom] = Vwall * beta;
-	     *   F[energy] = -beta;
-	     *
-	     * So this method should return the same quantity that -gas.energy(S)
-	     * returns for the adiabatic case, but evaluated at Twall. I am going
-	     * to match legacy-like behavior here - but I'm skeptical of it.
-	     *
-	     * Note:
-	     * Strictly speaking, shouldn't we form the (+) entropy state by prescribing
-	     * Twall, and Vwall? In that case, I think at least the mass component is off
-	     *
-	     */
-
-	    const mfem::real_t beta_like = Theseus::Flow::isothermal_wall_beta(S, Twall, gas);
+            // The EOS defines the normalization of the entropy energy variable.
+            const mfem::real_t beta_like = gas.isothermal_wall_beta(Twall);
 
 	    F.set_mass(gas.L, gas.mass(S));
 	    for (int idim = 0; idim < dim; ++idim)

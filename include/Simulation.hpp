@@ -10,6 +10,7 @@
 #include "RHSOperator.hpp"
 #include "RunControl.hpp"
 #include "VisualizationConfig.hpp"
+#include "VisualizationFields.hpp"
 
 namespace Theseus
 {
@@ -74,7 +75,6 @@ namespace Theseus
     std::unique_ptr<mfem::ParFiniteElementSpace> fes;
     std::unique_ptr<mfem::ParFiniteElementSpace> dfes;
 
-    std::unique_ptr<mfem::VectorFunctionCoefficient> u0;
     std::unique_ptr<mfem::VectorFunctionCoefficient> exact_solution;
 
     std::shared_ptr<mfem::ParGridFunction> sol;
@@ -91,8 +91,7 @@ namespace Theseus
 
     mfem::ParGridFunction rho, mom, energy;
 
-    std::unique_ptr<mfem::ParGridFunction> velocity;
-    std::unique_ptr<mfem::ParGridFunction> p;
+    std::unique_ptr<VisualizationFields> visualization_fields;
 
     std::unique_ptr<mfem::ParaViewDataCollection> pd;
     std::unique_ptr<mfem::VisItDataCollection> vd;
@@ -108,6 +107,7 @@ namespace Theseus
     void InitDevice(std::string);
     std::unique_ptr<mfem::Device> device_;
 
+    int InitializeSolution(const nlohmann::json &runtime);
     void UpdateVisualizationFields();
     void SaveVisualization();
     CheckpointCompatibility CurrentCheckpointCompatibility() const;
