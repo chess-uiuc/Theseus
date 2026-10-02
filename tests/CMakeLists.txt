@@ -20,6 +20,9 @@
 # Unit testing self-test suite
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+add_test(NAME ValidationRunnerTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/validation_runner_tests.py)
+
 set(AXISYMMETRIC_RESTART_ARGUMENT)
 set(AXISYMMETRIC_TEST_DEVICE "cpu" CACHE STRING
     "MFEM device used by axisymmetric integration tests")
@@ -126,6 +129,8 @@ target_link_libraries(time_step_control_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI
 
 add_test(NAME TimeStepControlTests COMMAND time_step_control_tests)
 
+# This reference uses Cartesian cavity metrics; the standard build owns it.
+if(NOT AXISYMMETRIC)
 add_test(
     NAME TimestepCFLIntegration
     COMMAND ${Python3_EXECUTABLE}
@@ -135,6 +140,7 @@ add_test(
             --mpiexec ${MPIEXEC_EXECUTABLE}
             --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
 )
+endif()
 
 # Axisymmetry configuration and mesh contract tests
 add_executable(axisymmetry_config_tests
@@ -276,6 +282,9 @@ if(THESEUS_WITH_PLATO)
    endif()
 
    target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
+   if(SUTHERLAND)
+     target_compile_definitions(table_lookup_tests PRIVATE SUTHERLAND)
+   endif()
 
    target_include_directories(table_lookup_tests
          PRIVATE
@@ -318,4 +327,64 @@ if(AXISYMMETRIC)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/px_chamber_integration_test.py
       --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
       --mpiexec ${MPIEXEC_EXECUTABLE})
+endif()
+
+# Host conversion API uses an analytic LTE fixture; no PLATO dependency.
+add_executable(physical_state_tests unit_test_main.cpp physical_state_tests.cpp)
+target_include_directories(physical_state_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(physical_state_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME PhysicalStateConversionTests COMMAND physical_state_tests)
+
+if(THESEUS_WITH_PLATO)
+  add_test(NAME PhysicalStatePLATOTests COMMAND table_lookup_tests plato_PhysicalState_conversion_test)
+endif()
+
+# Host initialization followed by actual simulation, selectable CUDA backend.
+set(PHYSICAL_STATE_TEST_DEVICE "cpu" CACHE STRING "MFEM device for physical-state integration")
+if(THESEUS_WITH_PLATO AND NOT AXISYMMETRIC)
+  add_test(NAME PhysicalInitialStateIntegration
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/physical_initial_state_integration_test.py
+      --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
+      --mpiexec ${MPIEXEC_EXECUTABLE} --database ${PLATO_DB_PATH}
+      --device ${PHYSICAL_STATE_TEST_DEVICE})
+endif()
+
+if(THESEUS_WITH_PLATO AND AXISYMMETRIC)
+  add_test(NAME PhysicalBoundaryIntegration
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/physical_boundary_integration_test.py
+      --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
+      --mpiexec ${MPIEXEC_EXECUTABLE} --database ${PLATO_DB_PATH}
+      --device ${PHYSICAL_STATE_TEST_DEVICE})
+endif()
+
+foreach(transport_variant IN ITEMS standard sutherland)
+  set(property_test_target gas_property_tests_${transport_variant})
+  add_executable(${property_test_target} unit_test_main.cpp gas_property_tests.cpp)
+  target_include_directories(${property_test_target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(${property_test_target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(transport_variant STREQUAL "sutherland")
+    target_compile_definitions(${property_test_target} PRIVATE SUTHERLAND)
+  endif()
+  add_test(NAME GasPropertyTests_${transport_variant} COMMAND ${property_test_target})
+endforeach()
+
+add_executable(visualization_fields_tests visualization_fields_tests.cpp)
+target_include_directories(visualization_fields_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(visualization_fields_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME VisualizationFieldsTests COMMAND visualization_fields_tests)
+
+if(THESEUS_WITH_PLATO AND NOT AXISYMMETRIC)
+  add_test(NAME DerivedVisualizationIntegration
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/derived_visualization_integration_test.py
+      --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
+      --reference $<TARGET_FILE:table_lookup_tests> --database ${PLATO_DB_PATH}
+      --mpiexec ${MPIEXEC_EXECUTABLE} --device ${PHYSICAL_STATE_TEST_DEVICE})
+endif()
+
+if(THESEUS_WITH_PLATO AND AXISYMMETRIC)
+  add_test(NAME LTEPXChamberIntegration
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lte_px_chamber_integration_test.py
+      --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
+      --mpiexec ${MPIEXEC_EXECUTABLE} --database ${PLATO_DB_PATH}
+      --device ${PHYSICAL_STATE_TEST_DEVICE})
 endif()
