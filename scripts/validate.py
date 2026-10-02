@@ -152,11 +152,21 @@ def suite_commands(run, manifest):
     ]:
         output = simulation('golden-' + case, case, dt, steps)
         cycle = f'Cycle{steps:06d}/data.pvtu'
-        reference = source / 'TestCases/GoldenData' / cases[case][1] / cycle
+        # reference = source / 'TestCases/GoldenData' / cases[case][1] / cycle
+        # Automatically unpack golden data if it is zipped up 
+        reference_name = cases[case][1]
+        reference = run / 'references' / reference_name / cycle
+        preparation = 'prepare-reference-' + case
+        commands.append(Command(preparation,
+                        [python, str(source / 'scripts/prepare_golden_reference.py'),
+                         str(source / 'TestCases/GoldenData'), reference_name,
+                         str(run / 'references' / reference_name), cycle], run,
+                        cases[case][2] + ' — prepare gold-standard reference'))
+        prerequisites = ('golden-' + case, 'python-dependencies', preparation)
         commands.append(Command('compare-' + case, compare + [str(output / cycle), str(reference),
                          '--atol', atol, '--rtol', rtol], run,
                          cases[case][2] + ' — gold-standard comparison',
-                         ('golden-' + case, 'python-dependencies')))
+                         prerequisites))
     return commands
 
 
