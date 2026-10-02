@@ -19,6 +19,8 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
   Euler/CNS runs and understand their verification status
 - [Verification and CI matrix](verification.md): integration assertions, smoke
   cases, golden-data tolerances, and local reproduction commands
+- [Performance comparison](performance-comparison.md): compare timestep and
+  construct-level timings across two or more compatible builds
 
 ## Theory
 
