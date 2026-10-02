@@ -10,8 +10,8 @@ permissions:
 
 jobs:
   nightly-build-and-test:
+    name: Ubuntu/GCC
     runs-on: ubuntu-22.04
-    # runs-on: ubuntu-latest
     env:
       CMAKE_BUILD_TYPE: Debug
       INSTALL_PREFIX: ${{ github.workspace }}/deps
@@ -19,8 +19,12 @@ jobs:
       QT_QPA_PLATFORM: "offscreen"
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' }}
           submodules: recursive
           fetch-depth: 0
       - name: Show submodule SHAs (debug)
@@ -49,13 +53,20 @@ jobs:
           pip install -r ci-resources/requirements-ci.txt
 
       - name: Configure SSH for private deps
+        env:
+          PLATO_DEPLOY_KEY: ${{ secrets.PLATO_DEPLOY_KEY }}
+          THERMO_DATABASE_DEPLOY_KEY: ${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}
         run: |
+          : "${PLATO_DEPLOY_KEY:?PLATO_DEPLOY_KEY is unavailable}"
+          : "${THERMO_DATABASE_DEPLOY_KEY:?THERMO_DATABASE_DEPLOY_KEY is unavailable}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.PLATO_DEPLOY_KEY }}" > ~/.ssh/plato_key
-          echo "${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}" > ~/.ssh/database_key
+          printf '%s\n' "$PLATO_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/plato_key
+          printf '%s\n' "$THERMO_DATABASE_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/database_key
           chmod 600 ~/.ssh/plato_key
           chmod 600 ~/.ssh/database_key
+          ssh-keygen -y -f ~/.ssh/plato_key > /dev/null
+          ssh-keygen -y -f ~/.ssh/database_key > /dev/null
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           cat > ~/.ssh/config <<'EOF'
           Host github-plato
@@ -115,11 +126,6 @@ jobs:
           cmake --build build -- -k 0
           ldd build/theseus || true
 
-      - name: Integration test (timestep and CFL)
-        run: >-
-          ctest --test-dir build
-          -R '^TimestepCFLIntegration$' --output-on-failure
-
       - name: Configure axisymmetric integration build
         env:
           CC: ${{ env.CC }}
@@ -144,7 +150,7 @@ jobs:
         run: >-
           ctest --test-dir build-axisymmetric
           -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration|PXChamberIntegration)$'
-          --output-on-failure
+          --output-on-failure --no-tests=error
 
       - name: Example smoke test (Euler, IsentropicVortex)
         run: |
@@ -237,16 +243,18 @@ jobs:
             -o ./RegressionTests
           python scripts/compare_viz.py RegressionTests/LTEVortex/ParaView/Cycle000200/data.pvtu TestCases/GoldenData/LTEVortex/Cycle000200/data.pvtu --atol 1e-10 --rtol 1e-10
 
-      - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
+      - name: All standard-build CTest tests (unit and integration)
+        run: ctest --test-dir build --output-on-failure --no-tests=error
 
-      - name: Upload quick artifacts (logs)
+      - name: Upload failure artifacts (logs)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: theseus-quick-logs
+          name: theseus-nightly-logs
           path: |
+            build/Testing/Temporary/**
             build/Testing/**/Test.xml
+            build-axisymmetric/Testing/Temporary/**
             build-axisymmetric/Testing/**/Test.xml
             build/CMakeCache.txt
             build-axisymmetric/CMakeCache.txt
