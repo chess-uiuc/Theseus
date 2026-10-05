@@ -14,15 +14,20 @@ The quick and nightly workflows build two executables:
 - an axisymmetric build configured with `-DAXISYMMETRIC=ON` for the complete
   axisymmetric integration suite below.
 
-The axisymmetric integration tests are separate CI steps so a failure identifies
-the affected capability directly. Their CTest XML, CMake cache, and build logs
-are included in failure artifacts.
+Both workflows invoke the [central validation runner](validation-runner.md). It
+runs every registered CTest in each configuration, followed by the smoke and
+regression cases below. Cartesian-only checks register in the Cartesian build;
+axisymmetric-only checks register in the axisymmetric build. Results, CTest logs,
+CMake caches and simulation output are retained as CI artifacts.
 
 ## CI integration tests
 
 | CTest name | Configuration and execution | Required result |
 | --- | --- | --- |
 | `TimestepCFLIntegration` | Cartesian order-3 CNS cavity, one and two MPI ranks | The initial variable timestep matches the independently calculated mapped advective-plus-viscous stability rate; serial and MPI timesteps agree. Fixed-DT reporting occurs at the configured check interval, and a final-time-shortened step reports a proportionally smaller actual CFL. |
+| `DerivedVisualizationIntegration` | Cartesian CPG/LTE, one and two MPI ranks | Emitted thermodynamic, energy and transport fields match individual gas queries; both ParaView mesh modes, VisIt, selected fields, disabled output and restart are checked. |
+| `PhysicalInitialStateIntegration` | Cartesian CPG/LTE, one and two MPI ranks | Physical constant/profile initialization, thermodynamic pairs, rejection and conservative restart. |
+| `PhysicalBoundaryIntegration` | Axisymmetric CPG/LTE CNS, one and two MPI ranks | Uniform-state preservation, heated radial inflow response, selected-EOS energy, primitive interpolation, legacy CPG parity and coordinated rejection. |
 | `CheckpointRestartIntegration` | Axisymmetric Euler uniform flow, two MPI ranks, two cycles | A restarted cycle produces byte-identical per-rank checkpoint state and ParaView output to an uninterrupted run. Metadata must contain the required format, state, geometry, MPI, and discretization fields and identify axisymmetric geometry. |
 | `AxisymmetricUniformFlowIntegration` | Exact Euler and CNS uniform axial flow, one and two MPI ranks | Density and pressure remain at the exact values, conserved-integral changes remain negligible, and serial/MPI results agree. |
 | `AxisymmetricEntropyWaveConvergence` | Exact Euler entropy wave over three mesh levels | Cylindrical L2 errors decrease and both observed convergence rates are at least `1.7`. |
@@ -93,19 +98,20 @@ topology at the specified output cycle:
 | Taylor-Green Vortex 2D | `0.0001` | 100 | `1e-13` | `1e-13` |
 | Forward-Facing Step | `0.0001` | 100 | `3e-13` | `1e-13` |
 
-The workflow files are the executable source of truth for CI commands. Update
+`scripts/validate.py` is the executable source of truth for the full suite. Update
 this matrix whenever a case, step count, tolerance, build configuration, or
 required assertion changes.
 
 ## PX chamber startup
 
-The [PX chamber case record](px-chamber.md) describes the stationary CPG radial
+The [PX chamber case record](px-chamber.md) describes the stationary CPG/LTE radial
 profile, boundary conditions, meshes, and current modeling limitations.
 
 | Test | What is run and checked |
 | --- | --- |
 | `RadialProfileTests` | Primitive interpolation, axis extension, signed velocity and CPG state conversion; selection of the supplied profile blocks; rejection of a missing flag, duplicate radii, negative temperature, and evaluation above radial coverage. |
 | `prescribed_state_boundary_correction_uses_exterior_entropy` in `AxisymmetricGeometryTests` | The boundary correction is zero for matching entropy states and equals the expected difference for a known perturbation. |
+| `LTEPXChamberIntegration` | Coarse LTE chamber: quiescent 300 K wall preservation, then heated startup on one/two ranks for 20 steps of `1e-9 s`. Checks nine derived fields, Mach consistency and serial/MPI field statistics. |
 | `PXChamberIntegration` | Generates the 864-quadrilateral coarse chamber mesh and runs 20 steps of size `1e-8 s` to `2e-7 s`: quiescent 300 K gas on one rank, then the supplied heated profile on one and two MPI ranks. |
 
 The integration test reads the final written VTK fields. It checks positive,
@@ -118,8 +124,7 @@ It does not compare the complete fields or require exactly zero nodal radial
 velocity during heated startup.
 
 The profile and boundary-correction tests run in the regular CTest suite.
-`PXChamberIntegration` is explicitly selected by the Quick and Nightly
-axisymmetric CI steps. These are startup/regression checks, not demonstrations
+`PXChamberIntegration` and `LTEPXChamberIntegration` run in the axisymmetric CTest suite in Quick and Nightly CI. These are startup/regression checks, not demonstrations
 of steady state, conservation-budget closure, mesh convergence, or quantitative
 agreement with the reference plasma calculation.
 
@@ -127,3 +132,36 @@ The supplied 75,375-cell mesh is included in the case and is the runner's
 default. It completed a separate two-rank, 100-step startup to `1e-7 s`, but
 that full-mesh run is **not** part of automated CI. A separate coarse run reached
 `2e-4 s` in 20,000 steps; it is also outside the short CI test.
+
+
+## Physical state and boundary conversion
+
+`PhysicalStateConversionTests` includes analytic LTE boundary packing checks at
+axis, interpolated and endpoint radii, conservative descriptor offsets, legacy
+CPG parity and invalid inputs. It also checks matching and perturbed isothermal-wall
+entropy corrections for both CPG and LTE normalization. `PhysicalStatePLATOTests` checks real-air conversion.
+The physical integration tests above honor `PHYSICAL_STATE_TEST_DEVICE` (default
+`cpu`). See [physical state configuration](physical-state-conversion.md) for input
+syntax and device build options. All are selected automatically by the full runner.
+
+
+## Shared gas-property API
+
+`GasPropertyTests_standard` and `GasPropertyTests_sutherland` check the host API
+against CPG formulas, analytic LTE tables and existing individual queries. The tests
+exercise table endpoints, interior interpolation, requested-only results, unavailable
+properties and the number of LTE temperature recoveries. Both variants run in the
+standard and axisymmetric CTest suites, without requiring PLATO. These tests cover
+the shared API used by selected visualization fields.
+
+
+## Visualization fields
+
+`VisualizationFieldsTests` checks scalar/vector values and stable field ownership in
+1D/2D/3D, identical ParaView/VisIt registrations, selected-only fields, and one combined
+property request per point. Algebraic selections make no EOS property requests.
+`DerivedVisualizationIntegration` uses a small real-air table and emitted files to
+check CPG/LTE output against individual EOS/transport queries. It checks dimension-sized
+velocity arrays, both ParaView mesh modes, two-rank MPI, VisIt files, selection and
+bitwise-equal final derived fields after conservative restart. Numerical comparisons
+use `rtol=1e-9, atol=1e-10`. The test uses `PHYSICAL_STATE_TEST_DEVICE`.

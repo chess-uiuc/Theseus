@@ -29,7 +29,8 @@ namespace Theseus
       VectorConstant = 2,
       VectorAndScalarConstant = 3,
       RadialCPG = 4,
-      NumBCDataKinds = 5
+      RadialPhysical = 5, // Host profile; resolved to VectorConstant before device use.
+      NumBCDataKinds = 6
     };
 
   struct BCDescriptor

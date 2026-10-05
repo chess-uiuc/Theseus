@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the CPG chamber startup from any directory; optionally use a coarse mesh."""
+"""Run the CPG or LTE chamber startup from any directory; optionally use a coarse mesh."""
 import argparse
 import json
 from pathlib import Path
@@ -35,37 +35,62 @@ def coarse_mesh(path):
     path.write_text('\n'.join(lines)+'\n')
 
 
-def prepare(output, coarse=False, final_time=1e-7, dt=1e-9):
-    output=Path(output).resolve();output.mkdir(parents=True,exist_ok=True)
-    c=json.loads((CASE/'config.json').read_text());r=c['runTime']
-    r['mesh_file']=str(CASE/'px_chamber_axi.msh')
+def prepare(output, coarse=False, final_time=1e-7, dt=1e-9,
+            gas_model="cpg", database=None):
+    output = Path(output).resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    if gas_model not in ("cpg", "lte"):
+        raise ValueError("Expected gas_model cpg or lte")
+    if gas_model == "lte" and database is None:
+        raise ValueError("LTE requires the PLATO database path")
+
+    config_name = "config-lte.json" if gas_model == "lte" else "config.json"
+    config = json.loads((CASE / config_name).read_text())
+    runtime = config["runTime"]
+    runtime["mesh_file"] = str(CASE / "px_chamber_axi.msh")
     if coarse:
-        coarse_mesh(output/'coarse.msh');r['mesh_file']=str(output/'coarse.msh')
-    r['conditions']['boundary_conditions']['Inflow']['file']=str(CASE/'Tuvw_jet_inlet_profile.dat')
-    r.update(output_file_path=str(output),final_time=final_time,dt=dt,
-             initial_save_dt=final_time/10,print_interval=100,vis_steps=1000)
-    path=output/'config.json';path.write_text(json.dumps(c,indent=2)+'\n');return path
+        coarse_mesh(output / "coarse.msh")
+        runtime["mesh_file"] = str(output / "coarse.msh")
+    runtime["conditions"]["boundary_conditions"]["Inflow"]["file"] = str(
+        CASE / "Tuvw_jet_inlet_profile.dat")
+    if database is not None:
+        runtime["database_path"] = str(Path(database).resolve())
+    runtime.update(output_file_path=str(output), final_time=final_time, dt=dt,
+                   initial_save_dt=final_time / 10, print_interval=100, vis_steps=1000)
+    path = output / "config.json"
+    path.write_text(json.dumps(config, indent=2) + "\n")
+    return path
 
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--executable',type=Path,required=True)
-    p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--ranks',type=int,default=2)
-    p.add_argument('--coarse',action='store_true')
-    p.add_argument('--final-time',type=float,default=1e-7)
-    p.add_argument('--dt',type=float,default=1e-9)
-    p.add_argument('--mpiexec',default='mpiexec')
-    args=p.parse_args()
-    cfg=prepare(args.output,args.coarse,args.final_time,args.dt)
-    cmd=[args.mpiexec]
-    version=subprocess.run([args.mpiexec,'--version'],capture_output=True,text=True).stdout
-    if 'Open MPI' in version or 'OpenRTE' in version:
-        cmd+=['--host',f'localhost:{args.ranks}','--map-by','slot:OVERSUBSCRIBE','--bind-to','none']
-    cmd+=['-n',str(args.ranks),str(args.executable.resolve()),'-d','cpu','-c',str(cfg)]
-    with (cfg.parent/'run.log').open('w') as log:
-        subprocess.run(cmd,cwd=cfg.parent,stdout=log,stderr=subprocess.STDOUT,check=True)
-    print('Finished:',cfg.parent/'ParaView/ParaView.pvd')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--executable", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--ranks", type=int, default=2)
+    parser.add_argument("--coarse", action="store_true")
+    parser.add_argument("--final-time", type=float, default=1e-7)
+    parser.add_argument("--dt", type=float, default=1e-9)
+    parser.add_argument("--mpiexec", default="mpiexec")
+    parser.add_argument("--gas-model", choices=("cpg", "lte"), default="cpg")
+    parser.add_argument("--database", type=Path)
+    parser.add_argument("--device", default="cpu")
+    args = parser.parse_args()
+    if args.gas_model == "lte" and args.database is None:
+        parser.error("--gas-model lte requires --database")
 
-if __name__=='__main__':
+    config = prepare(args.output, args.coarse, args.final_time, args.dt,
+                     args.gas_model, args.database)
+    command = [args.mpiexec]
+    version = subprocess.run(command + ["--version"], capture_output=True, text=True).stdout
+    if "Open MPI" in version or "OpenRTE" in version:
+        command += ["--host", f"localhost:{args.ranks}", "--map-by", "slot:OVERSUBSCRIBE",
+                    "--bind-to", "none"]
+    command += ["-n", str(args.ranks), str(args.executable.resolve()),
+                "-d", args.device, "-c", str(config)]
+    with (config.parent / "run.log").open("w") as log:
+        subprocess.run(command, cwd=config.parent, stdout=log, stderr=subprocess.STDOUT, check=True)
+    print("Finished:", config.parent / "ParaView/ParaView.pvd")
+
+
+if __name__ == "__main__":
     main()

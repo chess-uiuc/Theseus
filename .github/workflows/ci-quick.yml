@@ -1,9 +1,12 @@
 name: CI Quick
 
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   push:
-    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
   build-test:
@@ -16,8 +19,12 @@ jobs:
       QT_QPA_PLATFORM: "offscreen"
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: ${{ github.event_name == 'pull_request_target' }}
           submodules: recursive
           fetch-depth: 0
       - name: Show submodule SHAs (debug)
@@ -33,14 +40,33 @@ jobs:
           echo "CXX=mpicxx" >> $GITHUB_ENV
           echo "FC=mpifort" >> $GITHUB_ENV
 
-      - name: Configure SSH for private deps
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: ci-resources/requirements-ci.txt
+
+      - name: Install Python deps
         run: |
+          python -m pip install --upgrade pip
+          pip install -r ci-resources/requirements-ci.txt
+
+      - name: Configure SSH for private deps
+        env:
+          PLATO_DEPLOY_KEY: ${{ secrets.PLATO_DEPLOY_KEY }}
+          THERMO_DATABASE_DEPLOY_KEY: ${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}
+        run: |
+          : "${PLATO_DEPLOY_KEY:?PLATO_DEPLOY_KEY is unavailable}"
+          : "${THERMO_DATABASE_DEPLOY_KEY:?THERMO_DATABASE_DEPLOY_KEY is unavailable}"
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.PLATO_DEPLOY_KEY }}" > ~/.ssh/plato_key
-          echo "${{ secrets.THERMO_DATABASE_DEPLOY_KEY }}" > ~/.ssh/database_key
+          printf '%s\n' "$PLATO_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/plato_key
+          printf '%s\n' "$THERMO_DATABASE_DEPLOY_KEY" | tr -d '\r' > ~/.ssh/database_key
           chmod 600 ~/.ssh/plato_key
           chmod 600 ~/.ssh/database_key
+          ssh-keygen -y -f ~/.ssh/plato_key > /dev/null
+          ssh-keygen -y -f ~/.ssh/database_key > /dev/null
           ssh-keyscan github.com >> ~/.ssh/known_hosts
           cat > ~/.ssh/config <<'EOF'
           Host github-plato
@@ -57,18 +83,6 @@ jobs:
           EOF
 
           chmod 600 ~/.ssh/config
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: ci-resources/requirements-ci.txt
-
-      - name: Install Python deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r ci-resources/requirements-ci.txt
 
       - name: Install TPL Packages (HYPRE, METIS, MFEM, PLATO)
         env:
@@ -87,168 +101,34 @@ jobs:
           cat tpl/logs/deps-build*.txt
           find tpl/install -name 'libGKlib*' -o -name 'libmetis*' -o -name 'libmfem*'
 
-      - name: Configure Theseus
-        env:
-          # CONFIG_FILE: compile_config.json
-          CC: ${{ env.CC }}
-          CXX: ${{ env.CXX }}
-          FC: ${{ env.FC }}
-          # These paths match your script’s build outputs
-          MFEM_DIR: ${{ github.workspace }}/tpl/install
+      - name: Full validation suite
         run: |
-          mkdir -p build
-          #  -DCONFIG_FILE=${CONFIG_FILE}
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
-            -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
-            -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
-            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
-            -DTHESEUS_WITH_PLATO=YES
+          python scripts/validate.py run \
+            --prefix "$GITHUB_WORKSPACE/tpl/install" \
+            --results "$RUNNER_TEMP/theseus-validation" --jobs 4
+          python scripts/validate.py check \
+            --results "$RUNNER_TEMP/theseus-validation"
 
-      - name: Build Theseus
+      - name: Validation summary
+        if: always()
         run: |
-          cmake --build build -- -k 0
-          ldd build/theseus || true
+          if [ -f "$RUNNER_TEMP/theseus-validation/summary.txt" ]; then
+            cat "$RUNNER_TEMP/theseus-validation/summary.txt"
+          else
+            echo "Validation summary unavailable; validation did not produce a record."
+            exit 1
+          fi
 
-      - name: Integration test (timestep and CFL)
-        run: >-
-          ctest --test-dir build
-          -R '^TimestepCFLIntegration$' --output-on-failure
-
-      - name: Configure axisymmetric integration build
-        env:
-          CC: ${{ env.CC }}
-          CXX: ${{ env.CXX }}
-          FC: ${{ env.FC }}
-          MFEM_DIR: ${{ github.workspace }}/tpl/install
-        run: |
-          cmake -S . -B build-axisymmetric -G Ninja \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
-            -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
-            -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
-            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
-            -DAXISYMMETRIC=ON \
-            -DTHESEUS_WITH_PLATO=YES
-
-      - name: Build axisymmetric integration executable
-        run: cmake --build build-axisymmetric -- -k 0
-
-      - name: Axisymmetric integration test suite
-        run: >-
-          ctest --test-dir build-axisymmetric
-          -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration|PXChamberIntegration)$'
-          --output-on-failure
-
-      - name: Example smoke test (Euler, IsentropicVortex)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -t "0.002" -n 100
-
-
-      - name: Example smoke test (CNS, LidDrivenCavity)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json \
-            -t "0.0001" -n 100
-
-      - name: Example smoke test (Euler, LTEVortex)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/LTE/Euler/LTEVortex/config.json \
-            -t "1e-5" -n 100
-
-      - name: Example regression test (Cyclic - IsentropicVortex)
-        run: |
-          rm -rf RegressionTests/IsentropicVortex
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -o ./RegressionTests
-          cd RegressionTests/IsentropicVortex
-          python ../../scripts/compare_viz.py ParaView/ParaView.pvd --fields Density --atol 5e-5 --rtol 2e-6
-          cd -
-
-      - name: Example regression test (Gold standard - IsentropicVortex)
-        run: |
-          rm -rf RegressionTests/IsentropicVortex
-          scripts/run_theseus.sh \
-            -t "0.001" \
-            -n "500" \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/IsentropicVortex/ParaView/Cycle000500/data.pvtu TestCases/GoldenData/IsentropicVortex/Cycle000500/data.pvtu --atol 1e-13 --rtol 1e-13
-
-      - name: Example regression test (Gold standard - LTEVortex)
-        run: |
-          rm -rf RegressionTests/LTEVortex
-          scripts/run_theseus.sh \
-            -t "1e-5" \
-            -n "200" \
-            -b "$(pwd)/build" \
-            -c TestCases/LTE/Euler/LTEVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/LTEVortex/ParaView/Cycle000200/data.pvtu TestCases/GoldenData/LTEVortex/Cycle000200/data.pvtu --atol 1e-10 --rtol 1e-10
-
-      - name: Example regression test (Gold standard - LidDrivenCavity)
-        run: |
-          rm -rf RegressionTests/LidDrivenCavity
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "4000" \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/LidDrivenCavity/ParaView/Cycle004000/data.pvtu TestCases/GoldenData/LidDrivenCavity/Cycle004000/data.pvtu --atol 1e-12 --rtol 1e-12
-
-      - name: Example regression test (Gold standard - TaylorGreenVortex2D)
-        run: |
-          rm -rf RegressionTests/TaylorGreenVortex
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "100" \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/TaylorGreenVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/TaylorGreenVortex/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/TaylorGreenVortex2D/Cycle000100/data.pvtu --atol 1e-13 --rtol 1e-13
-
-      - name: Example regression test (Gold standard - ForwardFacingStep)
-        run: |
-          cd TestCases/GoldenData
-          tar zxvf ForwardFacingStep.tgz
-          cd ../..
-          rm -rf RegressionTests/ForwardFacingStep
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "100" \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/ForwardFacingStep/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/ForwardFacingStep/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/ForwardFacingStep/Cycle000100/data.pvtu --atol 3e-13 --rtol 1e-13
-
-      - name: Unit tests
-        run: ctest --test-dir build --output-on-failure
-
-      - name: Upload quick artifacts (logs)
-        if: failure()
+      - name: Upload validation results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: theseus-quick-logs
+          name: theseus-validation
           path: |
-            build/Testing/**/Test.xml
-            build-axisymmetric/Testing/**/Test.xml
-            build/CMakeCache.txt
-            build-axisymmetric/CMakeCache.txt
-            build/**/*.log
-            build-axisymmetric/**/*.log
-            RegressionTests
-            RunTheseus
-            RunTests
+            ${{ runner.temp }}/theseus-validation/manifest.json
+            ${{ runner.temp }}/theseus-validation/results.json
+            ${{ runner.temp }}/theseus-validation/summary.txt
+            ${{ runner.temp }}/theseus-validation/logs
+            ${{ runner.temp }}/theseus-validation/build-*/Testing
+            ${{ runner.temp }}/theseus-validation/build-*/CMakeCache.txt
+            ${{ runner.temp }}/theseus-validation/cases

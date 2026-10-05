@@ -3,11 +3,13 @@
 // This file is part of Theseus.
 //
 // SPDX-License-Identifier: BSD-3-Clause
+#pragma once
+
 #include <algorithm>
 #include <cctype>
 #include <string>
 
-auto to_lower = [](std::string s)
+inline auto to_lower = [](std::string s)
  {
    std::transform(s.begin(), s.end(), s.begin(),
                   [](unsigned char c) {
@@ -16,7 +18,7 @@ auto to_lower = [](std::string s)
    return s;
  };
 
-auto starts_with = [](const std::string &s, const std::string &prefix)
+inline auto starts_with = [](const std::string &s, const std::string &prefix)
  {
    return s.rfind(prefix, 0) == 0;
  };
