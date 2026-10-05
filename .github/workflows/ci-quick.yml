@@ -84,7 +84,15 @@ jobs:
 
           chmod 600 ~/.ssh/config
 
+      - name: Restore cached TPL packages
+        id: tpl-cache
+        uses: actions/cache@v5
+        with:
+          path: tpl/install
+          key: tpl-install-1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-deps.sh') }}
+
       - name: Install TPL Packages (HYPRE, METIS, MFEM, PLATO)
+        if: steps.tpl-cache.outputs.cache-hit != 'true'
         env:
           PLATO_REPO: git@github-plato:chess-uiuc/plato.git
           THERMO_DATABASE_REPO: git@github-database:chess-uiuc/database.git
@@ -93,13 +101,17 @@ jobs:
 
       - name: Export TPL runtime library path
         run: |
-          echo "LD_LIBRARY_PATH=${{ github.workspace }}/tpl/install/lib:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=${{ github.workspace }}/tpl/install/lib:${LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
 
       - name: Show built dependency libs (debug)
         if: always()
         run: |
-          cat tpl/logs/deps-build*.txt
-          find tpl/install -name 'libGKlib*' -o -name 'libmetis*' -o -name 'libmfem*'
+          if compgen -G 'tpl/logs/deps-build*.txt' > /dev/null; then
+            cat tpl/logs/deps-build*.txt
+          fi
+          if [ -d tpl/install ]; then
+            find tpl/install \( -name 'libGKlib*' -o -name 'libmetis*' -o -name 'libmfem*' \)
+          fi
 
       - name: Full validation suite
         run: |
