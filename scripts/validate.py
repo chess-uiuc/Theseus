@@ -69,7 +69,8 @@ def write_json(path, value):
 
 def save_results(run, results):
     write_json(run / 'results.json', results)
-    lines = [f"Validation: {results['state'].upper()}", f"Run: {run}", '']
+    lines = [f"Validation: {results['state'].upper()}", f"Run: {run}",
+             f"Suite: {results.get('suite', 'full')}; device: {results.get('device', 'cpu')}", '']
     for step in results['steps']:
         elapsed = f"{step['elapsed_seconds']:.2f} s" if 'elapsed_seconds' in step else '—'
         label = step.get('label', step['name'])
@@ -77,10 +78,45 @@ def save_results(run, results):
         lines.append(f"{step['state'].upper():8} {elapsed:>10}  {label} — {detail}")
     if results.get('error'):
         lines.extend(['', results['error']])
-    lines.extend(['', 'Commit eligibility: run validate.py check against the current source.'])
+    if results.get('suite', 'full') == 'full':
+        lines.extend(['', 'Commit eligibility: run validate.py check against the current source.'])
+    else:
+        lines.extend(['', 'Integrated-only results for the recorded binaries; not a full-suite commit gate.'])
     temporary = run / 'summary.tmp'
     temporary.write_text('\n'.join(lines) + '\n')
     temporary.replace(run / 'summary.txt')
+
+
+def integrated_commands(run, manifest, builds):
+    source = run / 'source'
+    device = manifest.get('device', 'cpu')
+    entries = [
+        ('cfl', 'Timestep and CFL', 'standard', 'timestep_cfl_integration_test.py', []),
+        ('restart', 'Cartesian Checkpoint Restart', 'standard', 'restart_integration_test.py', []),
+        ('initial-state', 'Physical Initial States', 'standard', 'physical_initial_state_integration_test.py', ['--database', manifest['prefix'] + '/database']),
+        ('visualization', 'Derived Visualization', 'standard', 'derived_visualization_integration_test.py',
+         ['--database', manifest['prefix'] + '/database', '--reference', str(builds['standard'] / 'tests/table_lookup_tests')]),
+        ('axis-uniform', 'Axisymmetric Uniform Flow', 'axisymmetric', 'axisymmetric_uniform_flow_integration_test.py',
+         ['--results', str(run / 'integrated/axis-uniform/cases')]),
+        ('axis-convergence', 'Axisymmetric Entropy-Wave Convergence', 'axisymmetric', 'axisymmetric_entropy_wave_convergence_test.py', []),
+        ('axis-inviscid-sphere', 'Axisymmetric Inviscid Sphere', 'axisymmetric', 'axisymmetric_flow_over_sphere_integration_test.py', ['--case', 'inviscid']),
+        ('axis-viscous-sphere', 'Axisymmetric Viscous Sphere', 'axisymmetric', 'axisymmetric_flow_over_sphere_integration_test.py', ['--case', 'viscous']),
+        ('axis-restart', 'Axisymmetric Checkpoint Restart', 'axisymmetric', 'restart_integration_test.py', ['--axisymmetric']),
+        ('px-chamber', 'CPG PX Chamber', 'axisymmetric', 'px_chamber_integration_test.py', []),
+        ('boundary-state', 'Physical Boundary States', 'axisymmetric', 'physical_boundary_integration_test.py', ['--database', manifest['prefix'] + '/database']),
+        ('lte-px-chamber', 'LTE PX Chamber', 'axisymmetric', 'lte_px_chamber_integration_test.py', ['--database', manifest['prefix'] + '/database']),
+    ]
+    commands = []
+    for name, title, geometry, script, options in entries:
+        requirements = ('python-dependencies',)
+        if manifest.get('suite', 'full') == 'full':
+            requirements += ('build-' + geometry,)
+        command = [manifest['python'], str(source / 'tests' / script),
+                   '--source', str(source), '--executable', str(builds[geometry] / 'theseus'),
+                   '--device', device, *options]
+        commands.append(Command('integration-' + name, command, run / 'integrated' / name,
+                                title + ' — integration', requirements))
+    return commands
 
 
 def suite_commands(run, manifest):
@@ -88,34 +124,42 @@ def suite_commands(run, manifest):
     source = run / 'source'
     python = manifest['python']
     prefix = manifest['prefix']
-    commands = []
-    for name, command in [('cmake-version', ['cmake', '--version']),
-                          ('compiler-c', [manifest['cc'], '--version']),
-                          ('compiler-cxx', [manifest['cxx'], '--version']),
-                          ('mpi-version', [manifest['mpiexec'], '--version']),
-                          ('python-dependencies', [python, '-c',
-                           'import sys, pyvista; print(sys.version); print("pyvista", pyvista.__version__)'])]:
-        commands.append(Command(name, command, run, name.replace("-", " ").capitalize()))
-    for axis in (False, True):
-        label = 'axisymmetric' if axis else 'standard'
-        build = run / ('build-' + label)
-        configure = ['cmake', '-S', str(source), '-B', str(build),
-                     '-DCMAKE_BUILD_TYPE=Debug', '-DBUILD_TESTING=ON',
-                     f'-DCMAKE_PREFIX_PATH={prefix}', f'-DCMAKE_BUILD_RPATH={prefix}/lib',
-                     f'-DCMAKE_INSTALL_RPATH={prefix}/lib', '-DTHESEUS_WITH_PLATO=ON',
-                     '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON',
-                     f'-DAXISYMMETRIC={"ON" if axis else "OFF"}',
-                     f'-DPython3_EXECUTABLE={python}',
-                     f'-DMPIEXEC_EXECUTABLE={run / "bin" / "mpiexec"}']
-        commands.extend([
-            Command('configure-' + label, configure, run, label.capitalize() + ' configuration',
-                    ('cmake-version', 'compiler-c', 'compiler-cxx', 'mpi-version')),
-            Command('build-' + label, ['cmake', '--build', str(build), '-j', str(manifest['jobs'])],
-                    run, label.capitalize() + ' build', ('configure-' + label,)),
-            Command('ctest-' + label, ['ctest', '--test-dir', str(build), '--output-on-failure',
-                                     '--no-tests=error'], run, label.capitalize() + ' CTest suite',
-                    ('build-' + label, 'python-dependencies')),
-        ])
+    full = manifest.get('suite', 'full') == 'full'
+    builds = {name: Path(manifest.get('builds', {}).get(name, run / ('build-' + name)))
+              for name in ('standard', 'axisymmetric')}
+    commands = [Command('python-dependencies', [python, '-c',
+                'import sys, pyvista; print(sys.version); print("pyvista", pyvista.__version__)'],
+                run, 'Python dependencies')]
+    if full:
+        for name, command in [('cmake-version', ['cmake', '--version']),
+                              ('compiler-c', [manifest['cc'], '--version']),
+                              ('compiler-cxx', [manifest['cxx'], '--version'])]:
+            commands.append(Command(name, command, run, name.replace('-', ' ').capitalize()))
+        if manifest.get('mpiexec'):
+            commands.append(Command('mpi-version', [manifest['mpiexec'], '--version'], run, 'MPI version'))
+        for axis in (False, True):
+            label = 'axisymmetric' if axis else 'standard'
+            build = builds[label]
+            configure = ['cmake', '-S', str(source), '-B', str(build),
+                         '-DCMAKE_BUILD_TYPE=Debug', '-DBUILD_TESTING=ON',
+                         f'-DCMAKE_PREFIX_PATH={prefix}', f'-DCMAKE_BUILD_RPATH={prefix}/lib',
+                         f'-DCMAKE_INSTALL_RPATH={prefix}/lib', '-DTHESEUS_WITH_PLATO=ON',
+                         '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON',
+                         f'-DAXISYMMETRIC={"ON" if axis else "OFF"}',
+                         f'-DPython3_EXECUTABLE={python}',
+                         ]
+            if manifest.get('mpiexec'):
+                configure.append(f'-DMPIEXEC_EXECUTABLE={run / "bin" / "mpiexec"}')
+            commands.extend([
+                Command('configure-' + label, configure, run, label.capitalize() + ' configuration',
+                        ('cmake-version', 'compiler-c', 'compiler-cxx')),
+                Command('build-' + label, ['cmake', '--build', str(build), '-j', str(manifest['jobs'])],
+                        run, label.capitalize() + ' build', ('configure-' + label,)),
+                Command('ctest-' + label, ['ctest', '--test-dir', str(build), '--output-on-failure',
+                                         '--no-tests=error'], run, label.capitalize() + ' CTest suite',
+                        ('build-' + label, 'python-dependencies')),
+            ])
+    commands.extend(integrated_commands(run, manifest, builds))
     cases = {
         'vortex': ('Euler/2D/IsentropicVortex', 'IsentropicVortex', 'Inviscid Isentropic Vortex'),
         'cavity': ('NavierStokes/2D/LidDrivenCavity', 'LidDrivenCavity', 'Viscous Lid-Driven Cavity'),
@@ -127,13 +171,13 @@ def suite_commands(run, manifest):
     def simulation(label, case, dt=None, steps=None):
         directory, _, title = cases[case]
         command = ['bash', str(source / 'scripts/run_theseus.sh'),
-                   '-b', str(run / 'build-standard'), '-c', f'TestCases/{directory}/config.json',
+                   '-b', str(builds['standard']), '-r', manifest.get('device', 'cpu'), '-c', f'TestCases/{directory}/config.json',
                    '-o', f'../cases/{label}']
         if dt is not None:
             command += ['-t', dt, '-n', str(steps)]
         kind = 'cyclic' if label == 'cyclic' else ('smoke' if label.startswith('smoke-') else 'gold-standard')
         commands.append(Command(label, command, source, f'{title} — {kind} run',
-                                ('build-standard',)))
+                                ('build-standard',) if full else ()))
         return run / 'cases' / label / Path(directory).name / 'ParaView'
 
     for case, dt in [('vortex', '0.002'), ('cavity', '0.0001'), ('lte', '1e-5')]:
@@ -152,8 +196,6 @@ def suite_commands(run, manifest):
     ]:
         output = simulation('golden-' + case, case, dt, steps)
         cycle = f'Cycle{steps:06d}/data.pvtu'
-        # reference = source / 'TestCases/GoldenData' / cases[case][1] / cycle
-        # Automatically unpack golden data if it is zipped up 
         reference_name = cases[case][1]
         reference = run / 'references' / reference_name / cycle
         preparation = 'prepare-reference-' + case
@@ -170,6 +212,45 @@ def suite_commands(run, manifest):
     return commands
 
 
+def prepared_builds(args):
+    builds = {}
+    evidence = {}
+    for geometry, directory in [('standard', args.build_standard),
+                                ('axisymmetric', args.build_axisymmetric)]:
+        if directory is None:
+            raise ValueError('Integrated mode requires both prepared build directories.')
+        directory = directory.resolve()
+        cache = directory / 'CMakeCache.txt'
+        values = {}
+        for line in cache.read_text().splitlines():
+            if '=' in line and not line.startswith(('#', '//')):
+                key, value = line.split('=', 1)
+                values[key.split(':', 1)[0]] = value
+        enabled = {'1', 'ON', 'YES', 'TRUE'}
+        axis = values.get('AXISYMMETRIC', 'OFF').upper() in enabled
+        if axis != (geometry == 'axisymmetric'):
+            raise ValueError(f'Wrong geometry for {geometry}: {directory}')
+        if values.get('THESEUS_WITH_PLATO', '').upper() not in enabled:
+            raise ValueError(f'PLATO is required: {directory}')
+        if args.device == 'cuda' and values.get('ENABLE_CUDA', '').upper() not in enabled:
+            raise ValueError(f'CUDA build required: {directory}')
+        files = [cache, directory / 'theseus']
+        if geometry == 'standard':
+            files.append(directory / 'tests/table_lookup_tests')
+        for path in files:
+            if path != cache and not os.access(path, os.X_OK):
+                raise ValueError(f'Missing executable: {path}')
+            evidence[str(path)] = digest(path)
+        builds[geometry] = str(directory)
+    return builds, evidence
+
+
+def verify_prepared_builds(manifest):
+    for name, expected in manifest.get('build_files', {}).items():
+        if digest(Path(name)) != expected:
+            raise ValueError(f'Prepared build changed: {name}')
+
+
 def prepare(args):
     source = args.source.resolve()
     run = args.results.resolve()
@@ -178,11 +259,14 @@ def prepare(args):
     prefix = args.prefix.resolve()
     if not prefix.is_dir():
         raise ValueError(f'Missing dependency prefix: {prefix}')
+    suite = getattr(args, 'suite', 'full')
+    builds, build_files = prepared_builds(args) if suite == 'integrated' else ({}, {})
     files = source_files(source)
     # Exclusive creation prevents overlapping runs from overwriting evidence.
     run.mkdir(parents=True, exist_ok=False)
     (run / 'logs').mkdir()
-    results = {'state': 'preparing', 'steps': [], 'started': time.time()}
+    results = {'state': 'preparing', 'steps': [], 'started': time.time(),
+               'suite': suite, 'device': getattr(args, 'device', 'cpu')}
     save_results(run, results)
     try:
         snapshot = run / 'source'
@@ -203,23 +287,30 @@ def prepare(args):
         manifest = {'schema': 1, 'source': str(source), 'files': files,
                     'head': git(source, 'rev-parse', 'HEAD').decode().strip(),
                     'prefix': str(prefix), 'python': executable(args.python),
-                    'cc': executable(os.environ.get('CC', 'mpicc')),
-                    'cxx': executable(os.environ.get('CXX', 'mpicxx')),
-                    'mpiexec': executable(args.mpiexec), 'mpi_args': args.mpi_arg,
-                    'jobs': args.jobs, 'timeout': args.timeout}
+                    'cc': executable(os.environ.get('CC', 'mpicc')) if suite == 'full' else None,
+                    'cxx': executable(os.environ.get('CXX', 'mpicxx')) if suite == 'full' else None,
+                    'mpiexec': executable(args.mpiexec) if args.mpiexec else None, 'mpi_args': args.mpi_arg,
+                    'jobs': args.jobs, 'timeout': args.timeout,
+                    'suite': suite, 'device': getattr(args, 'device', 'cpu'),
+                    'builds': builds, 'build_files': build_files}
         write_json(run / 'manifest.json', manifest)
         (run / 'bin').mkdir()
-        launcher = run / 'bin/mpiexec'
-        launcher.write_text('#!/bin/bash\nexec ' + shlex.join(
-            [sys.executable, str(snapshot / 'scripts/mpi_launcher.py'),
-             manifest['mpiexec'], json.dumps(manifest['mpi_args'])]) + ' "$@"\n')
-        launcher.chmod(0o755)
+        if manifest['mpiexec']:
+            launcher = run / 'bin/mpiexec'
+            launcher.write_text('#!/bin/bash\nexec ' + shlex.join(
+                [sys.executable, str(snapshot / 'scripts/mpi_launcher.py'),
+                 manifest['mpiexec'], json.dumps(manifest['mpi_args'])]) + ' "$@"\n')
+            launcher.chmod(0o755)
         (snapshot / 'tpl').mkdir(exist_ok=True)
         (snapshot / 'tpl/install').symlink_to(prefix, target_is_directory=True)
         # Existing example configs resolve ../../TestCases and ../../tpl/install.
         (run / 'cases/tpl').mkdir(parents=True)
         (run / 'cases/TestCases').symlink_to(snapshot / 'TestCases', target_is_directory=True)
         (run / 'cases/tpl/install').symlink_to(prefix, target_is_directory=True)
+        for command in suite_commands(run, manifest):
+            command.cwd.mkdir(parents=True, exist_ok=True)
+        results['suite'] = suite
+        results['device'] = manifest['device']
         results['state'] = 'queued'
         save_results(run, results)
     except BaseException as error:
@@ -288,9 +379,12 @@ def worker(run):
     signal.signal(signal.SIGTERM, interrupted)
     env = os.environ.copy()
     env.update(PATH=str(run / 'bin') + os.pathsep + env['PATH'],
-               CC=manifest['cc'], CXX=manifest['cxx'], PYTHON=manifest['python'],
+               PYTHON=manifest['python'],
                PYVISTA_OFF_SCREEN='true', QT_QPA_PLATFORM='offscreen')
+    if manifest.get('cc'):
+        env.update(CC=manifest['cc'], CXX=manifest['cxx'])
     try:
+        verify_prepared_builds(manifest)
         outcomes = {}
         for command in suite_commands(run, manifest):
             blockers = [name for name in command.requires if outcomes.get(name) != 'passed']
@@ -305,6 +399,7 @@ def worker(run):
                              env, manifest['timeout'], command.label)
             outcomes[command.name] = results['steps'][-1]['state']
         verify_snapshot(run, manifest)
+        verify_prepared_builds(manifest)
         failed = [step for step in results['steps'] if step['state'] != 'passed']
         results['state'] = 'failed' if failed else 'passed'
         if failed:
@@ -322,6 +417,8 @@ def check(run, source):
     results = json.loads((run / 'results.json').read_text())
     if manifest['schema'] != 1 or results['state'] != 'passed':
         raise ValueError(f"Validation is not complete and passing: {results['state']}")
+    if manifest.get('suite', 'full') != 'full':
+        raise ValueError('Integrated-only results are not a full-suite commit gate.')
     expected = suite_commands(run, manifest)
     steps = results['steps']
     if len(steps) != len(expected):
@@ -350,7 +447,11 @@ def main():
     parser.add_argument('--results', type=Path, required=True)
     parser.add_argument('--prefix', type=Path)
     parser.add_argument('--python', default=sys.executable)
-    parser.add_argument('--mpiexec', default='mpiexec')
+    parser.add_argument('--mpiexec', help='Optional fallback MPI launcher; otherwise run_theseus selects it')
+    parser.add_argument('--suite', choices=['full', 'integrated'], default='full')
+    parser.add_argument('--build-standard', type=Path)
+    parser.add_argument('--build-axisymmetric', type=Path)
+    parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
     parser.add_argument('--mpi-arg', action='append', default=[])
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--timeout', type=float, default=3600,
@@ -363,6 +464,10 @@ def main():
             return worker(args.results.resolve())
         if args.prefix is None or args.jobs < 1 or args.timeout <= 0:
             parser.error('run/start require --prefix, positive --jobs and positive --timeout')
+        if args.suite == 'full' and (args.device != 'cpu' or args.build_standard or args.build_axisymmetric):
+            parser.error('Prepared builds and GPU selection require --suite integrated.')
+        if args.mpi_arg and not args.mpiexec:
+            args.mpiexec = 'mpiexec'
         run = prepare(args)
         if args.action == 'run':
             return worker(run)
