@@ -91,7 +91,7 @@ def expected_initial_rate(config: dict) -> float:
     viscosity = runtime["mu"]
     stokes_coeff = 2.0/3.0
     long_visc = (2.0 - stokes_coeff)*viscosity
-    momentum_diffusivity = max(viscosity, long_visc)  # 4.0*viscosity/3.0 + bulk_viscosity
+    momentum_diffusivity = max(viscosity, long_visc)  # longitudinal viscosity from Stokes' hypothesis
     thermal_diffusivity = viscosity*gamma/runtime["Pr"]
     effective_diffusivity = max(momentum_diffusivity, thermal_diffusivity)
     diffusion_scale = 1.25*82.9000427145
