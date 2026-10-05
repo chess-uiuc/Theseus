@@ -31,9 +31,9 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 - [Numerical fluxes](numflux.md)
 - [Boundary conditions](boundaryconditions.md)
 
-## Developer Guide (Coming soon)
+## Developer guide
 
-- Architecture
+- [Adding tests](adding-tests.md): choose a test type, register it, and write an integrated checker
 - Runtime configuration
 - [Shared gas-property evaluation](gas-properties.md): request several properties
   while reusing LTE temperature recovery
@@ -42,8 +42,8 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 
 ## Verification
 
-[Validation runner](validation-runner.md): run the full suite in the foreground or
-background, inspect saved results, and check their source correspondence.
+[Running tests](validation-runner.md): framework diagram, local and HPC commands,
+results and failure diagnosis.
 
 See the [verification and CI matrix](verification.md) for the maintained test
 inventory and exact regression tolerances.
