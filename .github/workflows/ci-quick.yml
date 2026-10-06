@@ -147,6 +147,7 @@ jobs:
             ${{ runner.temp }}/theseus-validation/manifest.json
             ${{ runner.temp }}/theseus-validation/results.json
             ${{ runner.temp }}/theseus-validation/summary.txt
+            ${{ runner.temp }}/theseus-validation/integrated
             ${{ runner.temp }}/theseus-validation/logs
             ${{ runner.temp }}/theseus-validation/build-*/Testing
             ${{ runner.temp }}/theseus-validation/build-*/CMakeCache.txt

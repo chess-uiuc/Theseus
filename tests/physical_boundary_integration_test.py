@@ -6,10 +6,10 @@ import copy
 import json
 import math
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 import re
 import struct
-import subprocess
-import tempfile
 
 
 def rectangle(path):
@@ -49,16 +49,11 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--executable',type=Path,required=True)
-    parser.add_argument('--mpiexec',type=Path,required=True)
     parser.add_argument('--database',required=True)
     parser.add_argument('--device',default='cpu')
     args=parser.parse_args()
-    launcher=[str(args.mpiexec.resolve())]
-    version=subprocess.run(launcher+['--version'],capture_output=True,text=True,check=False).stdout
-    if 'Open MPI' in version or 'OpenRTE' in version:
-        launcher += ['--host','localhost:2','--map-by','slot:OVERSUBSCRIBE','--bind-to','none']
     base=json.loads((args.source/'TestCases/Axisymmetric/NavierStokes/PXChamber/config.json').read_text())
-    with tempfile.TemporaryDirectory(prefix='theseus-boundaries-') as temporary:
+    with work_directory(prefix='theseus-boundaries-') as temporary:
         root=Path(temporary)
         mesh=root/'rectangle.msh'; rectangle(mesh)
         uniform=root/'uniform.dat'; uniform.write_text('2 1\n0 0 1200 0 0 0\n1 0 1200 0 0 0\n')
@@ -82,8 +77,7 @@ def main():
             output=root/name; output.mkdir()
             config=copy.deepcopy(config); config['runTime']['output_file_path']=str(output)
             file=output/'config.json'; file.write_text(json.dumps(config))
-            result=subprocess.run(launcher+['-n',str(ranks),str(args.executable.resolve()),
-                '-d',args.device,'-c',str(file)],cwd=root,capture_output=True,text=True,timeout=90)
+            result = run_simulation(args.executable, file, ranks, args.device, timeout=90)
             log=result.stdout+result.stderr
             if error is not None:
                 assert result.returncode != 0 and error in log, (name,log)

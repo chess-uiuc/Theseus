@@ -66,15 +66,17 @@ CUDA architecture (these environment variables must be supplied by the operator)
 cmake -S . -B build-state-cuda -DBUILD_TESTING=ON \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$DEVICE_TPL_PREFIX" \
   -DENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="$CUDA_ARCH" \
-  -DTHESEUS_WITH_PLATO=YES -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
-  -DPHYSICAL_STATE_TEST_DEVICE=cuda
+  -DTHESEUS_WITH_PLATO=YES -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON
 cmake --build build-state-cuda -j 4
 ctest --test-dir build-state-cuda \
-  -R '^(PhysicalState.*Tests|PhysicalInitialStateIntegration|GasPhysicsTestingSuite|StateTestingSuite)$' \
+  -R '^(PhysicalState.*Tests|GasPhysicsTestingSuite|StateTestingSuite)$' \
   --output-on-failure
 ```
 
-The conversion unit tests execute on the host even in a CUDA build.
+The conversion unit tests execute on the host even in a CUDA build. To run the
+integrated simulations on CUDA, also prepare an axisymmetric build and use the
+[central integrated runner](validation-runner.md#integrated-tests-with-prepared-builds-hpc-or-workstation)
+with `--device cuda`.
 `PhysicalInitialStateIntegration` uses the configured device for the simulation,
 including RHS execution after host initialization. Its coverage includes initial
 conditions and conservative restart; it excludes boundary-profile conversion.
@@ -218,7 +220,5 @@ walls, symmetry, axis and outflow boundaries retain their meanings. To use LTE,
 select the physical forms above and physical initial conditions; do not bypass the
 legacy CPG checks.
 
-`PhysicalBoundaryIntegration` is registered in the PLATO-enabled axisymmetric
-build. Run it with `ctest --test-dir BUILD -R '^PhysicalBoundaryIntegration$'
---output-on-failure`. It honors `PHYSICAL_STATE_TEST_DEVICE`; for CUDA use an
-axisymmetric CUDA build with that option set to `cuda`.
+`PhysicalBoundaryIntegration` uses the PLATO-enabled axisymmetric executable through
+the central integrated runner. Its `--device` selection controls the simulation backend.

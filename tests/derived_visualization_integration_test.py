@@ -4,9 +4,10 @@ import argparse
 import copy
 import json
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 import shutil
 import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -83,7 +84,6 @@ def main():
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--database", required=True)
-    parser.add_argument("--mpiexec", type=Path, required=True)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
@@ -98,11 +98,6 @@ def main():
     assert abs(references["cpg"]["Specific Internal Energy"] -
                references["lte"]["Specific Internal Energy"]) > 1
 
-    launcher = [str(args.mpiexec)]
-    version = subprocess.run(launcher + ["--version"], capture_output=True, text=True).stdout
-    if "Open MPI" in version or "OpenRTE" in version:
-        launcher += ["--host", "localhost:2", "--map-by", "slot:OVERSUBSCRIBE", "--bind-to", "none"]
-
     case = args.source / "TestCases/LTE/Euler/LTEVortex"
     base = json.loads((case / "config.json").read_text())
     runtime = base["runTime"]
@@ -116,7 +111,7 @@ def main():
         "pressure": 60000, "temperature": 1200, "velocity": [10, -2]}}}
     runtime["visualization"] = {"fields": list(FIELDS), "mesh_mode": "gll_subcells"}
 
-    with tempfile.TemporaryDirectory(prefix="theseus-derived-output-") as temporary:
+    with work_directory(prefix="theseus-derived-output-") as temporary:
         root = Path(temporary)
 
         def run(name, config, ranks=1, restart_from=None):
@@ -128,9 +123,7 @@ def main():
                 shutil.copytree(restart_from / "Checkpoints/Cycle1", output / "Checkpoints/Cycle1")
             config_path = output / "config.json"
             config_path.write_text(json.dumps(config))
-            command = launcher + ["-n", str(ranks), str(args.executable), "-d", args.device,
-                                  "-c", str(config_path)]
-            result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=90)
+            result = run_simulation(args.executable, config_path, ranks, args.device, timeout=90)
             if result.returncode:
                 raise RuntimeError(f"{name}\n{result.stdout}\n{result.stderr}")
             return output

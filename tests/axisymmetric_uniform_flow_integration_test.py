@@ -18,8 +18,7 @@ CHANGE_PATTERN = re.compile(
 )
 
 
-def run_case(executable: Path, source: Path, mpiexec: Path,
-             numproc_flag: str, case: Path,
+def run_case(executable: Path, source: Path, results: Path, case: Path,
              ranks: int, device: str) -> tuple[tuple[float, ...],
                                                 tuple[float, ...]]:
     config = json.loads((source / case).read_text())
@@ -30,27 +29,31 @@ def run_case(executable: Path, source: Path, mpiexec: Path,
     )
     runtime["print_interval"] = 1
 
-    with tempfile.TemporaryDirectory(prefix="theseus-axis-uniform-") as tmp:
-        runtime["output_file_path"] = tmp
-        config_path = Path(tmp) / "config.json"
-        config_path.write_text(json.dumps(config, indent=2) + "\n")
-        command = [str(mpiexec), numproc_flag, str(ranks), str(executable),
-                   "-d", device, "-c", str(config_path)]
-        result = subprocess.run(
-            command, cwd=tmp, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=120, check=False
-        )
+    directory = Path(tempfile.mkdtemp(prefix=f"{case.parts[2]}-{ranks}-", dir=results))
+    runtime["output_file_path"] = str(directory)
+    config_path = directory / "config.json"
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    command = ["bash", str(source / "scripts/run_theseus.sh"),
+               "-e", str(executable), "-c", str(config_path),
+               "-o", str(directory / "launch"), "-p", str(ranks),
+               "-r", device, "-P", "-k"]
+    log_path = directory / "run.log"
+    with log_path.open("w") as log:
+        result = subprocess.run(command, cwd=source, text=True, stdout=log,
+                                stderr=subprocess.STDOUT, timeout=120, check=False)
+    output = log_path.read_text()
+    print(f"{case} ({ranks} ranks): {log_path}")
     if result.returncode != 0:
         raise RuntimeError(
             f"{case} ({ranks} ranks) exited with {result.returncode}:\n"
-            f"{result.stdout}"
+            f"{output}"
         )
-    matches = RANGE_PATTERN.findall(result.stdout)
-    changes = CHANGE_PATTERN.findall(result.stdout)
+    matches = RANGE_PATTERN.findall(output)
+    changes = CHANGE_PATTERN.findall(output)
     if not matches or not changes:
         raise RuntimeError(
             f"{case} ({ranks} ranks) did not report ranges and changes:\n"
-            f"{result.stdout}"
+            f"{output}"
         )
     return (tuple(float(value) for value in matches[-1]),
             tuple(float(value) for value in changes[-1]))
@@ -68,10 +71,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--mpiexec", required=True, type=Path)
-    parser.add_argument("--numproc-flag", required=True)
+    parser.add_argument("--results", type=Path, default=Path("uniform-flow-results"))
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
+    results = args.results.resolve()
+    results.mkdir(parents=True, exist_ok=True)
 
     expected = (1.0, 1.0, 1.0/1.4, 1.0/1.4)
     cases = (
@@ -81,10 +85,10 @@ def main() -> None:
     for case in cases:
         serial_range, serial_change = run_case(
             args.executable.resolve(), args.source.resolve(),
-            args.mpiexec.resolve(), args.numproc_flag, case, 1, args.device)
+            results, case, 1, args.device)
         parallel_range, parallel_change = run_case(
             args.executable.resolve(), args.source.resolve(),
-            args.mpiexec.resolve(), args.numproc_flag, case, 2, args.device)
+            results, case, 2, args.device)
         for label, values in (("serial", serial_range),
                               ("two-rank", parallel_range)):
             for index, (actual, target) in enumerate(zip(values, expected)):

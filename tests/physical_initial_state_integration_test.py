@@ -7,16 +7,15 @@ import json
 import re
 import shutil
 import struct
-import subprocess
-import tempfile
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--executable', type=Path, required=True)
-    parser.add_argument('--mpiexec', type=Path, required=True)
     parser.add_argument('--database', required=True)
     parser.add_argument('--device', default='cpu')
     args = parser.parse_args()
@@ -29,16 +28,7 @@ def main():
               nsteps_max=2, print_interval=1, checkpoint_save=True,
               checkpoint_dt=1e-8, clock_simulation=False)
     rt['conditions']={'initial_conditions':{'state':{'pressure':60000.,'temperature':1200.,'velocity':[10.,-2.]}}}
-    launcher=[str(args.mpiexec)]
-    version=subprocess.run(launcher+['--version'],capture_output=True,text=True,check=False).stdout
-    try:
-        supplies_placement='--map-by' in args.mpiexec.read_text(errors='ignore')
-    except OSError:
-        supplies_placement=False
-    if ('Open MPI' in version or 'OpenRTE' in version) and not supplies_placement:
-        launcher+=['--host','localhost:2','--map-by','slot:OVERSUBSCRIBE','--bind-to','none']
-
-    with tempfile.TemporaryDirectory(prefix='theseus-physical-ic-') as tmp:
+    with work_directory(prefix='theseus-physical-ic-') as tmp:
         root=Path(tmp)
         def run(name, config, ranks=2, error=None):
             output=root/name
@@ -46,8 +36,7 @@ def main():
             config=copy.deepcopy(config)
             config['runTime']['output_file_path']=str(output)
             path=root/(name+'.json'); path.write_text(json.dumps(config))
-            result=subprocess.run(launcher+['-n',str(ranks),str(args.executable),'-d',args.device,'-c',str(path)],
-                                  cwd=root,capture_output=True,text=True,timeout=90)
+            result = run_simulation(args.executable, path, ranks, args.device, timeout=90)
             log=result.stdout+result.stderr
             if error:
                 if result.returncode==0 or error not in log:

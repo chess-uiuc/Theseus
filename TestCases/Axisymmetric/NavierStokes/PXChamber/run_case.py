@@ -70,7 +70,6 @@ def main():
     parser.add_argument("--coarse", action="store_true")
     parser.add_argument("--final-time", type=float, default=1e-7)
     parser.add_argument("--dt", type=float, default=1e-9)
-    parser.add_argument("--mpiexec", default="mpiexec")
     parser.add_argument("--gas-model", choices=("cpg", "lte"), default="cpg")
     parser.add_argument("--database", type=Path)
     parser.add_argument("--device", default="cpu")
@@ -80,15 +79,13 @@ def main():
 
     config = prepare(args.output, args.coarse, args.final_time, args.dt,
                      args.gas_model, args.database)
-    command = [args.mpiexec]
-    version = subprocess.run(command + ["--version"], capture_output=True, text=True).stdout
-    if "Open MPI" in version or "OpenRTE" in version:
-        command += ["--host", f"localhost:{args.ranks}", "--map-by", "slot:OVERSUBSCRIBE",
-                    "--bind-to", "none"]
-    command += ["-n", str(args.ranks), str(args.executable.resolve()),
-                "-d", args.device, "-c", str(config)]
+    source = CASE.parents[3]
+    command = ["bash", str(source / "scripts/run_theseus.sh"),
+               "-e", str(args.executable.resolve()), "-c", str(config),
+               "-o", str(config.parent / "launch"), "-p", str(args.ranks),
+               "-r", args.device, "-P", "-R", "-k"]
     with (config.parent / "run.log").open("w") as log:
-        subprocess.run(command, cwd=config.parent, stdout=log, stderr=subprocess.STDOUT, check=True)
+        subprocess.run(command, cwd=source, stdout=log, stderr=subprocess.STDOUT, check=True)
     print("Finished:", config.parent / "ParaView/ParaView.pvd")
 
 
