@@ -97,9 +97,9 @@ alongside density, velocity and pressure. Do not reconstruct LTE temperature wit
 a fixed gas constant.
 
 `--device cuda` selects CUDA when the executable and dependencies support it.
-The helper defaults to CPU and accepts `--mpiexec` for a platform launcher. Its
-OpenMPI defaults use localhost slots; a launcher wrapper can supply other site
-placement behavior. See [physical-state migration](physical-state-migration.md)
+The helper defaults to CPU and delegates launch to `run_theseus.sh`, including its
+platform MPI/scheduler selection and intermediate device-ID wrapper. Fallback
+`mpiexec` is resolved from PATH. See [physical-state migration](physical-state-migration.md)
 for configuration changes and [visualization](visualization.md) for output fields.
 
 ## Verification and limits

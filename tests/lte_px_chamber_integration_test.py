@@ -4,9 +4,10 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 import subprocess
 import sys
-import tempfile
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -38,7 +39,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--executable", type=Path, required=True)
-    parser.add_argument("--mpiexec", required=True)
     parser.add_argument("--database", required=True)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
@@ -47,12 +47,7 @@ def main():
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
 
-    launcher = [args.mpiexec]
-    version = subprocess.run(launcher + ["--version"], capture_output=True, text=True).stdout
-    if "Open MPI" in version or "OpenRTE" in version:
-        launcher += ["--host", "localhost:2", "--map-by", "slot:OVERSUBSCRIBE", "--bind-to", "none"]
-
-    with tempfile.TemporaryDirectory(prefix="theseus-lte-chamber-") as temporary:
+    with work_directory(prefix="theseus-lte-chamber-") as temporary:
         root = Path(temporary)
         uniform = root / "uniform"
         config_path = helper.prepare(uniform, True, 2e-8, 1e-9, "lte", args.database)
@@ -61,9 +56,7 @@ def main():
         config = json.loads(config_path.read_text())
         config["runTime"]["conditions"]["boundary_conditions"]["Inflow"]["file"] = str(profile)
         config_path.write_text(json.dumps(config))
-        command = launcher + ["-n", "1", str(args.executable),
-                   "-d", args.device, "-c", str(config_path)]
-        result = subprocess.run(command, cwd=uniform, capture_output=True, text=True, timeout=180)
+        result = run_simulation(args.executable, config_path, 1, args.device, timeout=180)
         assert result.returncode == 0, result.stdout + result.stderr
         fields = final_fields(uniform)
         np.testing.assert_allclose(fields["Temperature"], 300, rtol=1e-10, atol=1e-9)
@@ -76,7 +69,7 @@ def main():
             command = [sys.executable, str(case / "run_case.py"),
                        "--executable", str(args.executable), "--output", str(output),
                        "--ranks", str(ranks), "--coarse", "--gas-model", "lte",
-                       "--database", args.database, "--mpiexec", args.mpiexec,
+                       "--database", args.database,
                        "--device", args.device, "--dt", "1e-9", "--final-time", "2e-8"]
             result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=180)
             if result.returncode:

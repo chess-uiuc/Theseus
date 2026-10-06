@@ -6,10 +6,10 @@ import importlib.util
 import json
 import math
 import struct
-import subprocess
-import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 
 
 def values(node):
@@ -45,12 +45,13 @@ def stats(output):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--source',type=Path,required=True)
-    p.add_argument('--executable',type=Path,required=True);p.add_argument('--mpiexec',required=True)
+    p.add_argument('--executable',type=Path,required=True)
+    p.add_argument('--device', default='cpu')
     a=p.parse_args();case=a.source/'TestCases/Axisymmetric/NavierStokes/PXChamber'
     spec=importlib.util.spec_from_file_location('px_case',case/'run_case.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
     results=[]
-    with tempfile.TemporaryDirectory(prefix='px-chamber-test-') as tmp:
+    with work_directory(prefix='px-chamber-test-') as tmp:
         for uniform,ranks in [(True,1),(False,1),(False,2)]:
             out=Path(tmp)/f'{uniform}-{ranks}'
             cfg=module.prepare(out,True,2e-7,1e-8)
@@ -59,8 +60,7 @@ def main():
                 profile=out/'uniform.dat';profile.write_text('2 1\n0 0 300 0 0 0\n1 0 300 0 0 0\n')
                 r['conditions']['boundary_conditions']['Inflow']['file']=str(profile)
             cfg.write_text(json.dumps(c))
-            run=subprocess.run([a.mpiexec,'-n',str(ranks),str(a.executable),'-d','cpu','-c',str(cfg)],
-                               cwd=out,capture_output=True,text=True,timeout=120)
+            run = run_simulation(a.executable, cfg, ranks, a.device)
             if run.returncode: raise RuntimeError(run.stdout+run.stderr)
             result=stats(out)
             if uniform:

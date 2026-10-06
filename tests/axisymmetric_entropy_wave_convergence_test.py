@@ -5,16 +5,15 @@ import argparse
 import json
 import math
 import re
-import subprocess
-import tempfile
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 
 
 ERROR_PATTERN = re.compile(r"Exact L2 Error: ([^\s]+)")
 
 
-def run_level(executable: Path, source: Path, mpiexec: Path,
-              numproc_flag: str, level: int) -> float:
+def run_level(executable: Path, source: Path, device: str, level: int) -> float:
     case = source / "TestCases/Axisymmetric/Euler/EntropyWave/config.json"
     config = json.loads(case.read_text())
     runtime = config["runTime"]
@@ -23,16 +22,11 @@ def run_level(executable: Path, source: Path, mpiexec: Path,
         (source / "TestCases/NavierStokes/2D/LidDrivenCavity/"
          "LidDrivenCavity.msh").resolve()
     )
-    with tempfile.TemporaryDirectory(prefix="theseus-axis-convergence-") as tmp:
+    with work_directory(prefix="theseus-axis-convergence-") as tmp:
         runtime["output_file_path"] = tmp
         config_path = Path(tmp) / "config.json"
         config_path.write_text(json.dumps(config, indent=2) + "\n")
-        command = [str(mpiexec), numproc_flag, "1", str(executable),
-                   "-d", "cpu", "-c", str(config_path)]
-        result = subprocess.run(
-            command, cwd=tmp, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=180, check=False
-        )
+        result = run_simulation(executable, config_path, 1, device, timeout=180)
     if result.returncode != 0:
         raise RuntimeError(
             f"refinement level {level} exited with {result.returncode}:\n"
@@ -51,13 +45,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--mpiexec", required=True, type=Path)
-    parser.add_argument("--numproc-flag", required=True)
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     errors = [
         run_level(args.executable.resolve(), args.source.resolve(),
-                  args.mpiexec.resolve(), args.numproc_flag, level)
+                  args.device, level)
         for level in range(3)
     ]
     rates = [math.log(errors[index]/errors[index + 1], 2.0)

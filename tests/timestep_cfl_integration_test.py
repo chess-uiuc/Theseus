@@ -7,9 +7,9 @@ import argparse
 import json
 import math
 import re
-import subprocess
-import tempfile
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 
 
 INITIAL_DT_PATTERN = re.compile(r"Initial Timestep DT: ([^\s]+)")
@@ -18,35 +18,15 @@ NOMINAL_CFL_PATTERN = re.compile(
 )
 
 
-def mpi_launcher(mpiexec: Path) -> list[str]:
-    version = subprocess.run(
-        [str(mpiexec), "--version"], text=True, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, check=False,
-    ).stdout
-    launcher = [str(mpiexec)]
-    if "Open MPI" in version or "OpenRTE" in version:
-        launcher.extend(
-            ["--host", "localhost:2", "--map-by", "slot:OVERSUBSCRIBE",
-             "--bind-to", "none"]
-        )
-    return launcher
-
-
-def run_case(executable: Path, mpiexec: Path, numproc_flag: str,
+def run_case(executable: Path, device: str,
              config: dict, ranks: int) -> str:
-    with tempfile.TemporaryDirectory(prefix="theseus-cfl-") as tempdir:
+    with work_directory(prefix="theseus-cfl-") as tempdir:
         root = Path(tempdir)
         config_path = root / "config.json"
         config["runTime"]["output_file_path"] = str(root)
         config_path.write_text(json.dumps(config, indent=2) + "\n",
                                encoding="utf-8")
-        result = subprocess.run(
-            mpi_launcher(mpiexec)
-            + [numproc_flag, str(ranks), str(executable),
-               "-d", "cpu", "-c", str(config_path)],
-            cwd=root, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=120, check=False,
-        )
+        result = run_simulation(executable, config_path, ranks, device)
     if result.returncode != 0:
         raise RuntimeError(
             f"Theseus CFL case ({ranks} ranks) exited with "
@@ -91,7 +71,7 @@ def expected_initial_rate(config: dict) -> float:
     viscosity = runtime["mu"]
     stokes_coeff = 2.0/3.0
     long_visc = (2.0 - stokes_coeff)*viscosity
-    momentum_diffusivity = max(viscosity, long_visc)  # longitudinal viscosity from Stokes' hypothesis
+    momentum_diffusivity = max(viscosity, long_visc)  # 4.0*viscosity/3.0 + bulk_viscosity
     thermal_diffusivity = viscosity*gamma/runtime["Pr"]
     effective_diffusivity = max(momentum_diffusivity, thermal_diffusivity)
     diffusion_scale = 1.25*82.9000427145
@@ -101,8 +81,7 @@ def expected_initial_rate(config: dict) -> float:
     return advection_rate + diffusion_rate
 
 
-def check_variable_dt(executable: Path, source: Path, mpiexec: Path,
-                      numproc_flag: str) -> None:
+def check_variable_dt(executable: Path, source: Path, device: str) -> None:
     config = base_config(source)
     runtime = config["runTime"]
     target_cfl = 0.2
@@ -115,7 +94,7 @@ def check_variable_dt(executable: Path, source: Path, mpiexec: Path,
     expected_dt = target_cfl/expected_initial_rate(config)
     measured = []
     for ranks in (1, 2):
-        output = run_case(executable, mpiexec, numproc_flag, config, ranks)
+        output = run_case(executable, device, config, ranks)
         match = INITIAL_DT_PATTERN.search(output)
         if not match:
             raise RuntimeError(f"No initial variable timestep reported:\n{output}")
@@ -133,8 +112,7 @@ def check_variable_dt(executable: Path, source: Path, mpiexec: Path,
         )
 
 
-def check_fixed_dt_reporting(executable: Path, source: Path, mpiexec: Path,
-                             numproc_flag: str) -> None:
+def check_fixed_dt_reporting(executable: Path, source: Path, device: str) -> None:
     config = base_config(source)
     runtime = config["runTime"]
     fixed_dt = 2.0e-5
@@ -147,7 +125,7 @@ def check_fixed_dt_reporting(executable: Path, source: Path, mpiexec: Path,
         "final_time": fixed_dt + shortened_dt,
         "nsteps_max": 2,
     })
-    output = run_case(executable, mpiexec, numproc_flag, config, 1)
+    output = run_case(executable, device, config, 1)
     matches = NOMINAL_CFL_PATTERN.findall(output)
     if len(matches) != 1:
         raise RuntimeError(
@@ -172,15 +150,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--mpiexec", required=True, type=Path)
-    parser.add_argument("--numproc-flag", required=True)
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     executable = args.executable.resolve()
     source = args.source.resolve()
-    mpiexec = args.mpiexec.resolve()
-    check_variable_dt(executable, source, mpiexec, args.numproc_flag)
-    check_fixed_dt_reporting(executable, source, mpiexec, args.numproc_flag)
+    check_variable_dt(executable, source, args.device)
+    check_fixed_dt_reporting(executable, source, args.device)
     print("variable-DT selection and fixed-DT CFL reporting passed")
 
 

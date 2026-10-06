@@ -6,39 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
+from integration_support import run_simulation, work_directory
 
-def run(executable: Path, config: Path, cwd: Path, mpiexec: Path, numproc_flag: str) -> None:
-    version = subprocess.run(
-        [str(mpiexec), "--version"],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    ).stdout
-    launcher = [str(mpiexec)]
-    try:
-        launcher_script = mpiexec.read_text(errors="ignore")
-    except (OSError, UnicodeError):
-        launcher_script = ""
-    supplies_placement = "--map-by" in launcher_script
-    if ("Open MPI" in version or "OpenRTE" in version) and not supplies_placement:
-        launcher.extend(
-            ["--host", "localhost:2", "--map-by", "slot:OVERSUBSCRIBE", "--bind-to", "none"]
-        )
-    result = subprocess.run(
-        launcher
-        + [numproc_flag, "2", str(executable), "-d", "cpu", "-c", str(config)],
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=60,
-        check=False,
-    )
+
+def run(executable: Path, config: Path, device: str) -> None:
+    result = run_simulation(executable, config, 2, device, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"Theseus exited with {result.returncode}:\n{result.stdout}")
 
@@ -92,9 +66,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--mpiexec", required=True, type=Path)
-    parser.add_argument("--numproc-flag", required=True)
     parser.add_argument("--axisymmetric", action="store_true")
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
 
     case = args.source / (
@@ -112,7 +85,7 @@ def main() -> None:
         )
     base["runTime"]["mesh_file"] = str(mesh_matches[0].resolve())
 
-    with tempfile.TemporaryDirectory(prefix="theseus-restart-") as tempdir:
+    with work_directory(prefix="theseus-restart-") as tempdir:
         root = Path(tempdir)
         continuous = root / "continuous"
         restarted = root / "restarted"
@@ -122,8 +95,7 @@ def main() -> None:
         continuous_config = root / "continuous.json"
         restart_config = root / "restart.json"
         write_config(base, continuous_config, continuous, load=False)
-        run(args.executable.resolve(), continuous_config, root,
-            args.mpiexec.resolve(), args.numproc_flag)
+        run(args.executable.resolve(), continuous_config, args.device)
 
         source_cycle = continuous / "Checkpoints/Cycle1"
         if not source_cycle.is_dir():
@@ -131,8 +103,7 @@ def main() -> None:
         shutil.copytree(source_cycle, restarted / "Checkpoints/Cycle1")
 
         write_config(base, restart_config, restarted, load=True)
-        run(args.executable.resolve(), restart_config, root,
-            args.mpiexec.resolve(), args.numproc_flag)
+        run(args.executable.resolve(), restart_config, args.device)
 
         for rank in range(2):
             filename = f"checkpoint_cycle_2.{rank:08d}.chk"
