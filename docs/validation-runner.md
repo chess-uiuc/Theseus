@@ -33,6 +33,10 @@ flowchart TD
     Units --> Results
 ```
 
+CI workflows provision the environment, invoke this runner and publish results.
+Add individual tests through the [test registration paths](adding-tests.md), not
+as extra workflow steps.
+
 The runner selects tests and records results. Python checkers prepare inputs and
 check the simulation output. `run_theseus.sh` selects the platform launcher and
 sets up device execution. Each integrated check has one entry in the suite.

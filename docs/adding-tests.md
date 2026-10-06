@@ -1,5 +1,14 @@
 # Adding tests
 
+Every new capability, construct or behavioral change must include automated tests.
+Bug fixes must add or extend regression coverage. Choose tests that establish the
+intended behavior, including relevant invalid inputs and boundary cases.
+
+Register tests in the shared validation suite. **Do not add individual test commands
+to CI workflow files.** Workflows prepare the environment, invoke `validate.py`, and
+publish results. Test selection belongs to the registration paths below, so the same
+checks are available locally, on HPC systems and in CI.
+
 Choose the kind of test by what it needs to execute.
 
 | Test kind | Purpose | Register in |
@@ -19,6 +28,31 @@ register it with `add_test`. Use a descriptive name. Run it directly with CTest:
 ```bash
 ctest --test-dir /path/to/build -R '^YourTestName$' --output-on-failure
 ```
+
+For a new C++ test file `tests/my_feature_tests.cpp`, add a target following this
+pattern (replace the illustrative names with your feature's names):
+
+```cmake
+add_executable(my_feature_tests unit_test_main.cpp my_feature_tests.cpp)
+target_include_directories(my_feature_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(my_feature_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME MyFeatureTests COMMAND my_feature_tests)
+```
+
+Use `TEST(...)` and the assertion macros from `unit_test.hpp`, as demonstrated in
+[physical_state_tests.cpp](../tests/physical_state_tests.cpp). Call the production
+function and compare against an independently derived result. Return zero after the
+assertions. Link only the dependencies required by the test.
+
+A Python infrastructure check can be registered directly:
+
+```cmake
+add_test(NAME MyHelperTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/my_helper_tests.py)
+```
+
+Configure the build after changing registration, build the target, then run the
+CTest command above. No entry in the workflow or Python integrated registry is needed.
 
 The full runner discovers registered tests in both build configurations. Use CMake
 conditions when a check requires a particular geometry or dependency.
@@ -81,6 +115,18 @@ Add an entry to `integrated_commands` in `scripts/validate.py`. Its fields are:
 | Script | Checker filename under `tests/` |
 | Options | Extra checker arguments, such as a database or reference executable |
 
+For example, the registry entry for the existing entropy-wave checker is:
+
+```python
+('axis-convergence', 'Axisymmetric Entropy-Wave Convergence', 'axisymmetric',
+ 'axisymmetric_entropy_wave_convergence_test.py', []),
+```
+
+To add another checker, place its script under `tests/`, choose a unique identifier
+and descriptive title, select its build geometry, and add its tuple to `entries`.
+Use the options list for extra inputs. A new required executable must also be
+accounted for in `prepared_builds`, so HPC users receive a clear prerequisite check.
+
 The runner supplies source, executable and device arguments. It creates a dedicated
 working directory under `integrated/` and records one timed result for the checker.
 Do not also register this simulation in CTest.
@@ -104,20 +150,123 @@ Then run the [central suite](validation-runner.md) and check that the new entry
 appears once, executes, and reports the intended result. Update the
 [test inventory](verification.md) with its purpose, geometry and acceptance criteria.
 Changes to established expectations or tolerances require an explanation of why the
-previous numerical contract was incorrect; see the repository's contribution rules
-in [AGENTS.md](../AGENTS.md).
+previous numerical contract was incorrect. Discuss proposed changes with developers
+or maintainers before modifying accepted data or test criteria.
 
-## Add a smoke or golden case
+## Add a smoke case
 
-Use the case table and simulation calls in `suite_commands`. These invoke
-`run_theseus.sh` and record simulation time separately from comparison time.
-A golden comparison uses `compare_viz.py` with explicit tolerances.
+A smoke test checks that a configuration starts, completes and produces the required
+output. Use an integrated numerical check when success also depends on physical values,
+convergence, conservation, restart behavior or another property of the result.
 
-Store references at `TestCases/GoldenData/<case>/...`, or in `<case>.tgz` containing
-the same top-level case directory. Reference preparation prefers the directory,
-falls back to the archive, and checks for the expected cycle's `data.pvtu`.
-Include the piece files referenced by that file. Add the case and tolerances to
-the inventory.
+In `suite_commands`, add the case to `cases`, then add its identifier and timestep
+to the smoke loop. For example, the existing vortex case is defined by:
+
+```python
+'vortex': ('Euler/2D/IsentropicVortex', 'IsentropicVortex',
+           'Inviscid Isentropic Vortex'),
+```
+
+The three fields are the configuration directory relative to `TestCases`, the golden
+reference directory name, and the summary title. The smoke loop supplies 100 steps;
+use an explicit `simulation` call if a new case needs another duration. Check that
+the case's final-time setting allows the requested steps to complete.
+
+## Add golden results for regression
+
+A golden regression compares a simulation with an approved reference dataset.
+It protects numerical behavior; comparison with a result generated by the same code
+is not, on its own, evidence of physical correctness.
+
+1. Choose the configuration, mesh, order, timestep, output cycle and MPI rank count.
+   Establish the reference's credibility with analytic results, independent validation,
+   or an already verified implementation.
+2. Generate candidate output with `run_theseus.sh` in a separate directory. Record the
+   source revision, exact command, configuration and compiler/dependency environment.
+3. Inspect the candidate fields and check the intended physical behavior. Document
+   why the reference and comparison tolerances are appropriate before adopting it.
+4. Store the reference cycle and every piece file named by its `data.pvtu`, then
+   register the simulation and comparison in `suite_commands`.
+
+For example, this generates a *candidate* for the existing vortex recipe, using the
+harness's default two ranks. It does not install or approve a new reference:
+
+```bash
+scripts/run_theseus.sh -b /path/to/build \
+  -c TestCases/Euler/2D/IsentropicVortex/config.json \
+  -o ../candidate-vortex -p 2 -r cpu -t 0.001 -n 500
+```
+
+The candidate cycle is `../candidate-vortex/IsentropicVortex/ParaView/Cycle000500`.
+Keep reference-generation notes with the case documentation: recipe, provenance,
+validation rationale and tolerances. Put discussion and review history in project records.
+
+### Store the reference
+
+The directory layout is:
+
+```text
+TestCases/GoldenData/<case>/Cycle000100/data.pvtu
+TestCases/GoldenData/<case>/Cycle000100/proc000000.vtu
+TestCases/GoldenData/<case>/Cycle000100/proc000001.vtu
+```
+
+The cycle and number of pieces must match the registered recipe. Large references
+may instead be stored in `TestCases/GoldenData/<case>.tgz`. From the `GoldenData`
+directory, create and inspect an archive with:
+
+```bash
+tar -czf MyCase.tgz MyCase/
+tar -tzf MyCase.tgz
+```
+
+The archive must contain `MyCase/Cycle...`, not just the cycle's contents. Ensure
+the chosen directory or archive is tracked by Git and included in transfers.
+Preparation prefers an existing directory; only when that directory is absent does
+it extract the archive. Avoid keeping a stale unpacked directory beside an updated
+archive. Missing data or failed extraction makes reference preparation fail.
+
+### Register the comparison
+
+Add the case mapping described above and an entry in the golden loop of
+`suite_commands`. The existing vortex entry is:
+
+```python
+('vortex', '0.001', 500, '1e-13', '1e-13'),
+# identifier, timestep, output cycle/step count, absolute tolerance, relative tolerance
+```
+
+The runner launches the simulation, prepares its reference and invokes
+`compare_viz.py`. Simulation and comparison have separate results and timings.
+The current golden helper uses the Cartesian build; a case requiring another geometry
+needs explicit runner support rather than being assigned the wrong executable.
+
+Inspect a comparison directly when developing it:
+
+```bash
+python scripts/compare_viz.py /path/to/candidate/data.pvtu \
+  /path/to/reference/data.pvtu --atol 1e-13 --rtol 1e-13
+```
+
+Those tolerances are the vortex example, not universal defaults. Derive tolerances
+for the case's quantities and numerical method. Do not regenerate an established
+reference or relax its tolerances merely to eliminate a failure; diagnose and discuss
+changes to that numerical contract first.
+
+## Complete the contribution
+
+Before requesting review:
+
+- Run the focused check and inspect its assertions and failure diagnostics.
+- Run the shared suite and verify that the test is discovered, executes once in
+  each intended configuration, and reports its result. Check that no second CI or
+  CTest entry executes the same integrated simulation.
+- For integrated tests, exercise the selected device path on the target platform
+  and retain its logs; record any outstanding platform validation in project records.
+- Update the [test inventory](verification.md) with the recipe and acceptance criteria.
+
+Direct execution alone does not register coverage. Changes to a test's registration,
+inputs or reference files must travel with the checker and runner changes.
 
 ## Harness options used by checkers
 
