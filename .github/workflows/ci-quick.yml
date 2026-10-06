@@ -96,8 +96,8 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-	    tpl/install
-	    tpl/src
+            tpl/install
+            tpl/src
           key: tpl-commits-2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/install-deps.sh', 'tpl/deps-cache-input.txt') }}
 
       - name: Build TPL packages when versions changed
