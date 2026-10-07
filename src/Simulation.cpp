@@ -99,7 +99,7 @@ namespace Theseus
       }
   }
 
-  constexpr bool debug_simulation = false;
+  bool debug_simulation = false;
 
   int Simulation::LoadConfig(const std::string &config_file_path)
   {
@@ -136,7 +136,7 @@ namespace Theseus
         order = runtime.value("order", 3);
     dim = runtime.value("dim", 2);
     num_equations = runtime.value("num_equations", 4);
-
+    debug_simulation = runtime.value("debug", false);
     precision = runtime.value("precision", 15);
     std::cout.precision(precision);
 

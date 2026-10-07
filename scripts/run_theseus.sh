@@ -85,15 +85,17 @@ DISABLE_VIZ=0
 ALLOW_RESTART=0
 WIPE_RUNDIR=0
 PRESERVE_CONFIG=0
+DEBUG=0
 
 usage() {
   cat <<EOF
-Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-P] [-R] [-w] [-z] (-c CONFIG.json | -l LIST.txt)
+Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-d] [-k] [-P] [-R] [-w] [-z] (-c CONFIG.json | -l LIST.txt)
 
   -n STEPS      Number of steps to run (default: None, use case default)
   -t TIMESTEP   Fixed timestep size (default: None, use case default)
   -s CFL        Fixed CFL (default: None, use case default)
   -b BUILDDIR   Build directory (default: ${BUILDDIR})
+  -d            Set debug flag for simulation
   -e EXECUTABLE Path to Theseus executable (default: ${EXE})
   -o OUTDIR     Directory to create run output (default: ${OUTDIR})
   -c CONFIG     Single example config.json to run
@@ -117,12 +119,13 @@ EOF
 }
 
 # ---- Parse args
-while getopts ":PRzkwx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
+while getopts ":PdRzkwx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
   case $opt in
       n) NSTEPS="${OPTARG}"; NSTEPS_OVERRIDE=1;;
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
       s) CFL="${OPTARG}"; CFL_OVERRIDE=1;;
       b) BUILDDIR="${OPTARG}"; EXE="${BUILDDIR}/theseus";;
+      d) DEBUG=1;;
       e) EXE="${OPTARG}";;
       o) OUTDIR="${OPTARG}";;
       p) NMPIRANKS="${OPTARG}";;
@@ -215,17 +218,18 @@ run_one() {
   fi
 
   "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
-      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" "${PRESERVE_CONFIG}" << 'PY'
+      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" "${PRESERVE_CONFIG}" "${DEBUG}" << 'PY'
 import json
 import sys
 import os
 
-src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s, preserve_config_s = sys.argv[1:]
+src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s, preserve_config_s, debug_sim = sys.argv[1:]
 
 nsteps = int(nsteps_s)
 dt = float(dt_s)
 nsteps_override = int(nsteps_override_s)
 cfl_override = int(cfl_override_s)
+debug = int(debug_sim)
 dt_override = int(dt_override_s)
 mesh_override = int(mesh_override_s)
 order_override = int(order_override_s)
@@ -237,6 +241,9 @@ with open(src, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 
 rt = cfg.setdefault("runTime", {})
+
+if debug:
+    rt["debug"] = True
 
 if not preserve_config:
     rt["visualize"] = True
@@ -266,10 +273,10 @@ if ref_override:
 if dt_override:
     rt["variable_dt"] = False
     rt["dt"] = dt
-
-if cfl_override:
+elif cfl_override:
     cfl = float(cfl_s)
     rt["cfl"] = cfl
+    rt["variable_dt"] = True
 
 if nsteps_override:
     rt["nsteps_max"] = nsteps
