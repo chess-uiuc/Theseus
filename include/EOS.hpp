@@ -8,6 +8,7 @@
 #include <cmath>
 #include "Physics.hpp"
 #include "GasState.hpp"
+#include "PhysicalState.hpp"
 
 namespace Theseus
 {
@@ -17,6 +18,33 @@ namespace Theseus
   // ============================================================================
   struct IdealSingleGasEOS
   {
+    // Host-only conversion of physical thermodynamic pairs.
+    ThermodynamicState thermodynamic_state(const PhysicsConstants &phys,
+                                           const ThermodynamicInput &input) const
+    {
+      RequirePositiveFinite(phys.R_gas, "Gas constant");
+      if (!std::isfinite(phys.gamma) || phys.gamma <= 1)
+        throw std::invalid_argument("CPG gamma must be finite and greater than one");
+      mfem::real_t rho, temperature;
+      std::visit([&](const auto &pair) {
+        using Pair = std::decay_t<decltype(pair)>;
+        if constexpr (std::is_same_v<Pair, PressureTemperature>)
+          { temperature = pair.temperature; rho = pair.pressure / (phys.R_gas * temperature); }
+        else if constexpr (std::is_same_v<Pair, DensityTemperature>)
+          { rho = pair.density; temperature = pair.temperature; }
+        else
+          { rho = pair.density; temperature = pair.pressure / (rho * phys.R_gas); }
+      }, input);
+      return {rho, temperature, phys.R_gas * temperature / (phys.gamma - 1)};
+    }
+
+    MFEM_HOST_DEVICE
+    mfem::real_t isothermal_wall_beta(const PhysicsConstants &phys,
+                                     mfem::real_t wall_temperature) const
+    {
+      return 1.0 / (phys.R_gas * wall_temperature);
+    }
+
     // ---- helpers on conservative state --------------------------------------
     template<typename StateView>
     MFEM_HOST_DEVICE

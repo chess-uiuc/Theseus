@@ -101,165 +101,35 @@ jobs:
           cat tpl/logs/deps-build*.txt
           find tpl/install -name 'libGKlib*' -o -name 'libmetis*' -o -name 'libmfem*'
 
-      - name: Configure Theseus
-        env:
-          # CONFIG_FILE: compile_config.json
-          CC: ${{ env.CC }}
-          CXX: ${{ env.CXX }}
-          FC: ${{ env.FC }}
-          # These paths match your script’s build outputs
-          MFEM_DIR: ${{ github.workspace }}/tpl/install
+      - name: Full validation suite
         run: |
-          mkdir -p build
-          #  -DCONFIG_FILE=${CONFIG_FILE}
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
-            -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
-            -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
-            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
-            -DTHESEUS_WITH_PLATO=ON
+          python scripts/validate.py run \
+            --prefix "$GITHUB_WORKSPACE/tpl/install" \
+            --results "$RUNNER_TEMP/theseus-validation" --jobs 4
+          python scripts/validate.py check \
+            --results "$RUNNER_TEMP/theseus-validation"
 
-      - name: Build Theseus
+      - name: Validation summary
+        if: always()
         run: |
-          cmake --build build -- -k 0
-          ldd build/theseus || true
+          if [ -f "$RUNNER_TEMP/theseus-validation/summary.txt" ]; then
+            cat "$RUNNER_TEMP/theseus-validation/summary.txt"
+          else
+            echo "Validation summary unavailable; validation did not produce a record."
+            exit 1
+          fi
 
-      - name: Configure axisymmetric integration build
-        env:
-          CC: ${{ env.CC }}
-          CXX: ${{ env.CXX }}
-          FC: ${{ env.FC }}
-          MFEM_DIR: ${{ github.workspace }}/tpl/install
-        run: |
-          cmake -S . -B build-axisymmetric -G Ninja \
-            -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-            -DBUILD_TESTING=ON \
-            -DCMAKE_PREFIX_PATH=${MFEM_DIR} \
-            -DCMAKE_BUILD_RPATH=${MFEM_DIR}/lib \
-            -DCMAKE_INSTALL_RPATH=${MFEM_DIR}/lib \
-            -DSUBCELL_FV_BLENDING=ON -DNO_OPT=ON \
-            -DAXISYMMETRIC=ON \
-            -DTHESEUS_WITH_PLATO=ON
-
-      - name: Build axisymmetric integration executable
-        run: cmake --build build-axisymmetric -- -k 0
-
-      - name: Axisymmetric integration test suite
-        run: >-
-          ctest --test-dir build-axisymmetric
-          -R '^(Axisymmetric.*(Integration|Convergence)|CheckpointRestartIntegration)$'
-          --output-on-failure --no-tests=error
-
-      - name: Example smoke test (Euler, IsentropicVortex)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -t "0.002" -n 100
-
-
-      - name: Example smoke test (CNS, LidDrivenCavity)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json \
-            -t "0.0001" -n 100
-
-      - name: Example smoke test (LTE, LTEVortex)
-        run: |
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/LTE/Euler/LTEVortex/config.json \
-            -t "1e-5" -n 100
-
-      - name: Example regression test (Cyclic - IsentropicVortex)
-        run: |
-          rm -rf RegressionTests/IsentropicVortex
-          scripts/run_theseus.sh \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -o ./RegressionTests
-          cd RegressionTests/IsentropicVortex
-          python ../../scripts/compare_viz.py ParaView/ParaView.pvd --fields Density --atol 5e-5 --rtol 2e-6
-          cd -
-
-      - name: Example regression test (Gold standard - IsentropicVortex)
-        run: |
-          rm -rf RegressionTests/IsentropicVortex
-          scripts/run_theseus.sh \
-            -t "0.001" \
-            -n "500" \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/IsentropicVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/IsentropicVortex/ParaView/Cycle000500/data.pvtu TestCases/GoldenData/IsentropicVortex/Cycle000500/data.pvtu --atol 1e-13 --rtol 1e-13
-
-      - name: Example regression test (Gold standard - LidDrivenCavity)
-        run: |
-          rm -rf RegressionTests/LidDrivenCavity
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "4000" \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/LidDrivenCavity/ParaView/Cycle004000/data.pvtu TestCases/GoldenData/LidDrivenCavity/Cycle004000/data.pvtu --atol 1e-12 --rtol 1e-12
-
-      - name: Example regression test (Gold standard - TaylorGreenVortex2D)
-        run: |
-          rm -rf RegressionTests/TaylorGreenVortex
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "100" \
-            -b "$(pwd)/build" \
-            -c TestCases/NavierStokes/2D/TaylorGreenVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/TaylorGreenVortex/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/TaylorGreenVortex2D/Cycle000100/data.pvtu --atol 1e-13 --rtol 1e-13
-
-      - name: Example regression test (Gold standard - ForwardFacingStep)
-        run: |
-          cd TestCases/GoldenData
-          tar zxvf ForwardFacingStep.tgz
-          cd ../..
-          rm -rf RegressionTests/ForwardFacingStep
-          scripts/run_theseus.sh \
-            -t "0.0001" \
-            -n "100" \
-            -b "$(pwd)/build" \
-            -c TestCases/Euler/2D/ForwardFacingStep/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/ForwardFacingStep/ParaView/Cycle000100/data.pvtu TestCases/GoldenData/ForwardFacingStep/Cycle000100/data.pvtu --atol 3e-13 --rtol 1e-13
-
-      - name: Example regression test (Gold standard - LTEVortex)
-        run: |
-          rm -rf RegressionTests/LTEVortex
-          scripts/run_theseus.sh \
-            -t "1e-5" \
-            -n "200" \
-            -b "$(pwd)/build" \
-            -c TestCases/LTE/Euler/LTEVortex/config.json \
-            -o ./RegressionTests
-          python scripts/compare_viz.py RegressionTests/LTEVortex/ParaView/Cycle000200/data.pvtu TestCases/GoldenData/LTEVortex/Cycle000200/data.pvtu --atol 1e-10 --rtol 1e-10
-
-      - name: All standard-build CTest tests (unit and integration)
-        run: ctest --test-dir build --output-on-failure --no-tests=error
-
-      - name: Upload failure artifacts (logs)
-        if: failure()
+      - name: Upload validation results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: theseus-nightly-logs
+          name: theseus-validation
           path: |
-            build/Testing/Temporary/**
-            build/Testing/**/Test.xml
-            build-axisymmetric/Testing/Temporary/**
-            build-axisymmetric/Testing/**/Test.xml
-            build/CMakeCache.txt
-            build-axisymmetric/CMakeCache.txt
-            build/**/*.log
-            build-axisymmetric/**/*.log
-            RegressionTests
-            RunTheseus
-            RunTests
+            ${{ runner.temp }}/theseus-validation/manifest.json
+            ${{ runner.temp }}/theseus-validation/results.json
+            ${{ runner.temp }}/theseus-validation/summary.txt
+            ${{ runner.temp }}/theseus-validation/integrated
+            ${{ runner.temp }}/theseus-validation/logs
+            ${{ runner.temp }}/theseus-validation/build-*/Testing
+            ${{ runner.temp }}/theseus-validation/build-*/CMakeCache.txt
+            ${{ runner.temp }}/theseus-validation/cases

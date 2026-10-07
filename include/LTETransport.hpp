@@ -19,6 +19,15 @@ namespace Theseus
   struct LTETransport
   {
 
+    MFEM_HOST_DEVICE
+    mfem::real_t viscosity_from_temperature(const PhysicsConstants &phys,
+                                           mfem::real_t temperature) const
+    {
+      const auto relative_temperature = temperature / phys.T0;
+      return phys.mu0 * (phys.T0 + phys.Ts) * relative_temperature *
+             std::sqrt(relative_temperature) / (temperature + phys.Ts);
+    }
+
     template<typename EOSType, typename StateViewType>
     MFEM_HOST_DEVICE
     inline mfem::real_t viscosity(const Theseus::PhysicsConstants &phys,
@@ -27,11 +36,8 @@ namespace Theseus
                                   const LTETables &lteTables) const
     {
 #ifdef SUTHERLAND
-      // mu0 * T0pTs / (T + Ts) * (T / T0) * std::sqrt(T / T0);
-      const mfem::real_t temptr = eos.temperature(phys, L, S, lteTables);
-      const mfem::real_t Trel = temptr / phys.T0;
-      const mfem::real_t T0pTs = phys.T0 + phys.Ts;
-      return phys.mu0 * T0pTs * Trel * std::sqrt(Trel) / (temptr + phys.Ts);
+      const auto temperature = eos.temperature(phys, L, S, lteTables);
+      return viscosity_from_temperature(phys, temperature);
 #else
       return eos.property_lookup(lteTables.L.mu_idx, phys, L, S, lteTables);
 #endif

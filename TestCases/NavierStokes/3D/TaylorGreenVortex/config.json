@@ -49,7 +49,6 @@
                 "function": "TaylorGreenVortexIC"
             }
         },
-        "lifting_scheme": "BR1",
         "numerical_flux": "Chandrashekar",
         "ode_solver": "RK3SSP"
     }

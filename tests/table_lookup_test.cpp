@@ -10,7 +10,9 @@
 #include "GasModel.hpp"
 #include "LTETable.hpp"
 #include "LTEEOS.hpp"
+#include "LTEGasModel.hpp"
 #include "TheseusConfig.hpp"
+#include "json.hpp"
 
 using real_t = mfem::real_t;
 
@@ -318,4 +320,110 @@ TEST(plato_Tablelookup_test)
 
     plato_finalize();
     return 0;
+}
+
+// Small real-air table validates the public startup API independently of the
+// analytic fixture. This test can also be selected by name for device handoff.
+TEST(plato_PhysicalState_conversion_test)
+{
+    const std::string path(Theseus::BuildConfig::PlatoDBPath);
+    plato_initialize("LTE_table_rhoT_(air5)", "air5", "empty", "empty", path.c_str());
+    LTETable::Data data;
+    LTETables tables(25,25);
+    log_grid(25,0.1,1.1,data.rho_grid);
+    log_grid(25,250,3000,data.T_grid);
+    data.lte_table.SetSize(9*25*25);
+    data.inv_table.SetSize(25*25);
+    real_t e_min,e_max;
+    fill_table(tables.L,data.rho_grid.GetData(),data.T_grid.GetData(),
+               data.lte_table.GetData(),e_min,e_max);
+    uniform_grid(25,e_min,e_max,data.e_grid);
+    fill_inv_table(tables.L,data.rho_grid.GetData(),data.e_grid.GetData(),
+                   data.T_grid.GetData(),data.inv_table.GetData());
+    plato_finalize();
+    tables.tables={data.lte_table.HostRead(),data.inv_table.HostRead(),
+                   data.rho_grid.HostRead(),data.T_grid.HostRead(),data.e_grid.HostRead()};
+    PhysicsConstants phys(1.4,0.72,287.05,0.02);
+    LTEGas gas(phys,StateLayout(2,1),tables);
+    IdealGasModel cpg(phys,StateLayout(2,1));
+    for (real_t rho : {0.2,0.7}) for (real_t temperature : {300.,1200.,2500.}) {
+      mfem::Vector reference;
+      gas.ConservativeFromPhysical({DensityTemperature{rho,temperature},{30,-2}},reference);
+      PointStateView state(reference.GetData());
+      const real_t pressure=gas.pressure(state);
+      for (const ThermodynamicInput &pair : std::vector<ThermodynamicInput>{
+          PressureTemperature{pressure,temperature},DensityPressure{rho,pressure}}) {
+        mfem::Vector converted;
+        gas.ConservativeFromPhysical({pair,{30,-2}},converted);
+        PointStateView result(converted.GetData());
+        EXPECT_CLOSE(gas.density(result)/rho,1,1e-9);
+        EXPECT_CLOSE(gas.temperature(result)/temperature,1,1e-9);
+        EXPECT_CLOSE(gas.pressure(result)/pressure,1,1e-9);
+        EXPECT_CLOSE(converted[3]/reference[3],1,1e-9);
+      }
+      mfem::Vector ideal;
+      cpg.ConservativeFromPhysical({PressureTemperature{pressure,temperature},{30,-2}},ideal);
+      // At room temperature real air may closely match CPG. Require a
+      // model difference in the high-temperature fixture, not at every T.
+      if (temperature == 2500)
+        EXPECT_TRUE(std::abs(ideal[3]-reference[3]) > 1e-3*std::abs(reference[3]));
+    }
+    return 0;
+}
+
+TEST(plato_Visualization_reference)
+{
+  const std::string database(Theseus::BuildConfig::PlatoDBPath);
+  plato_initialize("LTE_table_rhoT_(air5)", "air5", "empty", "empty", database.c_str());
+
+  LTETable::Data data;
+  LTETables tables(25, 25);
+  log_grid(25, 0.05, 1.1, data.rho_grid);
+  log_grid(25, 250, 3000, data.T_grid);
+  data.lte_table.SetSize(9 * 25 * 25);
+  data.inv_table.SetSize(25 * 25);
+  real_t minimum_energy;
+  real_t maximum_energy;
+  fill_table(tables.L, data.rho_grid.GetData(), data.T_grid.GetData(),
+             data.lte_table.GetData(), minimum_energy, maximum_energy);
+  uniform_grid(25, minimum_energy, maximum_energy, data.e_grid);
+  fill_inv_table(tables.L, data.rho_grid.GetData(), data.e_grid.GetData(),
+                 data.T_grid.GetData(), data.inv_table.GetData());
+  plato_finalize();
+  tables.tables = {data.lte_table.HostRead(), data.inv_table.HostRead(),
+                   data.rho_grid.HostRead(), data.T_grid.HostRead(), data.e_grid.HostRead()};
+
+  const PhysicsConstants physics(1.4, 0.72, 287.05, 0.02);
+  const LTEGas lte(physics, StateLayout(2, 1), tables);
+  const IdealGasModel cpg(physics, StateLayout(2, 1));
+  PhysicalStateInput input;
+  input.thermo = PressureTemperature{60000, 1200};
+  input.velocity = {10, -2};
+
+  const auto print_reference = [&](const auto &gas, const char *model)
+    {
+      mfem::Vector conservative;
+      gas.ConservativeFromPhysical(input, conservative);
+      const PointStateView state(conservative.HostRead());
+      const auto density = gas.density(state);
+      const auto internal_energy = gas.specific_internal_energy(state);
+      const auto sound_speed = gas.sound_speed(state);
+      nlohmann::json reference;
+      reference["Density"] = density;
+      reference["Velocity"] = {10, -2};
+      reference["Pressure"] = gas.pressure(state);
+      reference["Temperature"] = gas.temperature(state);
+      reference["Sound Speed"] = sound_speed;
+      reference["Mach Number"] = std::sqrt(104.0) / sound_speed;
+      reference["Specific Internal Energy"] = internal_energy;
+      reference["Internal Energy Density"] = density * internal_energy;
+      reference["Specific Total Energy"] = state.energy(gas.L) / density;
+      reference["Viscosity"] = gas.viscosity(state);
+      reference["Thermal Conductivity"] = gas.thermal_conductivity(state);
+      std::cout << "VISUALIZATION_REFERENCE " << model << " " << reference.dump() << '\n';
+    };
+
+  print_reference(cpg, "cpg");
+  print_reference(lte, "lte");
+  return 0;
 }

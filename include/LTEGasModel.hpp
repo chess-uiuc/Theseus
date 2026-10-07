@@ -10,6 +10,9 @@
 #include "LTETable.hpp"
 #include "LTEEOS.hpp"
 #include "LTETransport.hpp"
+#include "LTEStateConversion.hpp"
+#include "GasProperties.hpp"
+#include "LTEPropertySample.hpp"
 
 using namespace Theseus::LTETable;
 
@@ -46,7 +49,7 @@ namespace Theseus
     template<typename HostDataT>
     LTEGasModel<EOSImpl, TransportImpl>  to_device(HostDataT &host_data) {
       LTEGasModel<EOSImpl, TransportImpl> retVal(phys, L, T, eos, transport);
-      T.tables = {
+      retVal.T.tables = {
         host_data.lteTableData->lte_table.Read(),
         host_data.lteTableData->inv_table.Read(),
         host_data.lteTableData->rho_grid.Read(),
@@ -54,6 +57,70 @@ namespace Theseus
         host_data.lteTableData->e_grid.Read()
       };
       return retVal;
+    }
+
+    void ConservativeFromPhysical(const PhysicalStateInput &input, mfem::Vector &out) const
+    {
+      ValidatePhysicalState(input, L);
+      const auto thermo = LTEPhysicalThermodynamics(eos, phys, L, input.thermo, T);
+      mfem::Vector result;
+      PackPhysicalState(input, thermo, L, result);
+      // Check the energy actually representable after adding/subtracting kinetic
+      // energy; cancellation at extreme velocities must not bypass table bounds.
+      PointStateView state(result.GetData());
+      ValidateLTERoundTrip(eos, phys, L, state, thermo.temperature, T);
+      out = result;
+    }
+
+    template<typename StateView>
+    GasProperties EvaluateProperties(const StateView &state,
+                                     const GasPropertyRequest &request) const
+    {
+      GasProperties result;
+      if (request.Empty())
+        {
+          return result;
+        }
+
+      const auto recovered_temperature = temperature(state);
+      if (request.temperature)
+        {
+          result.temperature = recovered_temperature;
+        }
+      if (!request.pressure && !request.sound_speed &&
+          !request.viscosity && !request.thermal_conductivity)
+        {
+          return result;
+        }
+
+      const LTEPropertySample sample(T, density(state), recovered_temperature);
+      if (request.pressure)
+        {
+          result.pressure = sample.Value(T.L.P_idx);
+        }
+      if (request.sound_speed)
+        {
+          result.sound_speed = sample.Value(T.L.c_idx);
+        }
+      if (request.viscosity)
+        {
+#ifdef SUTHERLAND
+          result.viscosity = transport.viscosity_from_temperature(phys, recovered_temperature);
+#else
+          result.viscosity = sample.Value(T.L.mu_idx);
+#endif
+        }
+      if (request.thermal_conductivity)
+        {
+          result.thermal_conductivity = sample.Value(T.L.lambda_idx);
+        }
+      return result;
+    }
+
+    MFEM_HOST_DEVICE
+    mfem::real_t isothermal_wall_beta(mfem::real_t wall_temperature) const
+    {
+      return eos.isothermal_wall_beta(phys, wall_temperature);
     }
 
     // Utilities and constants etc

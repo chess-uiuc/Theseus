@@ -83,15 +83,19 @@ MSHREF_OVERRIDE=0
 MSHREF_LVL="default"
 DISABLE_VIZ=0
 ALLOW_RESTART=0
+WIPE_RUNDIR=0
+PRESERVE_CONFIG=0
+DEBUG=0
 
 usage() {
   cat <<EOF
-Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-k] [-R] [-z] (-c CONFIG.json | -l LIST.txt)
+Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p NUMPROC] [-r DEVICE] [-m MESHNAME] [-x REFLEVEL] [-y ORDER] [-d] [-k] [-P] [-R] [-w] [-z] (-c CONFIG.json | -l LIST.txt)
 
   -n STEPS      Number of steps to run (default: None, use case default)
   -t TIMESTEP   Fixed timestep size (default: None, use case default)
   -s CFL        Fixed CFL (default: None, use case default)
   -b BUILDDIR   Build directory (default: ${BUILDDIR})
+  -d            Set debug flag for simulation
   -e EXECUTABLE Path to Theseus executable (default: ${EXE})
   -o OUTDIR     Directory to create run output (default: ${OUTDIR})
   -c CONFIG     Single example config.json to run
@@ -102,9 +106,11 @@ Usage: $0 [-n STEPS] [-b BUILDDIR] [-e EXECUTABLE] [-H NUMHOSTS] [-o RUNDIR] [-p
   -k            Disable output check
   -l LIST       List file with one config.json path per line (comments (#) allowed)
   -m MESHNAME   Replace the meshname with this one
+  -w            Wipe out the run directory before starting
   -x REFLEVEL   Mesh refinement level
   -y ORDER      Polynomial order for spatial discretization
   -z            Disable visualization output
+  -P            Preserve input settings except explicit overrides; use -k for custom output checks
   -R            Preserve checkpoint_load from the input configuration
 Examples:
   $0 -c TestCases/NavierStokes/2D/LidDrivenCavity/config.json
@@ -113,12 +119,13 @@ EOF
 }
 
 # ---- Parse args
-while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
+while getopts ":PdRzkwx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
   case $opt in
       n) NSTEPS="${OPTARG}"; NSTEPS_OVERRIDE=1;;
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
       s) CFL="${OPTARG}"; CFL_OVERRIDE=1;;
       b) BUILDDIR="${OPTARG}"; EXE="${BUILDDIR}/theseus";;
+      d) DEBUG=1;;
       e) EXE="${OPTARG}";;
       o) OUTDIR="${OPTARG}";;
       p) NMPIRANKS="${OPTARG}";;
@@ -128,8 +135,10 @@ while getopts ":Rzkx:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       k) CHECKOUT=0;;
       z) DISABLE_VIZ=1; CHECKOUT=0;;
       R) ALLOW_RESTART=1;;
+      P) PRESERVE_CONFIG=1;;
       l) LISTFILE="${OPTARG}";;
       m) MESHNAME="${OPTARG}"; MESH_OVERRIDE=1;;
+      w) WIPE_RUNDIR=1;;
       x) MSHREF_LVL="${OPTARG}"; MSHREF_OVERRIDE=1;;
       y) ORDER="${OPTARG}"; ORDER_OVERRIDE=1;;
       h) usage; exit 0;;
@@ -160,7 +169,10 @@ else
 fi
 
 # ---- Ensure run sandbox
-RUNDIR="${TOP}/${OUTDIR}"
+case "${OUTDIR}" in
+    /*) RUNDIR="${OUTDIR}";;
+    *)  RUNDIR="${TOP}/${OUTDIR}";;
+esac
 mkdir -p "${RUNDIR}"
 # Copy the executable into the run dir (your preferred workflow)
 cp -f "${EXE}" "${RUNDIR}/theseus"
@@ -184,7 +196,16 @@ run_one() {
   local runname
   runname="$(basename "$(dirname "${cfg_abs}")")"   # e.g., LidDrivenCavity
   local work="${RUNDIR}/${runname}"
-  rm -rf "${work}"
+  if [[ ${ALLOW_RESTART} -eq 0 ]]; then
+     rm -rf "${work}"
+  else
+      if [[ ${WIPE_RUNDIR} -eq 1 ]]; then
+	  printf "WARNING: Restart AND Wipe enabled, removing target work directory."
+      fi
+  fi
+  if [[ ${WIPE_RUNDIR} -eq 1 ]]; then
+      rm -rf "${work}"
+  fi
   mkdir -p "${work}"
   local outdir="${work}"
 
@@ -197,38 +218,44 @@ run_one() {
   fi
 
   "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}"\
-      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" << 'PY'
+      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" "${PRESERVE_CONFIG}" "${DEBUG}" << 'PY'
 import json
 import sys
 import os
 
-src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s = sys.argv[1:]
+src, dst, nsteps_s, dt_s, meshname, order_s, cfl_s, reflvl_s, nsteps_override_s, dt_override_s, mesh_override_s, order_override_s, cfl_override_s, ref_override_s, disable_viz_s, allow_restart_s, preserve_config_s, debug_sim = sys.argv[1:]
 
 nsteps = int(nsteps_s)
 dt = float(dt_s)
 nsteps_override = int(nsteps_override_s)
 cfl_override = int(cfl_override_s)
+debug = int(debug_sim)
 dt_override = int(dt_override_s)
 mesh_override = int(mesh_override_s)
 order_override = int(order_override_s)
 ref_override = int(ref_override_s)
 disable_viz = int(disable_viz_s)
 allow_restart = int(allow_restart_s)
+preserve_config = int(preserve_config_s)
 with open(src, "r", encoding="utf-8") as f:
     cfg = json.load(f)
 
 rt = cfg.setdefault("runTime", {})
 
-if disable_viz > 0:
-    rt["visualize"] = False
-else:
+if debug:
+    rt["debug"] = True
+
+if not preserve_config:
     rt["visualize"] = True
-rt["paraview"] = True
-rt["visit"] = False
-rt["nancheck"] = True
-rt["output_file_path"] = "./"
-if not allow_restart:
-    rt["checkpoint_load"] = False
+    rt["paraview"] = True
+    rt["visit"] = False
+    rt["nancheck"] = True
+    rt["output_file_path"] = "./"
+    if not allow_restart:
+        rt["checkpoint_load"] = False
+
+if disable_viz:
+    rt["visualize"] = False
 
 if order_override:
    order = int(order_s)
@@ -246,10 +273,10 @@ if ref_override:
 if dt_override:
     rt["variable_dt"] = False
     rt["dt"] = dt
-
-if cfl_override:
+elif cfl_override:
     cfl = float(cfl_s)
     rt["cfl"] = cfl
+    rt["variable_dt"] = True
 
 if nsteps_override:
     rt["nsteps_max"] = nsteps

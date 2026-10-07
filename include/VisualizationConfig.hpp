@@ -21,7 +21,15 @@ namespace Theseus
     density,
     velocity,
     pressure,
-    blending_coefficient
+    blending_coefficient,
+    temperature,
+    sound_speed,
+    mach_number,
+    specific_internal_energy,
+    internal_energy_density,
+    specific_total_energy,
+    viscosity,
+    thermal_conductivity
   };
 
   enum class VisualizationMeshMode
@@ -30,10 +38,23 @@ namespace Theseus
     gll_subcells
   };
 
+  enum class VisualizationProperty
+  {
+    none,
+    pressure,
+    temperature,
+    sound_speed,
+    viscosity,
+    thermal_conductivity
+  };
+
   struct VisualizationFieldSpec
   {
     VisualizationField field;
     const char *name;
+    const char *output_name;
+    int components; // Zero means the spatial dimension.
+    VisualizationProperty property;
   };
 
   class VisualizationConfig
@@ -42,12 +63,29 @@ namespace Theseus
     std::vector<VisualizationField> fields_;
     VisualizationMeshMode mesh_mode_ = VisualizationMeshMode::gll_subcells;
 
-    static constexpr std::array<VisualizationFieldSpec, 4> field_registry_
+    static constexpr std::array<VisualizationFieldSpec, 12> field_registry_
     {{
-      {VisualizationField::density, "density"},
-      {VisualizationField::velocity, "velocity"},
-      {VisualizationField::pressure, "pressure"},
-      {VisualizationField::blending_coefficient, "blending_coefficient"}
+      {VisualizationField::density, "density", "Density", 1, VisualizationProperty::none},
+      {VisualizationField::velocity, "velocity", "Velocity", 0, VisualizationProperty::none},
+      {VisualizationField::pressure, "pressure", "Pressure", 1, VisualizationProperty::pressure},
+      {VisualizationField::blending_coefficient, "blending_coefficient", "Blending Coeff", 1,
+       VisualizationProperty::none},
+      {VisualizationField::temperature, "temperature", "Temperature", 1,
+       VisualizationProperty::temperature},
+      {VisualizationField::sound_speed, "sound_speed", "Sound Speed", 1,
+       VisualizationProperty::sound_speed},
+      {VisualizationField::mach_number, "mach_number", "Mach Number", 1,
+       VisualizationProperty::sound_speed},
+      {VisualizationField::specific_internal_energy, "specific_internal_energy",
+       "Specific Internal Energy", 1, VisualizationProperty::none},
+      {VisualizationField::internal_energy_density, "internal_energy_density",
+       "Internal Energy Density", 1, VisualizationProperty::none},
+      {VisualizationField::specific_total_energy, "specific_total_energy",
+       "Specific Total Energy", 1, VisualizationProperty::none},
+      {VisualizationField::viscosity, "viscosity", "Viscosity", 1,
+       VisualizationProperty::viscosity},
+      {VisualizationField::thermal_conductivity, "thermal_conductivity", "Thermal Conductivity", 1,
+       VisualizationProperty::thermal_conductivity}
     }};
 
     static const VisualizationFieldSpec &FindField(const std::string &name)
@@ -56,14 +94,33 @@ namespace Theseus
                                    [&name](const auto &spec) { return name == spec.name; });
       if (it == field_registry_.end())
         {
+          std::string supported;
+          for (const auto &spec : field_registry_)
+            {
+              if (!supported.empty())
+                {
+                  supported += ", ";
+                }
+              supported += spec.name;
+            }
           throw std::invalid_argument("Unknown visualization field '" + name +
-                                      "'. Supported fields: density, velocity, pressure, "
-                                      "blending_coefficient");
+                                      "'. Supported fields: " + supported);
         }
       return *it;
     }
 
   public:
+    static const VisualizationFieldSpec &Specification(VisualizationField field)
+    {
+      const auto match = std::find_if(field_registry_.begin(), field_registry_.end(),
+                                      [field](const auto &spec) { return spec.field == field; });
+      if (match == field_registry_.end())
+        {
+          throw std::invalid_argument("Invalid visualization field");
+        }
+      return *match;
+    }
+
     static VisualizationConfig FromRuntime(const nlohmann::json &runtime,
                                            bool blending_available)
     {

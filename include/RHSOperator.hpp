@@ -39,6 +39,7 @@ namespace Theseus
     mfem::Array<Theseus::BCDescriptor> bc_descriptors;
     mfem::Vector bc_vector_data;
     mfem::Vector bc_scalar_data;
+    std::vector<std::string> bc_names;
 
     mutable mfem::real_t alpha_dof;
     mutable Theseus::IntegralMeasures diag0;
@@ -69,11 +70,13 @@ namespace Theseus
     }
     virtual ~RHSOperatorBase() = default;
     void SetBCDescriptorData(const mfem::Array<Theseus::BCDescriptor> &bc_descr, const mfem::Vector &bc_scalar_dat,
-                             const mfem::Vector &bc_vector_dat)
+                             const mfem::Vector &bc_vector_dat,
+                             const std::vector<std::string> &names = {})
     {
       bc_descriptors = bc_descr;
       bc_scalar_data = bc_scalar_dat;
       bc_vector_data = bc_vector_dat;
+      bc_names = names;
     }
 
     void AddBdrFaceMarker(mfem::Array<int> &bdr_marker_)

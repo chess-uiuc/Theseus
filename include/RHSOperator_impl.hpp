@@ -1,3 +1,4 @@
+#include "BoundaryStatePacking.hpp"
 // Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
 //
 // This file is part of Theseus.
@@ -24,7 +25,7 @@ namespace Theseus
     const bool viscous = viscousFlowModel;
 
     const auto dc = device_cache;
-    const auto gas_model = *gas;
+    const auto gas_model = dc.gas;
     const mfem::real_t *state = operator_cache.uVol.Read();
     const mfem::real_t *jacobian = operator_cache.elJac.Read();
     const mfem::real_t *metric = operator_cache.elMetric.Read();
@@ -81,9 +82,9 @@ namespace Theseus
           const mfem::real_t density = gas_model.density(S);
           const mfem::real_t gamma = gas_model.gamma(S);
           const mfem::real_t shear_viscosity = gas_model.viscosity(S);
+	  const mfem::real_t stokes_coeff = gas_model.bulk_viscosity(S);
           const mfem::real_t longitudinal_viscosity =
-            mfem::real_t(4.0 / 3.0) * shear_viscosity
-            + gas_model.bulk_viscosity(S);
+            (mfem::real_t(2.0) - stokes_coeff) * shear_viscosity;
           const mfem::real_t momentum_diffusivity =
             Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
           const mfem::real_t thermal_diffusivity =
@@ -281,6 +282,22 @@ namespace Theseus
     operator_cache.bc_descriptors = bc_descriptors;
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
+    int failed = 0;
+    try
+      {
+        PackBoundaryPointStates(bc_descriptors, bc_vector_data, bc_names,
+          operator_cache.bnd_marker_index, operator_cache.num_face_points,
+          operator_cache.bnd_xyz, *gas_interface, operator_cache.bc_point_descriptors,
+          operator_cache.bc_vector_data);
+      }
+    catch (const std::exception &error)
+      {
+        std::cerr << "Boundary state preparation: " << error.what() << std::endl;
+        failed = 1;
+      }
+    int any_failed = 0;
+    MPI_Allreduce(&failed, &any_failed, 1, MPI_INT, MPI_MAX, pmesh->GetComm());
+    if (any_failed) throw std::invalid_argument("Boundary state preparation failed");
     ValidateAxisBoundaryGeometry(operator_cache);
 
 #ifdef SUBCELL_FV_BLENDING

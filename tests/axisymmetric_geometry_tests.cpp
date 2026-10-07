@@ -798,3 +798,22 @@ TEST(axisymmetric_viscous_energy_flux_uses_zero_radial_axis_velocity)
   EXPECT_CLOSE(flux[layout.eq_energy][1], 0.0, 0.0);
   return 0;
 }
+
+TEST(prescribed_state_boundary_correction_uses_exterior_entropy)
+{
+  ViscousAxisContext ctx;
+  const mfem::real_t exterior[4]={0.01, 3.0, -0.02, 25500.02};
+  ctx.bc_vector_d=exterior;
+  Theseus::BCDescriptor bc{};
+  bc.type=int(Theseus::BCType::PrescribedState); bc.data_index=0;
+  mfem::real_t entropy[4], flux[4];
+  Theseus::PointStateView U{exterior}; Theseus::PointStateViewRW E{entropy};
+  ctx.gas.entropy_state(U,E);
+  Theseus::BC::ComputeBdrFaceGradFlux(ctx,bc,entropy,flux);
+  for(int q=0;q<4;++q) EXPECT_CLOSE(flux[q],0.0,1e-14);
+  mfem::real_t perturbed[4];
+  for(int q=0;q<4;++q) perturbed[q]=entropy[q]+0.25;
+  Theseus::BC::ComputeBdrFaceGradFlux(ctx,bc,perturbed,flux);
+  for(int q=0;q<4;++q) EXPECT_CLOSE(flux[q],-0.25,1e-14);
+  return 0;
+}
