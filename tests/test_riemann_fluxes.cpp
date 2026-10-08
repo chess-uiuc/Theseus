@@ -7,6 +7,8 @@
 #include "unit_test.hpp"
 #include "GasModel.hpp"
 #include "ChandrashekarFlux.hpp"
+#include "RanochaFlux.hpp"
+#include "PirozzoliFlux.hpp"
 #include "LaxFriedrichsFlux.hpp"
 #include "HLLFlux.hpp"
 #include "RoeFlux.hpp"
@@ -152,6 +154,43 @@ static void run_face_flux_finite_strong_state_2d(const FluxT &num_flux,
     }
 }
 
+template <typename FluxT, typename GasT>
+static void run_vol_flux_tadmor_condition_2d(const FluxT &num_flux,
+                                             const GasT &gas)
+{
+    mfem::Vector qL(4), qR(4), met1(4), met2(4), flux(4);
+    mfem::Vector wL(4), wR(4);
+    double gamma = gas.phys.gamma;
+
+    set_state_2d(qL, 1.0,        20.0, 3.0, 100000.0, gamma);
+    set_state_2d(qR, 1.000001,  -10.0,-2.0,  90000.0, gamma);
+    Theseus::PointStateView SL(qL.HostRead());
+    Theseus::PointStateView SR(qR.HostRead());
+    Theseus::PointStateViewRW WL(wL.HostWrite());
+    Theseus::PointStateViewRW WR(wR.HostWrite());
+    gas.entropy_state(SL, WL);
+    gas.entropy_state(SR, WR);
+
+    for(unsigned int d=0; d<2; d++)
+    {
+      met1 = 0.0;
+      met2 = 0.0;
+      met1(d) = 1.0;
+      met2(d) = 1.0;
+      num_flux.ComputeVolumeFlux(gas, qL.HostRead(), qR.HostRead(), met1.HostRead(), met2.HostRead(), flux.HostWrite());
+
+      mfem::real_t psi_L = gas.density(SL)*gas.velocity(SL, d);
+      mfem::real_t psi_R = gas.density(SR)*gas.velocity(SR, d);
+      mfem::real_t RHS = psi_R - psi_L;
+      mfem::real_t LHS = 0.0;
+      for(int e=0; e<4; e++)
+      {
+        LHS += flux(e) * (wR(e) - wL(e));
+      }
+      EXPECT_CLOSE(LHS, RHS, 1e-13);
+    }
+}
+
 TEST(RiemannFlux_Consistency_2D)
 {
   const int dim = 2;
@@ -170,11 +209,15 @@ TEST(RiemannFlux_Consistency_2D)
   Theseus::LaxFriedrichsFlux::InviscidFlux llf;
   Theseus::HLLFlux::InviscidFlux           hll;
   Theseus::RoeFlux::InviscidFlux           roe;
+  Theseus::RanochaFlux::InviscidFlux       ran;
+  Theseus::PirozzoliFlux::InviscidFlux      pi;
 
   run_face_flux_consistency_2d(chan, gasModel);
   run_face_flux_consistency_2d(llf,  gasModel);
   run_face_flux_consistency_2d(hll,  gasModel);
   run_face_flux_consistency_2d(roe,  gasModel);
+  run_face_flux_consistency_2d(ran,  gasModel);
+  run_face_flux_consistency_2d(pi,   gasModel);
   
     return 0;
 }
@@ -192,11 +235,15 @@ TEST(RiemannFlux_NormalReversal_2D)
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
     Theseus::RoeFlux::InviscidFlux           roe;
+    Theseus::RanochaFlux::InviscidFlux       ran;
+    Theseus::PirozzoliFlux::InviscidFlux      pi;
 
     run_face_flux_normal_reversal_2d(chan, gasModel);
     run_face_flux_normal_reversal_2d(llf,  gasModel);
     run_face_flux_normal_reversal_2d(hll,  gasModel);
     run_face_flux_normal_reversal_2d(roe,  gasModel);
+    run_face_flux_normal_reversal_2d(ran,  gasModel);
+    run_face_flux_normal_reversal_2d(pi,   gasModel);
 
     return 0;
 }
@@ -214,11 +261,15 @@ TEST(RiemannFlux_ZeroNormalVelocityPressureFlux_2D)
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
     Theseus::RoeFlux::InviscidFlux           roe;
+    Theseus::RanochaFlux::InviscidFlux       ran;
+    Theseus::PirozzoliFlux::InviscidFlux      pi;
 
     run_zero_normal_velocity_pressure_flux_2d(chan, gasModel);
     run_zero_normal_velocity_pressure_flux_2d(llf,  gasModel);
     run_zero_normal_velocity_pressure_flux_2d(hll,  gasModel);
     run_zero_normal_velocity_pressure_flux_2d(roe,  gasModel);
+    run_zero_normal_velocity_pressure_flux_2d(ran,  gasModel);
+    run_zero_normal_velocity_pressure_flux_2d(pi,   gasModel);
 
     return 0;
 }
@@ -236,11 +287,15 @@ TEST(RiemannFlux_FiniteStrongState_2D)
     Theseus::LaxFriedrichsFlux::InviscidFlux llf;
     Theseus::HLLFlux::InviscidFlux           hll;
     Theseus::RoeFlux::InviscidFlux           roe;
+    Theseus::RanochaFlux::InviscidFlux       ran;
+    Theseus::PirozzoliFlux::InviscidFlux      pi;
 
     run_face_flux_finite_strong_state_2d(chan, gasModel);
     run_face_flux_finite_strong_state_2d(llf,  gasModel);
     run_face_flux_finite_strong_state_2d(hll,  gasModel);
     run_face_flux_finite_strong_state_2d(roe,  gasModel);
+    run_face_flux_finite_strong_state_2d(ran,  gasModel);
+    run_face_flux_finite_strong_state_2d(pi,   gasModel);
 
     return 0;
 }
@@ -296,4 +351,22 @@ TEST(RoeFlux_ResolvesStationaryContact_2D)
     EXPECT_CLOSE(flux(2), 0.0, 1.0e-12);
     EXPECT_CLOSE(flux(3), 0.0, 1.0e-8);
     return 0;
+}
+
+TEST(ECFlux_Tadmor_2D)
+{
+  const int dim =2;
+  const int ndofs = 4;
+
+  Theseus::PhysicsConstants phys(1.4, 0.72, 287.05, 0.02);
+
+  Theseus::StateLayout layout(dim, ndofs);
+  Theseus::IdealGasModel gasModel(phys, layout);
+
+  Theseus::ChandrashekarFlux::InviscidFlux chan;
+  Theseus::RanochaFlux::InviscidFlux ran;
+
+  run_vol_flux_tadmor_condition_2d(chan, gasModel);
+  run_vol_flux_tadmor_condition_2d(ran, gasModel);
+  return 0;
 }

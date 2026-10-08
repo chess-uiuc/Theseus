@@ -93,8 +93,10 @@ clone_or_update() {
   fi
 
   cd "$dir"
-  run_logged "fetch-$(basename "$dir")" git fetch --all --tags
-  run_logged "checkout-$(basename "$dir")" git checkout "$ref"
+  run_logged "fetch-$(basename "$dir")" git fetch origin "$ref"
+  run_logged "checkout-$(basename "$dir")" git checkout --detach FETCH_HEAD
+  # run_logged "fetch-$(basename "$dir")" git fetch --all --tags
+  # run_logged "checkout-$(basename "$dir")" git checkout "$ref"
 
   log ""
   log "Repo provenance: $dir"
@@ -254,20 +256,94 @@ record_final_summary() {
   log "$MANIFEST"
 }
 
-record_system_info
+prepare_sources() {
+  record_system_info
 
-clone_or_update "$PLATO_REPO" "$PLATO_REF" "$SRC_DIR/plato"
-clone_or_update "$THERMO_DATABASE_REPO" "$THERMO_DATABASE_REF" "$SRC_DIR/database"
-clone_or_update "$GKLIB_REPO" "$GKLIB_REF" "$SRC_DIR/GKlib"
-clone_or_update "$METIS_REPO" "$METIS_REF" "$SRC_DIR/METIS"
-clone_or_update "$HYPRE_REPO" "$HYPRE_REF" "$SRC_DIR/hypre"
-clone_or_update "$MFEM_REPO" "$MFEM_REF" "$SRC_DIR/mfem"
+  clone_or_update "$PLATO_REPO" "$PLATO_REF" "$SRC_DIR/plato"
+  clone_or_update "$THERMO_DATABASE_REPO" "$THERMO_DATABASE_REF" "$SRC_DIR/database"
+  clone_or_update "$GKLIB_REPO" "$GKLIB_REF" "$SRC_DIR/GKlib"
+  clone_or_update "$METIS_REPO" "$METIS_REF" "$SRC_DIR/METIS"
+  clone_or_update "$HYPRE_REPO" "$HYPRE_REF" "$SRC_DIR/hypre"
+  clone_or_update "$MFEM_REPO" "$MFEM_REF" "$SRC_DIR/mfem"
 
-build_plato
-build_thermo_database
-build_gklib
-build_metis
-build_hypre
-build_mfem
+  # This file identifies the exact sources and build configuration.
+  {
+    for name in plato database GKlib METIS hypre mfem; do
+      printf '%s %s\n' \
+        "$name" \
+        "$(git -C "$SRC_DIR/$name" rev-parse HEAD)"
+    done
 
-record_final_summary
+    printf 'DEVICE=%s\nCUDA_ARCH=%s\nHIP_ARCH=%s\n' \
+      "$DEVICE" "$CUDA_ARCH" "$HIP_ARCH"
+
+    printf 'CC=%s\nCXX=%s\nFC=%s\n' "$CC" "$CXX" "$FC"
+    "$CC" --version
+    "$CXX" --version
+    "$FC" --version
+
+    # Include MPI implementation details when available.
+    if command -v ompi_info >/dev/null 2>&1; then
+      ompi_info --version
+    fi
+    if command -v mpichversion >/dev/null 2>&1; then
+      mpichversion
+    fi
+
+    if [[ "$DEVICE" == cuda ]]; then
+      nvcc --version
+    elif [[ "$DEVICE" == hip ]]; then
+      hipcc --version
+    fi
+  } > "$TPL_DIR/deps-cache-input.txt"
+
+  cat "$TPL_DIR/deps-cache-input.txt"
+}
+
+build_sources() {
+  build_plato
+  build_thermo_database
+  build_gklib
+  build_metis
+  build_hypre
+  build_mfem
+  record_final_summary
+}
+
+case "${1:-all}" in
+  prepare)
+    prepare_sources
+    ;;
+  build)
+    # Use the sources already fetched by the prepare step.
+    # Do not fetch again: these commits identify the cache.
+    record_system_info
+    build_sources
+    ;;
+  all)
+    prepare_sources
+    build_sources
+    ;;
+  *)
+    echo "Usage: $0 [prepare|build|all]" >&2
+    exit 1
+    ;;
+esac
+
+# record_system_info
+#
+# clone_or_update "$PLATO_REPO" "$PLATO_REF" "$SRC_DIR/plato"
+# clone_or_update "$THERMO_DATABASE_REPO" "$THERMO_DATABASE_REF" "$SRC_DIR/database"
+# clone_or_update "$GKLIB_REPO" "$GKLIB_REF" "$SRC_DIR/GKlib"
+# clone_or_update "$METIS_REPO" "$METIS_REF" "$SRC_DIR/METIS"
+# clone_or_update "$HYPRE_REPO" "$HYPRE_REF" "$SRC_DIR/hypre"
+# clone_or_update "$MFEM_REPO" "$MFEM_REF" "$SRC_DIR/mfem"
+# 
+# build_plato
+# build_thermo_database
+# build_gklib
+# build_metis
+# build_hypre
+# build_mfem
+# 
+# record_final_summary

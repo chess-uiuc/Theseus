@@ -171,7 +171,45 @@ namespace Prandtl
   // Global static instance to ensure registration happens at startup.
   static RegisterTaylorGreenVortex regTaylorGreenVortex;
 
+  // Compressible Taylor Green Vortex initial condition
+  std::function<void(const mfem::Vector&, mfem::Vector&)> CompressibleTaylorGreenVortexIC(mfem::real_t Ma)
+  {
+    return [Ma](const mfem::Vector &x, mfem::Vector &y)
+    {
+      MFEM_ASSERT(x.Size() == 3, "");
 
+      mfem::real_t rho, rho0, U0, velX, velY, velZ, energy, p;
+      mfem::real_t p0 = 1.0e5, T0 = 273.15, R = 287.05, gamma = 1.4;
+
+      rho0 = p0/(R*T0);
+      U0   = Ma*std::sqrt(gamma*R*T0);
+
+      velX =  U0 * std::sin(x(0)) * std::cos(x(1)) * std::cos(x(2));
+      velY = -U0 * std::cos(x(0)) * std::sin(x(1)) * std::cos(x(2));
+      velZ =  0.0;
+      p    = p0 + (rho0 * U0 * U0) / 16.0 * (std::cos(2.0 * x(0)) + std::cos(2.0 * x(1))) * (std::cos(2.0 * x(2)) + 2);
+      rho  = p / (R * T0);
+      energy = p / (gamma - 1.0) + 0.5 * rho * (velX * velX + velY * velY + velZ * velZ);
+
+      y(0) = rho;
+      y(1) = rho * velX;
+      y(2) = rho * velY;
+      y(3) = rho * velZ;
+      y(4) = energy;
+    };
+  }
+
+  // Registration helper that automatically registers these functions
+  struct RegisterCompressibleTaylorGreenVortex
+  {
+    RegisterCompressibleTaylorGreenVortex()
+    {
+      // Register initial condition
+      Prandtl::ConditionFactory::Instance().RegisterInitialCondition1("CompressibleTaylorGreenVortexIC", CompressibleTaylorGreenVortexIC);
+    }
+  };
+  // Global static instance to ensure registration happens at startup.
+  static RegisterCompressibleTaylorGreenVortex regCompressibleTaylorGreenVortex;
 
 
 

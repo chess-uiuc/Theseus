@@ -9,6 +9,7 @@
 #include "GasState.hpp"
 #include "EOS.hpp"
 #include "Transport.hpp"
+#include "GasProperties.hpp"
 
 namespace Theseus
 {
@@ -42,6 +43,46 @@ namespace Theseus
     GasModel<EOSImpl, TransportImpl> to_device(HostDataT &host_data) {
       GasModel<EOSImpl, TransportImpl> retVal(phys, L, eos, transport);
       return retVal;
+    }
+
+    void ConservativeFromPhysical(const PhysicalStateInput &input, mfem::Vector &out) const
+    {
+      ValidatePhysicalState(input, L);
+      PackPhysicalState(input, eos.thermodynamic_state(phys, input.thermo), L, out);
+    }
+
+    template<typename StateView>
+    GasProperties EvaluateProperties(const StateView &state,
+                                     const GasPropertyRequest &request) const
+    {
+      GasProperties result;
+      if (request.pressure)
+        {
+          result.pressure = pressure(state);
+        }
+      if (request.temperature)
+        {
+          result.temperature = temperature(state);
+        }
+      if (request.sound_speed)
+        {
+          result.sound_speed = sound_speed(state);
+        }
+      if (request.viscosity)
+        {
+          result.viscosity = viscosity(state);
+        }
+      if (request.thermal_conductivity)
+        {
+          result.thermal_conductivity = thermal_conductivity(state);
+        }
+      return result;
+    }
+
+    MFEM_HOST_DEVICE
+    mfem::real_t isothermal_wall_beta(mfem::real_t wall_temperature) const
+    {
+      return eos.isothermal_wall_beta(phys, wall_temperature);
     }
 
     // Utilities and constants etc
@@ -199,7 +240,7 @@ namespace Theseus
     MFEM_HOST_DEVICE
     inline void primitive_to_conserved(const InStateView &Sp, OutStateView &Sc) const
     {
-      return eos.entropy_to_conserved(phys, L, Sp, Sc);
+      return eos.primitive_to_conserved(phys, L, Sp, Sc);
     }
  
     // --- Transport -----------------------------------------------------------
@@ -235,6 +276,10 @@ namespace Theseus
   {
   public:
     virtual ~GasModelInterface() = default;
+    virtual void ConservativeFromPhysical(const PhysicalStateInput &input,
+                                          mfem::Vector &out) const = 0;
+    virtual GasProperties EvaluateProperties(const Theseus::DofStateView &state,
+                                             const GasPropertyRequest &request) const = 0;
     virtual mfem::real_t density(const Theseus::DofStateView &S) const {
       MFEM_ABORT("GasModelInterface::density called on base class.");
     }
@@ -264,6 +309,18 @@ namespace Theseus
     explicit GasModelInterfaceT(std::shared_ptr<const GasT> gas_)
       : gas(std::move(gas_))
     {}
+
+    void ConservativeFromPhysical(const PhysicalStateInput &input,
+                                  mfem::Vector &out) const override
+    {
+      gas->ConservativeFromPhysical(input, out);
+    }
+
+    GasProperties EvaluateProperties(const Theseus::DofStateView &state,
+                                     const GasPropertyRequest &request) const override
+    {
+      return gas->EvaluateProperties(state, request);
+    }
 
     mfem::real_t density(const Theseus::DofStateView &S) const override
     {

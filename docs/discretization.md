@@ -22,6 +22,10 @@ form (or physical meaning) of the conservative state $U$.
 Explicit $s$-stage Runge-Kutta methods advance the resulting method-of-lines
 system in time.
 
+Lifting (mapping boundary quantities into the volume representation) is performed
+here by applying the transpose of MFEM's boundary restriction operator
+(`MultTranspose`) to the scaled boundary contributions.
+
 ## Entropy-stable BR1 viscous discretization
 
 The compressible Navier-Stokes operator uses an entropy-stable form of the BR1

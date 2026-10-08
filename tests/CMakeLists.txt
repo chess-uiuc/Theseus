@@ -20,13 +20,8 @@
 # Unit testing self-test suite
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-set(AXISYMMETRIC_RESTART_ARGUMENT)
-set(AXISYMMETRIC_TEST_DEVICE "cpu" CACHE STRING
-    "MFEM device used by axisymmetric integration tests")
-
-if(AXISYMMETRIC)
-    set(AXISYMMETRIC_RESTART_ARGUMENT --axisymmetric)
-endif()
+add_test(NAME ValidationRunnerTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/validation_runner_tests.py)
 
 add_test(
     NAME RunTheseusHarnessTests
@@ -136,16 +131,6 @@ target_link_libraries(time_step_control_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI
 
 add_test(NAME TimeStepControlTests COMMAND time_step_control_tests)
 
-add_test(
-    NAME TimestepCFLIntegration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/timestep_cfl_integration_test.py
-            --executable $<TARGET_FILE:theseus>
-            --source ${PROJECT_SOURCE_DIR}
-            --mpiexec ${MPIEXEC_EXECUTABLE}
-            --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-)
-
 # Axisymmetry configuration and mesh contract tests
 add_executable(axisymmetry_config_tests
    unit_test_main.cpp
@@ -190,61 +175,6 @@ target_link_libraries(axisymmetric_geometry_tests PRIVATE ${THESEUS_MFEM_TARGET}
 
 add_test(NAME AxisymmetricGeometryTests COMMAND axisymmetric_geometry_tests)
 
-if(AXISYMMETRIC)
-    add_test(
-        NAME AxisymmetricUniformFlowIntegration
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_uniform_flow_integration_test.py
-                --executable $<TARGET_FILE:theseus>
-                --source ${PROJECT_SOURCE_DIR}
-                --mpiexec ${MPIEXEC_EXECUTABLE}
-                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-                --device ${AXISYMMETRIC_TEST_DEVICE}
-    )
-    add_test(
-        NAME AxisymmetricEntropyWaveConvergence
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_entropy_wave_convergence_test.py
-                --executable $<TARGET_FILE:theseus>
-                --source ${PROJECT_SOURCE_DIR}
-                --mpiexec ${MPIEXEC_EXECUTABLE}
-                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-    )
-    add_test(
-        NAME AxisymmetricInviscidSphereIntegration
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_flow_over_sphere_integration_test.py
-                --executable $<TARGET_FILE:theseus>
-                --source ${PROJECT_SOURCE_DIR}
-                --mpiexec ${MPIEXEC_EXECUTABLE}
-                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-                --device ${AXISYMMETRIC_TEST_DEVICE}
-                --case inviscid
-    )
-    add_test(
-        NAME AxisymmetricViscousSphereIntegration
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/axisymmetric_flow_over_sphere_integration_test.py
-                --executable $<TARGET_FILE:theseus>
-                --source ${PROJECT_SOURCE_DIR}
-                --mpiexec ${MPIEXEC_EXECUTABLE}
-                --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-                --device ${AXISYMMETRIC_TEST_DEVICE}
-                --case viscous
-    )
-endif()
-
-add_test(
-    NAME CheckpointRestartIntegration
-    COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/restart_integration_test.py
-            --executable $<TARGET_FILE:theseus>
-            --source ${PROJECT_SOURCE_DIR}
-            --mpiexec ${MPIEXEC_EXECUTABLE}
-            --numproc-flag=${MPIEXEC_NUMPROC_FLAG}
-            ${AXISYMMETRIC_RESTART_ARGUMENT}
-)
-
 # Riemann solvers tests
 add_executable(rflux_tests
    unit_test_main.cpp
@@ -286,6 +216,9 @@ if(THESEUS_WITH_PLATO)
    endif()
 
    target_compile_definitions(table_lookup_tests PRIVATE USE_PLATO)
+   if(SUTHERLAND)
+     target_compile_definitions(table_lookup_tests PRIVATE SUTHERLAND)
+   endif()
 
    target_include_directories(table_lookup_tests
          PRIVATE
@@ -318,3 +251,34 @@ if(THESEUS_WITH_PLATO)
 
         add_test(NAME ThermoTableTestingSuite COMMAND table_lookup_tests)
 endif()
+
+add_executable(radial_profile_tests radial_profile_tests.cpp)
+target_include_directories(radial_profile_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+add_test(NAME RadialProfileTests COMMAND radial_profile_tests
+  ${PROJECT_SOURCE_DIR}/TestCases/Axisymmetric/NavierStokes/PXChamber/Tuvw_jet_inlet_profile.dat)
+
+# Host conversion API uses an analytic LTE fixture; no PLATO dependency.
+add_executable(physical_state_tests unit_test_main.cpp physical_state_tests.cpp)
+target_include_directories(physical_state_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(physical_state_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME PhysicalStateConversionTests COMMAND physical_state_tests)
+
+if(THESEUS_WITH_PLATO)
+  add_test(NAME PhysicalStatePLATOTests COMMAND table_lookup_tests plato_PhysicalState_conversion_test)
+endif()
+
+foreach(transport_variant IN ITEMS standard sutherland)
+  set(property_test_target gas_property_tests_${transport_variant})
+  add_executable(${property_test_target} unit_test_main.cpp gas_property_tests.cpp)
+  target_include_directories(${property_test_target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(${property_test_target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(transport_variant STREQUAL "sutherland")
+    target_compile_definitions(${property_test_target} PRIVATE SUTHERLAND)
+  endif()
+  add_test(NAME GasPropertyTests_${transport_variant} COMMAND ${property_test_target})
+endforeach()
+
+add_executable(visualization_fields_tests visualization_fields_tests.cpp)
+target_include_directories(visualization_fields_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(visualization_fields_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME VisualizationFieldsTests COMMAND visualization_fields_tests)

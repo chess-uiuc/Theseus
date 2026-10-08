@@ -8,6 +8,9 @@
 #include "AxisymmetryConfig.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
+#include "RadialProfile.hpp"
+#include "InitialCondition.hpp"
+#include "BoundaryStateConfig.hpp"
 #include "json.hpp"
 #include <cstdint>
 #include <filesystem>
@@ -96,7 +99,7 @@ namespace Theseus
       }
   }
 
-  constexpr bool debug_simulation = false;
+  bool debug_simulation = false;
 
   int Simulation::LoadConfig(const std::string &config_file_path)
   {
@@ -133,7 +136,7 @@ namespace Theseus
         order = runtime.value("order", 3);
     dim = runtime.value("dim", 2);
     num_equations = runtime.value("num_equations", 4);
-
+    debug_simulation = runtime.value("debug", false);
     precision = runtime.value("precision", 15);
     std::cout.precision(precision);
 
@@ -277,66 +280,6 @@ namespace Theseus
     else
       {
         std::cerr << "Error: Invalid ODE solver specified." << std::endl;
-        return 1;
-      }
-
-    signature = runtime["conditions"]["initial_conditions"].value("signature", 0);
-    std::string IC_key = runtime["conditions"]["initial_conditions"].value("function", "LidDrivenCavityIC");
-
-    if (signature == 0)
-      {
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition0(IC_key)());
-      }
-    else if (signature == 1)
-      {
-        mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition1(IC_key)(x1));
-      }
-    else if (signature == 2)
-      {
-        mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
-        mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition2(IC_key)(x1, x2));
-      }
-    else if (signature == 3)
-      {
-        mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
-        mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
-        mfem::real_t x3 = runtime["conditions"]["initial_conditions"]["params"].value("x3", 0.0);
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition3(IC_key)(x1, x2, x3));
-      }
-    else if (signature == 4)
-      {
-        mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
-        mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
-        mfem::real_t x3 = runtime["conditions"]["initial_conditions"]["params"].value("x3", 0.0);
-        mfem::real_t x4 = runtime["conditions"]["initial_conditions"]["params"].value("x4", 0.0);
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition4(IC_key)(x1, x2, x3, x4));
-      }
-    else if (signature == 5)
-      {
-        mfem::real_t x1 = runtime["conditions"]["initial_conditions"]["params"].value("x1", 0.0);
-        mfem::real_t x2 = runtime["conditions"]["initial_conditions"]["params"].value("x2", 0.0);
-        mfem::real_t x3 = runtime["conditions"]["initial_conditions"]["params"].value("x3", 0.0);
-        mfem::real_t x4 = runtime["conditions"]["initial_conditions"]["params"].value("x4", 0.0);
-        mfem::real_t x5 = runtime["conditions"]["initial_conditions"]["params"].value("x5", 0.0);
-        u0 = std::make_unique<mfem::VectorFunctionCoefficient>
-          (num_equations,
-           Prandtl::ConditionFactory::Instance().GetInitialCondition5(IC_key)(x1, x2, x3, x4, x5));
-      }
-    else
-      {
-        std::cerr << "Error: Invalid initial condition signature." << std::endl;
         return 1;
       }
 
@@ -529,23 +472,6 @@ namespace Theseus
     for(int idim = 0;idim < dim;idim++)
       grad_u[idim] = std::make_shared<mfem::ParGridFunction>(vfes.get());
 
-    if (checkpoint_config.LoadEnabled())
-      {
-        LoadCheckpoint();
-      }
-    else
-      {
-        sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
-        sol->ProjectCoefficient(*u0);
-
-        t = 0.0;
-        ti = 0;
-
-        if(myRank == 0 && debug_simulation){
-          std::cout << "Run is not a restart: (step=0, t=0)" << std::endl;
-        }
-      }
-
 #ifdef SUBCELL_FV_BLENDING
     mfem::Geometry::Type gtype = vfes->GetFE(0)->GetGeomType();
     eta = std::make_shared<mfem::ParGridFunction>(fes0.get());
@@ -582,9 +508,15 @@ namespace Theseus
     const auto &gasModel = rhsOp->GetGasModelInterface();
     auto stateLayout = gasModel.layout();
 
+    MFEM_VERIFY(num_equations == stateLayout.nequations(),
+                "Configured equation count does not match selected gas layout");
+    if (InitializeSolution(runtime)) return 1;
+
     mfem::Vector bc_vector_data;
     mfem::Vector bc_scalar_data;
     mfem::Array<Theseus::BCDescriptor> bc_descriptors;
+    std::vector<std::string> boundary_names;
+    int boundary_failed = 0;
 
     if (runtime["conditions"].contains("boundary_conditions"))
       {
@@ -782,15 +714,25 @@ namespace Theseus
               {
                 bc_descr.type = int(Theseus::BCType::NoSlipIso);
                 bc_descr.data_kind = int(Theseus::BCDataKind::VectorAndScalarConstant);
-                if (!(bc_props.contains("velocity") && bc_props["velocity"].contains("vector") &&
-                      bc_props.contains("temperature") && bc_props["temperature"].contains("scalar")))
-                  { std::cerr << "Error: no-slip-isothermal requires velocity.vector and temperature.scalar." << std::endl; return 1; }
+                if (!(bc_props.contains("velocity") && (bc_props["velocity"].contains("vector") || bc_props["velocity"].contains("value")) &&
+                      bc_props.contains("temperature") && (bc_props["temperature"].contains("scalar") || bc_props["temperature"].contains("value"))))
+                  { std::cerr << "Error: no-slip-isothermal requires velocity (vector or value) and temperature (scalar or value)." << std::endl; return 1; }
                 {
-                  std::string velBC_key = bc_props["velocity"]["vector"].get<std::string>();
-                  std::string tempBC_key = bc_props["temperature"]["scalar"].get<std::string>();
-                  // std::string state_key = bc_props["vector"].get<std::string>();
-                  auto vel_bc = Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(velBC_key);
-                  auto temp_bc = Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(tempBC_key);
+                  mfem::Vector vel_bc(dim); vel_bc=0.0;
+                  if (bc_props["velocity"].contains("value")) {
+                    const auto values=bc_props["velocity"]["value"].get<std::vector<double>>();
+                    MFEM_VERIFY(values.size()==size_t(dim), "Wall velocity dimension mismatch");
+                    for(int d=0;d<dim;++d) {
+                      MFEM_VERIFY(std::isfinite(values[d]), "Wall velocity must be finite");
+                      vel_bc[d]=values[d];
+                    }
+                  } else vel_bc=Prandtl::ConditionFactory::Instance().GetVectorBoundaryCondition(
+                    bc_props["velocity"]["vector"].get<std::string>());
+                  const double temp_bc=bc_props["temperature"].contains("value") ?
+                    bc_props["temperature"]["value"].get<double>() :
+                    Prandtl::ConditionFactory::Instance().GetScalarBoundaryCondition(
+                      bc_props["temperature"]["scalar"].get<std::string>());
+                  MFEM_VERIFY(std::isfinite(temp_bc) && temp_bc>0, "Wall temperature must be positive");
 
                   mfem::Vector bc_data(vel_bc.Size() + 1);
                   std::ostringstream Ostr;
@@ -814,6 +756,52 @@ namespace Theseus
                   }
                   rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
                 }
+              }
+            else if (type == "exterior-state" || type == "radial-profile")
+              {
+                try
+                  {
+                    const auto payload = ParseBoundaryState(bc_props, gasModel);
+                    bc_descr.type = int(BCType::PrescribedState);
+                    bc_descr.data_kind = int(payload.kind);
+                    bc_descr.data_index = AppendBCVectorPayload(bc_vector_data, payload.values);
+                    rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
+                  }
+                catch (const std::exception &error)
+                  {
+                    std::cerr << "Boundary '" << boundaryName << "': " << error.what() << std::endl;
+                    boundary_failed = 1;
+                  }
+              }
+            else if (type == "cpg-exterior-state" || type == "cpg-radial-profile")
+              {
+                const auto model=to_lower(runtime.value("gas_model",std::string("cpg")));
+                MFEM_VERIFY(dim==2 && num_equations==4 &&
+                            (model=="cpg" || model=="ideal" || model=="ideal_gas" || model.empty()),
+                            "CPG exterior BC requires 2D CPG; LTE is not supported");
+                const double pressure=bc_props.at("pressure").get<double>();
+                const double gamma=runtime.value("gamma",1.4), R=runtime.value("R_gas",287.05);
+                CPGState(pressure,300,0,0,gamma,R); // validate thermodynamic parameters
+                mfem::Vector payload;
+                if(type=="cpg-radial-profile") {
+                  const auto profile=RadialProfile::Read(bc_props.at("file").get<std::string>(),
+                                                        bc_props.value("flag",0));
+                  payload.SetSize(4+4*profile.rows.size());
+                  payload[0]=pressure; payload[1]=gamma; payload[2]=R;
+                  payload[3]=profile.rows.size();
+                  for(size_t i=0;i<profile.rows.size();++i)
+                    for(int q=0;q<4;++q) payload[4+4*i+q]=profile.rows[i][q];
+                  bc_descr.data_kind=int(BCDataKind::RadialCPG);
+                } else {
+                  const auto state=CPGState(pressure,bc_props.at("temperature").get<double>(),
+                                            bc_props.value("ux",0.0),bc_props.value("ur",0.0),gamma,R);
+                  payload.SetSize(4);
+                  for(int q=0;q<4;++q) payload[q]=state[q];
+                  bc_descr.data_kind=int(BCDataKind::VectorConstant);
+                }
+                bc_descr.type=int(BCType::PrescribedState);
+                bc_descr.data_index=AppendBCVectorPayload(bc_vector_data,payload);
+                rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
               }
             else if (type == "supersonic-outflow")
               {
@@ -991,16 +979,26 @@ namespace Theseus
                 return 1;
               }
             bc_descriptors.Append(bc_descr);
+            boundary_names.push_back(boundaryName);
           }
       }
+
+    int any_boundary_failed = 0;
+    MPI_Allreduce(&boundary_failed, &any_boundary_failed, 1, MPI_INT, MPI_MAX, pmesh->GetComm());
+    if (any_boundary_failed) return 1;
 
     if(myRank == 0 && debug_simulation){
       std::cout << "Boundary conditions configured." << std::endl;
     }
 
     // Set up the operator cache
-    rhsOp->SetBCDescriptorData(bc_descriptors, bc_scalar_data, bc_vector_data);
-    rhsOp->Finalize(t);
+    rhsOp->SetBCDescriptorData(bc_descriptors, bc_scalar_data, bc_vector_data, boundary_names);
+    try { rhsOp->Finalize(t); }
+    catch (const std::exception &error)
+      {
+        std::cerr << error.what() << std::endl;
+        return 1;
+      }
 
     if(myRank == 0 && debug_simulation){
       std::cout << "Theseus RHS Operator finalized." << std::endl;
@@ -1027,11 +1025,11 @@ namespace Theseus
     mom.MakeRef(dfes.get(), *sol, offset_momentum(stateLayout));
     energy.MakeRef(fes.get(), *sol, offset_energy(stateLayout));
 
-    velocity = std::make_unique<mfem::ParGridFunction>(dfes.get());
-    p = std::make_unique<mfem::ParGridFunction>(fes.get());
-
     if (visualize)
       {
+        visualization_fields = std::make_unique<VisualizationFields>(
+          visualization_config, *fes, *dfes, rho, alpha.get());
+
         if (paraview &&
             visualization_config.MeshMode() == VisualizationMeshMode::gll_subcells)
           {
@@ -1050,24 +1048,7 @@ namespace Theseus
           {
             pd = std::make_unique<mfem::ParaViewDataCollection>(paraview_folder, pmesh.get());
             pd->SetPrefixPath(output_file_path);
-            if (visualization_config.Has(VisualizationField::density))
-              {
-                pd->RegisterField("Density", &rho);
-              }
-            if (visualization_config.Has(VisualizationField::velocity))
-              {
-                pd->RegisterField("Velocity", velocity.get());
-              }
-            if (visualization_config.Has(VisualizationField::pressure))
-              {
-                pd->RegisterField("Pressure", p.get());
-              }
-#ifdef SUBCELL_FV_BLENDING
-            if (visualization_config.Has(VisualizationField::blending_coefficient))
-              {
-                pd->RegisterField("Blending Coeff", alpha.get());
-              }
-#endif
+            visualization_fields->Register(*pd);
             pd->SetLevelsOfDetail(order);
             pd->SetDataFormat(mfem::VTKFormat::BINARY);
             pd->SetHighOrderOutput(
@@ -1080,30 +1061,48 @@ namespace Theseus
             vd->SetPrecision(precision);
             vd->SetFormat(mfem::DataCollection::PARALLEL_FORMAT);
 
-            if (visualization_config.Has(VisualizationField::density))
-              {
-                vd->RegisterField("Density", &rho);
-              }
-            if (visualization_config.Has(VisualizationField::velocity))
-              {
-                vd->RegisterField("Velocity", velocity.get());
-              }
-            if (visualization_config.Has(VisualizationField::pressure))
-              {
-                vd->RegisterField("Pressure", p.get());
-              }
-#ifdef SUBCELL_FV_BLENDING
-            if (visualization_config.Has(VisualizationField::blending_coefficient))
-              {
-                vd->RegisterField("Blending Coeff", alpha.get());
-              }
-#endif
+            visualization_fields->Register(*vd);
           }
       }
 
     next_checkpoint_t = t + checkpoint_config.Interval();
     if (visualize) { next_save_t = t + save_dt; }
 
+    return 0;
+  }
+
+  int Simulation::InitializeSolution(const nlohmann::json &runtime)
+  {
+    int initialization_failed = 0;
+    try
+      {
+        // Checkpoints are already conservative: do not parse unused IC input.
+        if (checkpoint_config.LoadEnabled())
+          LoadCheckpoint();
+        else
+          {
+            const auto &gas = rhsOp->GetGasModelInterface();
+            // Local ownership bounds any captured gas reference to projection.
+            auto initial = MakeInitialCondition(runtime.at("conditions").at("initial_conditions"),runtime,gas);
+            sol = std::make_shared<mfem::ParGridFunction>(vfes.get());
+            sol->ProjectCoefficient(*initial);
+            t = 0.0;
+            ti = 0;
+            if (myRank==0 && debug_simulation)
+              std::cout << "Run is not a restart: (step=0, t=0)" << std::endl;
+          }
+      }
+    catch (const std::exception &error)
+      {
+        std::cerr << "Initial state on rank " << myRank << ": " << error.what() << std::endl;
+        initialization_failed = 1;
+      }
+    // This is a startup collective, never part of the RHS/timestep path. A bad
+    // rank-local sample must not leave other ranks entering finalization alone.
+    int any_initialization_failed = 0;
+    MPI_Allreduce(&initialization_failed,&any_initialization_failed,1,
+                  MPI_INT,MPI_MAX,pmesh->GetComm());
+    if (any_initialization_failed) return 1;
     return 0;
   }
 
@@ -1393,9 +1392,6 @@ namespace Theseus
     // u_final.SetTime(1.0);
     // mfem::ParGridFunction u_final_gf(vfes.get());
     // u_final_gf.ProjectCoefficient(u_final);
-    // mfem::real_t error_L1 = sol->ComputeLpError(1.0, *u0);
-    // mfem::real_t error_L2 = sol->ComputeLpError(2.0, *u0);
-    // mfem::real_t error_Linf = sol->ComputeLpError(infinity(), *u0);
     // if (mfem::Mpi::Root())
     // {
     //     std::cout << "L1 Error: " << error_L1 << std::endl;
@@ -1428,24 +1424,8 @@ namespace Theseus
 
   void Simulation::UpdateVisualizationFields()
   {
-    const auto &gasModel = rhsOp->GetGasModelInterface();
-    const mfem::real_t *sol_state = sol->HostRead();
-    for (int i = 0; i < num_dofs_scalar; i++)
-      {
-        Theseus::DofStateView dofState{sol_state, i};
-        if (visualization_config.Has(VisualizationField::velocity))
-          {
-            for (int component = 0; component < dim; component++)
-              {
-                (*velocity)(i + component*num_dofs_scalar) =
-                  gasModel.velocity(dofState, component);
-              }
-          }
-        if (visualization_config.Has(VisualizationField::pressure))
-          {
-            (*p)(i) = gasModel.pressure(dofState);
-          }
-      }
+    Theseus::ScopedTimer timer("VisualizationFields");
+    visualization_fields->Update(*sol, rhsOp->GetGasModelInterface());
   }
 
   void Simulation::SaveVisualization()
