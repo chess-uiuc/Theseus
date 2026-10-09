@@ -224,8 +224,9 @@ run_one() {
       nsteps=100
   fi
 
-  "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL} ${TOP}"\
-      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}" "${DISABLE_VIZ}" "${ALLOW_RESTART}" "${PRESERVE_CONFIG}" "${DEBUG}" << 'PY'
+  "${PYTHON}" - "${cfg_abs}" "${patched}" "${nsteps}" "${DT}" "${MESHNAME}" "${ORDER}" "${CFL}" "${MSHREF_LVL}" "${TOP}"\
+      "${NSTEPS_OVERRIDE}" "${DT_OVERRIDE}" "${MESH_OVERRIDE}" "${ORDER_OVERRIDE}" "${CFL_OVERRIDE}" "${MSHREF_OVERRIDE}"\
+      "${DISABLE_VIZ}" "${ALLOW_RESTART}" "${PRESERVE_CONFIG}" "${DEBUG}" << 'PY'
 import json
 import sys
 import os
