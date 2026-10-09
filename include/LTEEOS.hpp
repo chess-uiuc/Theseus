@@ -9,6 +9,7 @@
 #include "Physics.hpp"
 #include "GasState.hpp"
 #include "LTETable.hpp"
+#include "LTETemperatureRecovery.hpp"
 
 using namespace Theseus::LTETable;
 
@@ -20,6 +21,13 @@ namespace Theseus
   // ============================================================================
   struct LTEGasEOS
   {
+
+    MFEM_HOST_DEVICE
+    mfem::real_t isothermal_wall_beta(const PhysicsConstants &,
+                                     mfem::real_t wall_temperature) const
+    {
+      return 1.0 / wall_temperature;
+    }
 
     // ---- helpers on conservative state --------------------------------------
     template<typename StateView>
@@ -312,27 +320,14 @@ namespace Theseus
     inline mfem::real_t temp_from_internal_energy(const PhysicsConstants &phys, const StateLayout &L,
                                                   const StateView &S, const LTETables &lteTables) const
     {
-      mfem::real_t rho = density(phys, L, S, lteTables);
-      mfem::real_t e = specific_internal_energy(phys, L, S, lteTables);
-      mfem::real_t T = biinterp_inverse_table(phys, L, S, lteTables);
-
-      mfem::real_t tol = 1e-12;
-      mfem::real_t res = 1;
-
-      int iter = 0;
-
-      while(res > tol)
+      const auto e = specific_internal_energy(phys, L, S, lteTables);
+      detail::LTETemperatureRecovery recovery(biinterp_inverse_table(phys, L, S, lteTables));
+      while (recovery.NeedsIteration())
         {
-          mfem::real_t e_guess  = biinterp_lte_table(lteTables.L.e_idx, phys, L, S, T, lteTables);
-          mfem::real_t cv = biinterp_lte_table(lteTables.L.cv_idx, phys, L, S, T, lteTables);
-
-          res = (e - e_guess)/cv;
-
-          T = T + res;
-          res = Theseus::Kernels::rabs(res)/T;
-
-          iter++;
-          if(iter > 100)
+          const auto e_guess = biinterp_lte_table(lteTables.L.e_idx, phys, L, S, recovery.temperature, lteTables);
+          const auto cv = biinterp_lte_table(lteTables.L.cv_idx, phys, L, S, recovery.temperature, lteTables);
+          recovery.Update(e, e_guess, cv);
+          if (recovery.ExceededIterations())
             {
 #ifdef __CUDA_ARCH__
               printf("Newton method did not converge in temp_from_internal_energy");
@@ -343,7 +338,7 @@ namespace Theseus
             }
         }
 
-      return T;
+      return recovery.temperature;
     }
 
     template<typename StateView>

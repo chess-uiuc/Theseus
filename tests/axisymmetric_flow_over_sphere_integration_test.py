@@ -5,9 +5,9 @@ import argparse
 import json
 import math
 import re
-import subprocess
-import tempfile
 from pathlib import Path
+
+from integration_support import run_simulation, work_directory
 
 
 RANGE_PATTERN = re.compile(
@@ -15,8 +15,7 @@ RANGE_PATTERN = re.compile(
 )
 
 
-def run_case(executable: Path, source: Path, mpiexec: Path,
-             numproc_flag: str, case: Path, ranks: int,
+def run_case(executable: Path, source: Path, case: Path, ranks: int,
              device: str) -> tuple[float, ...]:
     case = source / case
     config = json.loads((case / "config.json").read_text())
@@ -32,15 +31,10 @@ def run_case(executable: Path, source: Path, mpiexec: Path,
         "print_interval": 1,
     })
 
-    with tempfile.TemporaryDirectory(prefix="theseus-axis-sphere-") as tmp:
+    with work_directory(prefix="theseus-axis-sphere-") as tmp:
         config_path = Path(tmp) / "config.json"
         config_path.write_text(json.dumps(config, indent=2) + "\n")
-        command = [str(mpiexec), numproc_flag, str(ranks), str(executable),
-                   "-d", device, "-c", str(config_path)]
-        result = subprocess.run(
-            command, cwd=tmp, text=True, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, timeout=360, check=False
-        )
+        result = run_simulation(executable, config_path, ranks, device, timeout=360)
     if result.returncode != 0:
         raise RuntimeError(
             f"{case.name} ({ranks} ranks) exited with "
@@ -69,8 +63,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--mpiexec", required=True, type=Path)
-    parser.add_argument("--numproc-flag", required=True)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--case", choices=("inviscid", "viscous"),
                         required=True)
@@ -84,10 +76,10 @@ def main() -> None:
     case = cases[args.case]
     serial = run_case(
         args.executable.resolve(), args.source.resolve(),
-        args.mpiexec.resolve(), args.numproc_flag, case, 1, args.device)
+        case, 1, args.device)
     parallel = run_case(
         args.executable.resolve(), args.source.resolve(),
-        args.mpiexec.resolve(), args.numproc_flag, case, 2, args.device)
+        case, 2, args.device)
     for index, (one, two) in enumerate(zip(serial, parallel)):
         if not math.isclose(one, two, rel_tol=0.0, abs_tol=1.0e-5):
             raise RuntimeError(

@@ -74,24 +74,6 @@ namespace Theseus {
       return 0.0;
     }
 
-    // This interface uses the internal entropy state (Se), and the wall temp (Tw) to get a "wall beta"
-    // It *requires specialization* for any gas other than ideal single component gas
-    // Ideal Gas: beta = 1/(RTwall)
-    // Ideal Mixtures / LTE beta = 1/(Rmix*Twall), where Rmix is depending on the mixture Rmix(Y)
-    // NLTE: Potentially this will be OK, but EOS-dependent
-    template<typename StateView, typename GasModelT>
-    MFEM_HOST_DEVICE
-    inline mfem::real_t isothermal_wall_beta(const StateView &Se, mfem::real_t Tw, const GasModelT &gasModel)
-    {
-      // In gas models where R_gas is not constant (e.g. a mixture), we need to pass the *conserved*
-      // state to the gasModel.R_gas function. Since we only have ideal atm with fixed R_gas, I am
-      // skipping the unnecessary Entropy2Conservative conversion.  
-      return (1.0 / (gasModel.R_gas(Se)*Tw));
-
-      // LTE Gas Model wants this one (because it uses dimensional entropy)
-      // return (1.0 / Tw);
-    }
-
     struct TotalConditions {
       mfem::real_t p0;
       mfem::real_t T0;

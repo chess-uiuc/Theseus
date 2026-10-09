@@ -3,6 +3,10 @@
 # This file is part of Theseus.
 #
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# Some configuration examples:
+# An GPU-enabled axisymmetric LTE-ready build:
+# cmake ../ -DAXISYMMETRIC=YES -DCMAKE_PREFIX_PATH=/tpl/install/path -DTHESEUS_WITH_PLATO=YES -DENABLE_CUDA=YES -DCMAKE_CUDA_ARCHITECTURES=75
 cmake_minimum_required(VERSION 3.15)
 
 set(CMAKE_CXX_STANDARD 17)
