@@ -76,7 +76,8 @@ Prepare two builds of the revision you want to test:
 | Axisymmetric | `AXISYMMETRIC=ON`, PLATO; `theseus` |
 
 For CUDA, both builds need `ENABLE_CUDA=ON` and compatible device-enabled dependencies.
-The visualization checker uses `table_lookup_tests` for a host EOS reference calculation.
+The visualization and CFL checkers use `table_lookup_tests` for host EOS reference
+calculations. The CFL checker also requires the AIR11 PLATO database.
 Use the compiler/MPI environment associated with your builds and a Python environment
 containing the CI requirements.
 

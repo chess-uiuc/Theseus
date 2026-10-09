@@ -370,12 +370,14 @@ namespace Theseus {
     // 3. Geometry arrays
     cache->bnd_normals.SetSize(nbnd_faces * nfp * dim);
     cache->bnd_wt.SetSize(nbnd_faces * nfp);
+    cache->bnd_metric_square_sum.SetSize(nbnd_faces * nfp);
     cache->bnd_xyz.SetSize(nbnd_faces * nfp * dim);
     cache->bnd_radius.SetSize(dim > AxisymmetricGeometry::radial_coordinate ?
                               nbnd_faces * nfp : 0);
 
     mfem::real_t *nor_d = cache->bnd_normals.HostWrite();
     mfem::real_t *wt_d  = cache->bnd_wt.HostWrite();
+    mfem::real_t *metric_square_sum = cache->bnd_metric_square_sum.HostWrite();
     mfem::real_t *xyz_d = cache->bnd_xyz.HostWrite();
     mfem::real_t *rad_d = cache->bnd_radius.Size() > 0 ?
                           cache->bnd_radius.HostWrite() : nullptr;
@@ -428,6 +430,22 @@ namespace Theseus {
             tr->SetAllIntPoints(&ip);
 
             const mfem::real_t J1 = tr->GetElement1Transformation().Weight();
+            // Match the volume diffusion metric at the adjacent element trace.
+            // Unlike the acoustic face weight, this has no endpoint lifting.
+            const auto &adjugate = tr->GetElement1Transformation().AdjugateJacobian();
+            mfem::real_t metric_sum = 0.0;
+            const mfem::real_t inverse_jacobian = 1.0 / J1;
+            for (int reference_direction = 0; reference_direction < dim; ++reference_direction)
+              {
+                mfem::real_t row_norm_squared = 0.0;
+                for (int physical_direction = 0; physical_direction < dim; ++physical_direction)
+                  {
+                    const mfem::real_t value = adjugate(reference_direction, physical_direction);
+                    row_norm_squared += value * value;
+                  }
+                metric_sum += row_norm_squared * inverse_jacobian * inverse_jacobian;
+              }
+            metric_square_sum[fslot * nfp + fp_restr] = metric_sum;
             if (dim == 1)
               {
                 nor(0) = (tr->GetElement1IntPoint().x - 0.5) * 2.0;
@@ -440,6 +458,7 @@ namespace Theseus {
             store(fslot, fp_restr, nor, phys, 1.0 / (w0 * J1));
           }
       }
+    cache->bnd_metric_square_sum.UseDevice();
     cache->bnd_xyz.UseDevice();
     cache->bnd_radius.UseDevice();
     cache->bnd_xyz.Read();

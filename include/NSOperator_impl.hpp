@@ -1014,6 +1014,32 @@ namespace Theseus
     });
 
 #ifdef POINT_PARALLEL_VOLUME
+    mfem::Vector &volume_flux = operator_cache.viscousVolumeFlux;
+    if (volume_flux.Size() != restr_size * dim)
+      {
+        volume_flux.SetSize(restr_size * dim);
+        volume_flux.UseDevice();
+      }
+    mfem::real_t *volume_flux_write = volume_flux.Write();
+    const int flux_stride = estride * dim;
+    mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
+    {
+      const int e = p / ndof;
+      const int point = p % ndof;
+      if (attr_marker_d[elem_attr_d[e] - 1] == 0)
+        {
+          return;
+        }
+      const int element_offset = e * estride;
+      DGSEMIntegrator::ComputeViscousVolumeFluxPointKernel(
+        dc, Ue_d + element_offset, elMetric_d + e * metric_stride,
+        dc.axisymmetric ? elRadius_d + e * jac_stride : nullptr,
+        gradPrim_d[0] + element_offset,
+        dim > 1 ? gradPrim_d[1] + element_offset : nullptr,
+        dim > 2 ? gradPrim_d[2] + element_offset : nullptr,
+        point, volume_flux_write + e * flux_stride);
+    });
+    const mfem::real_t *volume_flux_read = volume_flux.Read();
     mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
     {
       const int e = p / ndof;
@@ -1034,7 +1060,8 @@ namespace Theseus
                                                                  dc, Ue_d + element_offset, elJac_d + e*jac_stride,
                                                                  elMetric_d + e*metric_stride,
                                                                  dc.axisymmetric ? elRadius_d + e*jac_stride : nullptr,
-                                                                 grad_prim_el[0], grad_prim_el[1], grad_prim_el[2], point,
+                                                                 grad_prim_el[0], grad_prim_el[1], grad_prim_el[2],
+                                                                 volume_flux_read + e * flux_stride, point,
                                                                  dUe_d + element_offset);
     });
 #endif

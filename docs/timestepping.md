@@ -85,8 +85,8 @@ $s_a(p)=0.65(p+1)^2$.
 ### Face advection
 
 Interior-face scans use the maximum left/right normal-aligned acoustic speed.
-Boundary-face scans use the interior trace and also include prescribed
-supersonic-inflow states.  At an interior face point,
+Boundary-face scans use the interior trace and also include
+prescribed exterior states. At an interior face point,
 
 $$
 \lambda_n = \max_{s\in\{-,+\}}
@@ -98,8 +98,12 @@ $$
 $$
 
 For a boundary point the same expression uses the interior state and its
-single face weight; for prescribed supersonic inflow, the maximum also includes
-the prescribed exterior state.  Here the stored $\boldsymbol{n}$ and $w_f$
+single face weight. For `exterior-state`, `radial-profile`, their legacy CPG
+forms, and supersonic inflow, the maximum also includes the prescribed exterior
+state. Radial profiles use the same finalized conservative state at each boundary
+point as the numerical flux. This contribution is included before the first
+variable timestep is selected, even when the volume is initially at rest.
+Here the stored $\boldsymbol{n}$ and $w_f$
 collectively contain the mapped face geometry and endpoint lifting/Jacobian
 factors.  If $\ell_{\mathrm{end}}=1/w_{\mathrm{end}}$ denotes the endpoint
 lifting factor, then $s_f(p)=s_a(p)/\ell_{\mathrm{end}}$ avoids applying it
@@ -120,7 +124,7 @@ result is invariant under a change of flux implementation.
 For viscous flows, the estimate uses reference spectral radii of the coupled
 periodic scalar BR1 auxiliary-gradient and divergence operators for orders 1
 through 12, with a 25-percent margin.  Higher orders use the continuation
-$s_d(p)=0.5(p+1)^4$.  At volume node $q$, define
+$s_d(p)=0.5(p+1)^4$. At a volume or prescribed boundary state $q$, define
 
 $$
 \nu_{\mathrm{mom}} =
@@ -142,9 +146,18 @@ $$
 \right].
 $$
 
-All transport and thermodynamic quantities are evaluated from the local state
-through the same gas model used by the residual, including Sutherland and LTE
-models.  For inviscid flows, $\sigma_{\mathrm{diff}}=0$.
+The maximum includes volume nodes and prescribed exterior states (constant,
+radial-profile and supersonic inflow). At each boundary point, the metric and
+Jacobian are those of the adjacent element at that point, using all reference
+directions without an extra face-lifting factor. Profile transport is evaluated
+from the finalized conservative state at each point, not from a marker-level
+representative value. The cold initial volume is not changed.
+
+All transport and thermodynamic quantities are evaluated through the selected
+gas model, including Sutherland and LTE models. The boundary contribution
+anticipates the incoming state's diffusivity; it does not change how the residual
+evaluates viscous fluxes or establish a bound for every transient boundary-gradient
+effect. For inviscid flows, $\sigma_{\mathrm{diff}}=0$.
 
 ### Fixed-timestep reporting
 

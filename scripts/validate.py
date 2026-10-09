@@ -91,7 +91,8 @@ def integrated_commands(run, manifest, builds):
     source = run / 'source'
     device = manifest.get('device', 'cpu')
     entries = [
-        ('cfl', 'Timestep and CFL', 'standard', 'timestep_cfl_integration_test.py', []),
+        ('cfl', 'Timestep and CFL', 'standard', 'timestep_cfl_integration_test.py',
+         ['--database', manifest['prefix'] + '/database', '--reference', str(builds['standard'] / 'tests/table_lookup_tests')]),
         ('restart', 'Cartesian Checkpoint Restart', 'standard', 'restart_integration_test.py', []),
         ('initial-state', 'Physical Initial States', 'standard', 'physical_initial_state_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('visualization', 'Derived Visualization', 'standard', 'derived_visualization_integration_test.py',

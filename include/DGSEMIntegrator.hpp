@@ -485,6 +485,46 @@ namespace Theseus
 
     template<typename ContextType>
     MFEM_HOST_DEVICE inline
+    static void ComputeViscousVolumeFluxPointKernel(
+      const ContextType &ctx, const mfem::real_t *el_u,
+      const mfem::real_t *elMetric_d, const mfem::real_t *elRadius_d,
+      const mfem::real_t *el_gradprim_x, const mfem::real_t *el_gradprim_y,
+      const mfem::real_t *el_gradprim_z, const int point, mfem::real_t *el_flux)
+    {
+      const int dim = ctx.dim;
+      const int neq = ctx.num_equations;
+      const int dof = ctx.ndof_scalar_el;
+      mfem::real_t state[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqx[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqy[Theseus::MAXEQ] = {0.0};
+      mfem::real_t dqz[Theseus::MAXEQ] = {0.0};
+      mfem::real_t physical_flux[Theseus::MAXEQ][Theseus::MAXDIM] = {{0.0}};
+      Kernels::el_gather_state(el_u, dof, neq, point, state);
+      Kernels::el_gather_grad_state(el_gradprim_x, el_gradprim_y, el_gradprim_z,
+                                   dim, dof, neq, point, dqx, dqy, dqz);
+      NavierStokesFlux::ComputeViscousFluxKernel(
+        ctx.gas, state, dqx, dqy, dqz, physical_flux, ctx.axisymmetric,
+        ctx.axisymmetric ? elRadius_d[point] : 0.0);
+
+      // Element, reference direction, equation, point: neighboring point
+      // threads write contiguous entries. Reuse the physical flux for every row.
+      for (int direction = 0; direction < dim; ++direction)
+        {
+          const mfem::real_t *row = elMetric_d + (point * dim + direction) * dim;
+          for (int q = 0; q < neq; ++q)
+            {
+              mfem::real_t flux = 0.0;
+              for (int physical_direction = 0; physical_direction < dim; ++physical_direction)
+                {
+                  flux += row[physical_direction] * physical_flux[q][physical_direction];
+                }
+              el_flux[(direction * neq + q) * dof + point] = flux;
+            }
+        }
+    }
+
+    template<typename ContextType>
+    MFEM_HOST_DEVICE inline
     static void AssembleViscousVolumePointKernel(
                                                  const ContextType &ctx, const mfem::real_t *el_u,
                                                  const mfem::real_t *elJac_d, const mfem::real_t *elMetric_d,
@@ -492,6 +532,7 @@ namespace Theseus
                                                  const mfem::real_t *el_gradprim_x,
                                                  const mfem::real_t *el_gradprim_y,
                                                  const mfem::real_t *el_gradprim_z,
+                                                 const mfem::real_t *el_flux,
                                                  const int point, mfem::real_t *el_dudt)
     {
       const int Np_x = ctx.Np_x;
@@ -516,14 +557,10 @@ namespace Theseus
         {
           const int sample = k*Np_y*Np_x + j*Np_x + l;
           const mfem::real_t coefficient = Dhat_d[l + Np_x*i];
-          Kernels::el_gather_state(el_u, dof, neq, sample, state);
-          Kernels::el_gather_grad_state(
-                                        el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
-                                        sample, dqx, dqy, dqz);
-          Theseus::NavierStokesFlux::compute_ref_viscous_flux(
-                                                              ctx.gas, dim, neq, state, dqx, dqy, dqz,
-                                                              elMetric_d + sample*dim*dim, f_ref, ctx.axisymmetric,
-                                                              ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+          for (int q = 0; q < neq; ++q)
+            {
+              f_ref[q] = el_flux[(0 * neq + q) * dof + sample];
+            }
           for (int q = 0; q < neq; ++q)
             {
               dU_viscous[q] += coefficient*f_ref[q];
@@ -536,15 +573,10 @@ namespace Theseus
             {
               const int sample = k*Np_y*Np_x + l*Np_x + i;
               const mfem::real_t coefficient = Dhat_d[l + Np_y*j];
-              Kernels::el_gather_state(el_u, dof, neq, sample, state);
-              Kernels::el_gather_grad_state(
-                                            el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
-                                            sample, dqx, dqy, dqz);
-              Theseus::NavierStokesFlux::compute_ref_viscous_flux(
-                                                                  ctx.gas, dim, neq, state, dqx, dqy, dqz,
-                                                                  elMetric_d + sample*dim*dim + dim, f_ref,
-                                                                  ctx.axisymmetric,
-                                                                  ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+              for (int q = 0; q < neq; ++q)
+                {
+                  f_ref[q] = el_flux[(1 * neq + q) * dof + sample];
+                }
               for (int q = 0; q < neq; ++q)
                 {
                   dU_viscous[q] += coefficient*f_ref[q];
@@ -558,15 +590,10 @@ namespace Theseus
             {
               const int sample = l*Np_y*Np_x + j*Np_x + i;
               const mfem::real_t coefficient = Dhat_d[l + Np_z*k];
-              Kernels::el_gather_state(el_u, dof, neq, sample, state);
-              Kernels::el_gather_grad_state(
-                                            el_gradprim_x, el_gradprim_y, el_gradprim_z, dim, dof, neq,
-                                            sample, dqx, dqy, dqz);
-              Theseus::NavierStokesFlux::compute_ref_viscous_flux(
-                                                                  ctx.gas, dim, neq, state, dqx, dqy, dqz,
-                                                                  elMetric_d + sample*dim*dim + 2*dim, f_ref,
-                                                                  ctx.axisymmetric,
-                                                                  ctx.axisymmetric ? elRadius_d[sample] : 0.0);
+              for (int q = 0; q < neq; ++q)
+                {
+                  f_ref[q] = el_flux[(2 * neq + q) * dof + sample];
+                }
               for (int q = 0; q < neq; ++q)
                 {
                   dU_viscous[q] += coefficient*f_ref[q];
