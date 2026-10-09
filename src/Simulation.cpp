@@ -1147,7 +1147,10 @@ namespace Theseus
     StabilityEstimate stability;
     if (variable_dt)
       {
-        stability = global_stability(rhsOp->EstimateStability(*sol));
+        {
+          Theseus::ScopedTimer timer("EstimateStabilityInitial");
+          stability = global_stability(rhsOp->EstimateStability(*sol));
+        }
         MFEM_VERIFY(stability.TotalRate() > 0.0,
                     "The stability rate must be positive for variable timestepping.");
         dt = cfl / stability.TotalRate();
@@ -1264,7 +1267,10 @@ namespace Theseus
           mfem::real_t actual_cfl = 0.0;
           if (variable_dt || check_fixed_cfl)
             {
-              stability = global_stability(rhsOp->EstimateStability(*sol));
+              {
+                Theseus::ScopedTimer timer("EstimateStability");
+                stability = global_stability(rhsOp->EstimateStability(*sol));
+              }
               if(variable_dt){
                 MFEM_VERIFY(stability.TotalRate() > 0.0,
                             "The stability rate must be positive for variable timestepping.");

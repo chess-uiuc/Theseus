@@ -172,6 +172,69 @@ class RunTheseusHarnessTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertTrue(fixture.patched_config()["runTime"]["checkpoint_load"])
 
+    def test_mesh_filename_keeps_configured_directory(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            config = json.loads(fixture.config.read_text())
+            config["runTime"]["mesh_file"] = "configured/mesh.file"
+            fixture.config.write_text(json.dumps(config), encoding="utf-8")
+
+            result = fixture.run("-m", "replacement.msh", "-k")
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(
+                fixture.patched_config()["runTime"]["mesh_file"],
+                "configured/replacement.msh",
+            )
+
+    def test_relative_mesh_path_is_resolved_from_launch_directory(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+
+            result = fixture.run("-m", "user-meshes/replacement.msh", "-k")
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(
+                fixture.patched_config()["runTime"]["mesh_file"],
+                str(fixture.root.resolve() / "user-meshes" / "replacement.msh"),
+            )
+
+    def test_absolute_mesh_path_is_used_unchanged(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            mesh = fixture.root / "external-meshes" / "replacement.msh"
+
+            result = fixture.run("-m", str(mesh), "-k")
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(
+                fixture.patched_config()["runTime"]["mesh_file"], str(mesh)
+            )
+
+    def test_cfl_override_enables_variable_timestep(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            config = json.loads(fixture.config.read_text())
+            config["runTime"]["variable_dt"] = False
+            config["runTime"]["dt"] = 0.25
+            fixture.config.write_text(json.dumps(config), encoding="utf-8")
+
+            result = fixture.run("-s", "0.125", "-k")
+
+            self.assertEqual(result.returncode, 0, result.stdout)
+            runtime = fixture.patched_config()["runTime"]
+            self.assertTrue(runtime["variable_dt"])
+            self.assertEqual(runtime["cfl"], 0.125)
+
+    def test_fixed_timestep_and_cfl_overrides_are_mutually_exclusive(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+
+            result = fixture.run("-t", "0.01", "-s", "0.1", "-k")
+
+            self.assertEqual(result.returncode, 2, result.stdout)
+            self.assertIn("choose either -t TIMESTEP or -s CFL", result.stdout)
+
     def test_explicit_step_check_requires_final_cycle(self):
         with tempfile.TemporaryDirectory() as tempdir:
             fixture = HarnessFixture(tempdir)
