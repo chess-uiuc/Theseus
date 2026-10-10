@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare one identical Theseus run across two or more build directories."""
+"""Compare Theseus performance from builds or existing timer logs."""
 
 from __future__ import annotations
 
@@ -42,6 +42,32 @@ def parse_build(value: str) -> tuple[str, Path]:
     if not directory:
         raise argparse.ArgumentTypeError("build directory must not be empty")
     return label, Path(directory).expanduser().resolve()
+
+
+def parse_log_input(value: str) -> tuple[str, Path]:
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("log must be LABEL=LOG_FILE")
+    label, filename = value.split("=", 1)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", label):
+        raise argparse.ArgumentTypeError(f"invalid label: {label!r}")
+    if not filename:
+        raise argparse.ArgumentTypeError("log file must not be empty")
+    return label, Path(filename).expanduser().resolve()
+
+
+def validate_logs(logs: list[tuple[str, Path]]) -> list[dict[str, object]]:
+    if len(logs) < 2:
+        raise ValueError("at least two --log arguments are required")
+    labels = [label for label, _ in logs]
+    if len(set(labels)) != len(labels):
+        raise ValueError("log labels must be unique")
+
+    records = []
+    for label, path in logs:
+        if not path.is_file():
+            raise ValueError(f"log file does not exist: {path}")
+        records.append({"label": label, "source_log": str(path)})
+    return records
 
 
 def read_cmake_cache(build_dir: Path) -> dict[str, str]:
@@ -140,16 +166,35 @@ def selected_timers(parsed: dict[str, object]) -> tuple[str, dict[str, object]]:
     return scope, timers.get(scope, {})
 
 
-def markdown_report(results: list[dict[str, object]], reference_label: str) -> str:
+def analyzed_timestep_ms(parsed: dict[str, object]) -> float | None:
+    _, timers = selected_timers(parsed)
+    timer = timers.get("Timestep")
+    if timer:
+        return float(timer["mean_ms"])
+    summary = parsed.get("timestep") or {}
+    value = summary.get("critical_mean_timestep_ms")
+    return None if value is None else float(value)
+
+
+def markdown_report(
+    results: list[dict[str, object]], reference_label: str, input_mode: str = "builds"
+) -> str:
     by_label = {result["label"]: result for result in results}
     reference = by_label[reference_label]
-    lines = ["# Theseus performance comparison", "", f"Reference: `{reference_label}`", ""]
-    lines += ["## Timestep performance", "", "| Build | Mean timestep (ms) | Change |", "|---|---:|---:|"]
-    ref_step = reference["parsed"].get("timestep") or {}
-    ref_value = ref_step.get("critical_mean_timestep_ms")
+    skip_steps = reference["parsed"].get("analysis", {}).get("skip_steps", 0)
+    lines = [
+        "# Theseus performance comparison", "", f"Reference: `{reference_label}`",
+        f"Warm-up timesteps excluded: {skip_steps}", "",
+    ]
+    input_heading = "Log" if input_mode == "logs" else "Build"
+    lines += [
+        "## Timestep performance", "",
+        f"| {input_heading} | Analyzed mean timestep (ms) | Change |",
+        "|---|---:|---:|",
+    ]
+    ref_value = analyzed_timestep_ms(reference["parsed"])
     for result in results:
-        summary = result["parsed"].get("timestep") or {}
-        value = summary.get("critical_mean_timestep_ms")
+        value = analyzed_timestep_ms(result["parsed"])
         if value is None or ref_value is None:
             value_text, change_text = "n/a", "n/a"
         else:
@@ -184,64 +229,93 @@ def markdown_report(results: list[dict[str, object]], reference_label: str) -> s
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build", action="append", required=True, type=parse_build,
-                        metavar="LABEL=DIRECTORY")
+    inputs = parser.add_mutually_exclusive_group(required=True)
+    inputs.add_argument("--build", action="append", type=parse_build,
+                        metavar="LABEL=DIRECTORY",
+                        help="run and compare a labeled build directory (repeatable)")
+    inputs.add_argument("--log", action="append", type=parse_log_input,
+                        metavar="LABEL=LOG_FILE",
+                        help="compare an existing labeled timer log (repeatable)")
     parser.add_argument("--reference", help="reference build label (default: first build)")
     parser.add_argument("--output", type=Path, help="new result directory")
+    parser.add_argument("--skip-steps", type=int, default=3,
+                        help="warm-up timesteps excluded from analysis (default: 3)")
     parser.add_argument("runner_args", nargs=argparse.REMAINDER,
                         help="arguments passed to run_theseus.sh after --")
     args = parser.parse_args()
 
-    if Path.cwd().resolve() != ROOT:
-        parser.error(f"run this command from the repository root: {ROOT}")
+    if args.skip_steps < 0:
+        parser.error("--skip-steps must be nonnegative")
     runner_args = args.runner_args
     if runner_args and runner_args[0] == "--":
         runner_args = runner_args[1:]
+    input_mode = "logs" if args.log is not None else "builds"
     try:
-        builds = validate_builds(args.build, runner_args)
+        if input_mode == "logs":
+            if runner_args:
+                raise ValueError("run_theseus arguments after -- are not valid with --log")
+            records = validate_logs(args.log)
+        else:
+            if Path.cwd().resolve() != ROOT:
+                raise ValueError(f"run build comparisons from the repository root: {ROOT}")
+            records = validate_builds(args.build, runner_args)
     except ValueError as error:
         parser.error(str(error))
-    reference = args.reference or str(builds[0]["label"])
-    if reference not in {record["label"] for record in builds}:
-        parser.error(f"unknown reference build: {reference!r}")
+    reference = args.reference or str(records[0]["label"])
+    if reference not in {record["label"] for record in records}:
+        parser.error(f"unknown reference label: {reference!r}")
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output = (args.output or Path(f"performance-comparison-{timestamp}")).resolve()
     if output.exists():
         parser.error(f"output path already exists: {output}")
     (output / "logs").mkdir(parents=True)
-    (output / "runs").mkdir()
+    if input_mode == "builds":
+        (output / "runs").mkdir()
 
     results: list[dict[str, object]] = []
-    for record in builds:
+    for record in records:
         label = str(record["label"])
-        run_root = ROOT / f".performance-comparison-{os.getpid()}-{label}"
         log_path = output / "logs" / f"{label}.log"
-        command = [
-            "/bin/bash", str(RUNNER), "-e", str(record["executable"]),
-            "-o", run_root.name, *runner_args,
-        ]
-        print(f"Running {label}...")
-        with log_path.open("w", encoding="utf-8") as log:
-            completed = subprocess.run(command, cwd=ROOT, stdout=log,
-                                       stderr=subprocess.STDOUT, check=False)
-        if run_root.exists():
-            shutil.move(str(run_root), output / "runs" / label)
-        if completed.returncode != 0:
-            tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-30:])
-            raise SystemExit(f"build {label!r} failed with exit code {completed.returncode}:\n{tail}")
-        parsed = parse_log(log_path)
+        result_record = dict(record)
+        if input_mode == "logs":
+            shutil.copy2(record["source_log"], log_path)
+        else:
+            run_root = ROOT / f".performance-comparison-{os.getpid()}-{label}"
+            command = [
+                "/bin/bash", str(RUNNER), "-e", str(record["executable"]),
+                "-o", run_root.name, *runner_args,
+            ]
+            print(f"Running {label}...")
+            with log_path.open("w", encoding="utf-8") as log:
+                completed = subprocess.run(command, cwd=ROOT, stdout=log,
+                                           stderr=subprocess.STDOUT, check=False)
+            if run_root.exists():
+                shutil.move(str(run_root), output / "runs" / label)
+            if completed.returncode != 0:
+                tail = "\n".join(log_path.read_text(errors="replace").splitlines()[-30:])
+                raise SystemExit(
+                    f"build {label!r} failed with exit code {completed.returncode}:\n{tail}"
+                )
+            result_record["command"] = command
+        parsed = parse_log(log_path, skip_steps=args.skip_steps)
         if not parsed["timers"]:
-            raise SystemExit(f"build {label!r} produced no detailed timer output")
-        if not parsed["timestep"]:
-            raise SystemExit(f"build {label!r} produced no timestep summary")
-        results.append({**record, "command": command, "parsed": parsed})
+            raise SystemExit(f"input {label!r} contains no analyzed detailed timer output")
+        if analyzed_timestep_ms(parsed) is None:
+            raise SystemExit(f"input {label!r} contains no analyzed timestep timing")
+        results.append({**result_record, "parsed": parsed})
 
-    payload = {"reference": reference, "runner_arguments": runner_args, "builds": results}
+    payload: dict[str, object] = {
+        "input_mode": input_mode,
+        "reference": reference,
+        "runner_arguments": runner_args,
+        "skip_steps": args.skip_steps,
+    }
+    payload[input_mode] = results
     (output / "results.json").write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    report = markdown_report(results, reference)
+    report = markdown_report(results, reference, input_mode=input_mode)
     (output / "summary.md").write_text(report, encoding="utf-8")
     print(report)
     print(f"Results: {output}")

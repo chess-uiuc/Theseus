@@ -47,6 +47,7 @@ python3 scripts/compare_performance.py \
   --build candidate=/path/to/candidate/build \
   --reference main \
   --output tgv-p8-cfl-comparison \
+  --skip-steps 3 \
   -- \
   -c TestCases/NavierStokes/3D/TaylorGreenVortex/config.json \
   -m /path/to/tgv.msh \
@@ -58,9 +59,11 @@ python3 scripts/compare_performance.py \
   -z
 ```
 
-There is one execution per build, in command-line order. Select enough
-timesteps with `-n` to make initialization and short-lived clock variation
-small relative to the measured run.
+There is one execution per build, in command-line order. By default, detailed
+timer records through the third natural `[TIMER(0)] Timestep` record are treated
+as warm-up and excluded from analysis. Change this with `--skip-steps N`; use
+`--skip-steps 0` to retain every timer record. Select enough timesteps with `-n`
+to leave a useful measured interval after the warm-up boundary.
 
 The comparison tool controls `run_theseus.sh` options `-b`, `-e`, and `-o` and
 rejects them in the arguments after `--`.
@@ -99,6 +102,13 @@ The `-m` option supports three forms:
 Absolute paths are recommended when comparing builds from different source
 trees or when meshes live on platform scratch storage.
 
+## Local MPI execution
+
+On the local macOS development platform, follow the MPI recipe in
+[`AGENTS.md`](../AGENTS.md). In particular, run the comparison from Bash after
+exporting the documented `mpiexec` wrapper. OpenMPI also needs localhost socket
+permission in the Codex sandbox.
+
 ## Results
 
 The output directory contains:
@@ -131,10 +141,37 @@ Large percentage changes in extremely short timers may be operationally
 irrelevant. Consider both the relative change and the absolute duration, and
 consult the raw samples when a conclusion matters.
 
-## Parse an existing log
+## Compare existing logs
+
+Runs captured previously can be compared without build directories or another
+Theseus execution. Label each log with a repeated `--log` argument:
+
+```bash
+python3 scripts/compare_performance.py \
+  --log main=/path/to/main.log \
+  --log candidate=/path/to/candidate.log \
+  --reference main \
+  --skip-steps 3 \
+  --output existing-run-comparison
+```
+
+`--log` and `--build` are mutually exclusive. Arguments for `run_theseus.sh`
+are not accepted in log mode. The source logs are copied into the result
+directory, and the tool writes the same `summary.md` and `results.json` reports
+as a build comparison. Because no builds are inspected, the user is responsible
+for ensuring that the logs represent comparable configurations, platforms, MPI
+layouts, and timer settings.
+
+Logs with detailed `Timestep` timer records can be compared even when they
+predate the aggregate timestep-summary block.
+
+## Parse one existing log
 
 The timer parser can also be used independently:
 
 ```bash
 python3 scripts/performance_timers.py run.log -o run-timers.json
 ```
+
+This command also excludes three warm-up timesteps by default. Override it with
+`--skip-steps N`.
