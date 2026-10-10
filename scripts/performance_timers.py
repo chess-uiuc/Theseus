@@ -35,7 +35,23 @@ def _aggregate(samples: list[float]) -> dict[str, object]:
     }
 
 
-def parse_lines(lines: Iterable[str]) -> dict[str, object]:
+def parse_lines(lines: Iterable[str], skip_steps: int = 3) -> dict[str, object]:
+    if skip_steps < 0:
+        raise ValueError("skip_steps must be nonnegative")
+    input_lines = [line.rstrip("\n") for line in lines]
+    timestep_indices = [
+        index for index, line in enumerate(input_lines)
+        if (match := TIMER_RE.match(line))
+        and match.group("scope") == "0"
+        and match.group("name") == "Timestep"
+    ]
+    if skip_steps == 0:
+        cutoff = -1
+    elif skip_steps <= len(timestep_indices):
+        cutoff = timestep_indices[skip_steps - 1]
+    else:
+        cutoff = len(input_lines)
+
     samples: dict[str, dict[str, list[float]]] = {}
     timestep: dict[str, object] = {}
 
@@ -47,12 +63,13 @@ def parse_lines(lines: Iterable[str]) -> dict[str, object]:
         "Max step (ms)": "maximum_step_ms",
     }
 
-    for raw_line in lines:
-        line = raw_line.rstrip("\n")
+    for index, line in enumerate(input_lines):
         match = TIMER_RE.match(line)
         if match:
             scope = match.group("scope")
             name = match.group("name")
+            if index <= cutoff:
+                continue
             samples.setdefault(scope, {}).setdefault(name, []).append(
                 float(match.group("value"))
             )
@@ -92,12 +109,20 @@ def parse_lines(lines: Iterable[str]) -> dict[str, object]:
         scope: {name: _aggregate(values) for name, values in sorted(named.items())}
         for scope, named in sorted(samples.items())
     }
-    return {"timers": timers, "timestep": timestep or None}
+    return {
+        "analysis": {
+            "skip_steps": skip_steps,
+            "step_markers_present": bool(timestep_indices),
+            "observed_steps": len(timestep_indices),
+        },
+        "timers": timers,
+        "timestep": timestep or None,
+    }
 
 
-def parse_log(path: Path) -> dict[str, object]:
+def parse_log(path: Path, skip_steps: int = 3) -> dict[str, object]:
     with path.open("r", encoding="utf-8", errors="replace") as stream:
-        result = parse_lines(stream)
+        result = parse_lines(stream, skip_steps=skip_steps)
     result["source"] = str(path)
     return result
 
@@ -106,9 +131,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("log", type=Path, help="Theseus stdout/stderr log")
     parser.add_argument("-o", "--output", type=Path, help="write JSON to this path")
+    parser.add_argument("--skip-steps", type=int, default=3,
+                        help="warm-up timesteps excluded from analysis (default: 3)")
     args = parser.parse_args()
 
-    encoded = json.dumps(parse_log(args.log), indent=2, sort_keys=True) + "\n"
+    if args.skip_steps < 0:
+        parser.error("--skip-steps must be nonnegative")
+    encoded = json.dumps(
+        parse_log(args.log, skip_steps=args.skip_steps), indent=2, sort_keys=True
+    ) + "\n"
     if args.output:
         args.output.write_text(encoded, encoding="utf-8")
     else:
