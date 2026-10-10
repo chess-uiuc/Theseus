@@ -23,7 +23,8 @@ class PerformanceTimerParserTests(unittest.TestCase):
                 "[TIMER(0)] RHSMult : 14.0 ms\n",
                 "[TIMER(all)] RHSMult : 15.0 ms\n",
                 "[TIMER(0)] EstimateStability : 1.2e-1 ms\n",
-            ]
+            ],
+            skip_steps=0,
         )
 
         rank_zero = parsed["timers"]["0"]["RHSMult"]
@@ -61,6 +62,27 @@ MPI ranks         : 2
         self.assertEqual(summary["timesteps_per_second"], 181.818)
         self.assertTrue(summary["device_sync"])
         self.assertFalse(summary["mpi_barrier"])
+
+    def test_skips_to_natural_timestep_timer_boundary(self):
+        parsed = parse_lines(
+            [
+                "[TIMER(0)] SetupRestrictions : 10 ms\n",
+                "[TIMER(0)] RHSMult : 9 ms\n",
+                "[TIMER(0)] Timestep : 10 ms\n",
+                "[TIMER(0)] EstimateStability : 1 ms\n",
+                "[TIMER(0)] RHSMult : 7 ms\n",
+                "[TIMER(0)] Timestep : 8 ms\n",
+                "[TIMER(0)] EstimateStability : 0.5 ms\n",
+            ],
+            skip_steps=1,
+        )
+
+        timers = parsed["timers"]["0"]
+        self.assertNotIn("SetupRestrictions", timers)
+        self.assertEqual(timers["EstimateStability"]["samples_ms"], [1.0, 0.5])
+        self.assertEqual(timers["RHSMult"]["samples_ms"], [7.0])
+        self.assertEqual(timers["Timestep"]["samples_ms"], [8.0])
+        self.assertEqual(parsed["analysis"]["observed_steps"], 2)
 
 
 if __name__ == "__main__":

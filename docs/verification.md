@@ -13,7 +13,7 @@ records their results individually.
 
 | Summary name | Configuration and execution | Required result |
 | --- | --- | --- |
-| **Timestep and CFL** | Cartesian order-3 CNS cavity, one and two MPI ranks | The initial variable timestep matches the independently calculated mapped advective-plus-viscous stability rate; serial and MPI timesteps agree. Fixed-DT reporting occurs at the configured check interval, and a final-time-shortened step reports a proportionally smaller actual CFL. |
+| **Timestep and CFL** | Cartesian order-3 CNS cavity and CPG/AIR11 Euler/CNS prescribed boundaries, one and two MPI ranks | The initial variable timestep matches the independently calculated mapped advective-plus-viscous stability rate; serial and MPI timesteps agree. Constant and radial-profile exterior states test initial acoustic timestep control for a resting 300 K volume and boundary temperatures up to 10,000 K. CPG uses analytic sound speeds; AIR11 uses separate host EOS queries at the boundary sampling nodes, with the 101×201 chamber table. CNS cases additionally verify the maximum volume/boundary diffusivity with the adjacent mapped geometry. Legacy supersonic inflow remains covered. Fixed-DT reporting occurs at the configured check interval, and a final-time-shortened step reports a proportionally smaller actual CFL. |
 | **Derived Visualization** | Cartesian CPG/LTE, one and two MPI ranks | Emitted thermodynamic, energy and transport fields match individual gas queries; both ParaView mesh modes, VisIt, selected fields, disabled output and restart are checked. |
 | **Physical Initial States** | Cartesian CPG/LTE, one and two MPI ranks | Physical constant/profile initialization, thermodynamic pairs, rejection and conservative restart. |
 | **Physical Boundary States** | Axisymmetric CPG/LTE CNS, one and two MPI ranks | Uniform-state preservation, heated radial inflow response, selected-EOS energy, primitive interpolation, legacy CPG parity and coordinated rejection. |
@@ -41,7 +41,11 @@ CTest includes configuration, state layout, gas physics, flux, mesh, geometry,
 checkpoint, table lookup, field evaluation and test-infrastructure checks.
 `AxisymmetryConfigTests` checks the geometry/state contract;
 `AxisymmetricGeometryTests` checks cylindrical measures and source terms, including
-axis limits. Specialized physics checks are described below.
+axis limits. `ViscousVolumeTests` compares cached-flux volume differentiation with
+the element reference kernel for CPG and analytic LTE transport at orders 2, 4,
+and 6 in 1D/2D/3D and axisymmetric geometry (including axis points). It accepts
+`cuda` as a command-line device argument in CUDA builds. Specialized physics
+checks are described below.
 
 Run the registered unit/helper tests with:
 

@@ -427,3 +427,93 @@ TEST(plato_Visualization_reference)
   print_reference(lte, "lte");
   return 0;
 }
+
+TEST(plato_BoundaryAcoustic_reference)
+{
+  // Match the integration table, but query sound speeds independently of the
+  // timestep estimator, boundary descriptors and face kernels.
+  const std::string database(Theseus::BuildConfig::PlatoDBPath);
+  plato_initialize("LTE_table_rhoT_(air11)", "air11", "empty", "empty", database.c_str());
+  constexpr int density_points = 101;
+  constexpr int temperature_points = 201;
+  LTETable::Data data;
+  LTETables tables(density_points, temperature_points);
+  log_grid(density_points, 0.0001, 1.1, data.rho_grid);
+  log_grid(temperature_points, 250, 15000, data.T_grid);
+  data.lte_table.SetSize(9 * density_points * temperature_points);
+  data.inv_table.SetSize(density_points * temperature_points);
+  real_t minimum_energy;
+  real_t maximum_energy;
+  fill_table(tables.L, data.rho_grid.GetData(), data.T_grid.GetData(),
+             data.lte_table.GetData(), minimum_energy, maximum_energy);
+  uniform_grid(temperature_points, minimum_energy, maximum_energy, data.e_grid);
+  fill_inv_table(tables.L, data.rho_grid.GetData(), data.e_grid.GetData(),
+                 data.T_grid.GetData(), data.inv_table.GetData());
+  plato_finalize();
+  tables.tables = {data.lte_table.HostRead(), data.inv_table.HostRead(),
+                   data.rho_grid.HostRead(), data.T_grid.HostRead(), data.e_grid.HostRead()};
+  const LTEGas gas(PhysicsConstants(1.4, 0.72, 287.05, 0.02), StateLayout(2, 1), tables);
+  const auto sound_speed = [&](real_t temperature, real_t velocity)
+    {
+      mfem::Vector conservative;
+      gas.ConservativeFromPhysical(
+        {PressureTemperature{10000, temperature}, {velocity, 0}}, conservative);
+      const real_t speed = gas.sound_speed(PointStateView(conservative.HostRead()));
+      if (!std::isfinite(speed) || speed <= 0)
+        {
+          throw std::runtime_error("Invalid AIR11 boundary acoustic reference");
+        }
+      return speed;
+    };
+
+  nlohmann::json reference;
+  reference["runtime"] = {
+    {"gas_model", "lte"}, {"gas_mixture", "air11"},
+    {"plato_solver", "LTE_table_rhoT_(air11)"},
+    {"N_rho", density_points}, {"N_T", temperature_points},
+    {"rho_min", 0.0001}, {"rho_max", 1.1}, {"T_min", 250}, {"T_max", 15000},
+    {"rho_dist", "log"}, {"T_dist", "log"}
+  };
+  const auto diffusivity = [&](real_t temperature)
+    {
+      mfem::Vector conservative;
+      gas.ConservativeFromPhysical(
+        {PressureTemperature{10000, temperature}, {100, 0}}, conservative);
+      const PointStateView state(conservative.HostRead());
+      const real_t density = gas.density(state);
+      const real_t viscosity = gas.viscosity(state);
+      const real_t momentum = std::max(viscosity, (2 - gas.bulk_viscosity(state)) * viscosity) / density;
+      const real_t thermal = gas.thermal_conductivity(state) * gas.gamma(state)
+                             / (density * gas.cp(state));
+      return std::max(momentum, thermal);
+    };
+  reference["interior_diffusivity"] = diffusivity(300);
+  reference["interior_speed"] = sound_speed(300, 0);
+  // The order-three cavity mesh has 16 cells along each side. Enumerate
+  // their GLL nodes: AIR11 sound speed need not be monotone in temperature.
+  const real_t nodes[] = {0, (1 - 1 / std::sqrt(5.0)) / 2,
+                         (1 + 1 / std::sqrt(5.0)) / 2, 1};
+  for (int maximum_temperature : {300, 10000})
+    {
+      real_t profile_speed = 0;
+      real_t profile_diffusivity = 0;
+      for (int cell = 0; cell < 16; ++cell)
+        {
+          for (real_t node : nodes)
+            {
+              const real_t fraction = (cell + node) / 16;
+              const real_t temperature = 300 + (maximum_temperature - 300) * fraction;
+              profile_speed = std::max(profile_speed, sound_speed(temperature, 100));
+              profile_diffusivity = std::max(profile_diffusivity, diffusivity(temperature));
+            }
+        }
+      auto &speeds = reference["boundary_speeds"][std::to_string(maximum_temperature)];
+      speeds["exterior-state"] = sound_speed(maximum_temperature, 100);
+      speeds["radial-profile"] = profile_speed;
+      auto &diffusion = reference["boundary_diffusivities"][std::to_string(maximum_temperature)];
+      diffusion["exterior-state"] = diffusivity(maximum_temperature);
+      diffusion["radial-profile"] = profile_diffusivity;
+    }
+  std::cout << "BOUNDARY_ACOUSTIC_REFERENCE " << reference.dump() << '\n';
+  return 0;
+}

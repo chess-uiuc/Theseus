@@ -79,19 +79,8 @@ namespace Theseus
       advective_rate[point] = advection_scale * directional_sum;
       if (viscous)
         {
-          const mfem::real_t density = gas_model.density(S);
-          const mfem::real_t gamma = gas_model.gamma(S);
-          const mfem::real_t shear_viscosity = gas_model.viscosity(S);
-	  const mfem::real_t stokes_coeff = gas_model.bulk_viscosity(S);
-          const mfem::real_t longitudinal_viscosity =
-            (mfem::real_t(2.0) - stokes_coeff) * shear_viscosity;
-          const mfem::real_t momentum_diffusivity =
-            Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
-          const mfem::real_t thermal_diffusivity =
-            gas_model.thermal_conductivity(S) * gamma
-            / (density * gas_model.cp(S));
           const mfem::real_t effective_diffusivity =
-            Kernels::rmax(momentum_diffusivity, thermal_diffusivity);
+            EffectiveStabilityDiffusivity(gas_model, S);
           diffusive_rate[point] = diffusion_scale * effective_diffusivity
                                   * metric_square_sum;
         }
@@ -206,13 +195,19 @@ namespace Theseus
         const mfem::real_t *normal = dc.bnd_nor_d;
         const mfem::real_t *weight = dc.bnd_wt_d;
         const int *boundary_marker = dc.bnd_marker_index_d;
-        const BCDescriptor *boundary_conditions = dc.bc_descr_d;
+        const BCDescriptor *boundary_conditions = dc.bc_point_descr_d;
         const mfem::real_t *boundary_data = dc.bc_vector_d;
+        mfem::Vector &boundary_diffusive = operator_cache.stabilityBoundaryDiffusiveRate;
+        boundary_diffusive.SetSize(boundary_points);
+        boundary_diffusive.UseDevice();
+        mfem::real_t *boundary_diffusive_rate = boundary_diffusive.Write();
+        const mfem::real_t *boundary_metric = operator_cache.bnd_metric_square_sum.Read();
         mfem::real_t *surface_rate = surface.Write() + surface_offset;
         mfem::forall(boundary_points, [=] MFEM_HOST_DEVICE (int point)
         {
           const int face = point / face_points;
           const int face_point = point % face_points;
+          boundary_diffusive_rate[point] = 0.0;
           const int marker = boundary_marker[face];
           if (marker < 0)
             {
@@ -239,10 +234,17 @@ namespace Theseus
             Kernels::rabs(normal_velocity)
             + gas_model.sound_speed(interior) * Kernels::rsqrt(normal_squared);
           mfem::real_t boundary_wave_speed = normal_wave_speed;
-          const BCDescriptor &condition = boundary_conditions[marker];
-          if (condition.type == int(BCType::SupersonicInflow))
+          const BCDescriptor &condition = boundary_conditions[point];
+          if (condition.type == int(BCType::PrescribedState) ||
+              condition.type == int(BCType::SupersonicInflow))
             {
               PointStateView exterior{boundary_data + condition.data_index};
+              if (viscous)
+                {
+                  boundary_diffusive_rate[point] = diffusion_scale
+                    * EffectiveStabilityDiffusivity(gas_model, exterior)
+                    * boundary_metric[point];
+                }
               mfem::real_t exterior_normal_velocity = 0.0;
               for (int direction = 0; direction < dimensions; ++direction)
                 exterior_normal_velocity += gas_model.velocity(exterior, direction)
@@ -256,9 +258,13 @@ namespace Theseus
                                 * surface_scale;
         });
         const mfem::real_t *surface_host = surface.HostRead() + surface_offset;
+        const mfem::real_t *boundary_diffusive_host = boundary_diffusive.HostRead();
         for (int point = 0; point < boundary_points; ++point)
-          estimate.surface_rate = std::max(estimate.surface_rate,
-                                            surface_host[point]);
+          {
+            estimate.surface_rate = std::max(estimate.surface_rate, surface_host[point]);
+            estimate.diffusive_rate = std::max(estimate.diffusive_rate,
+                                               boundary_diffusive_host[point]);
+          }
       }
     return estimate;
   }

@@ -107,12 +107,14 @@ namespace Theseus
 
     std::vector<mfem::Vector> gradVol;
     std::vector<mfem::Vector> pGrad;
+    mfem::Vector viscousVolumeFlux;
     std::vector<mfem::Vector> gradInt;
     std::vector<mfem::Vector> gradBnd;
 
     // Domain boundary device arrays
     mfem::Vector bnd_normals;
     mfem::Vector bnd_wt;
+    mfem::Vector bnd_metric_square_sum;
     mfem::Vector bnd_xyz;
     mfem::Vector bnd_radius;
     mfem::Array<int> bnd_attr;
@@ -127,6 +129,7 @@ namespace Theseus
     mutable mfem::Vector stabilityAdvectiveRate;
     mutable mfem::Vector stabilitySurfaceRate;
     mutable mfem::Vector stabilityDiffusiveRate;
+    mutable mfem::Vector stabilityBoundaryDiffusiveRate;
     OperatorGasModel gas;
     InviscidFlux iflux;
     std::unique_ptr<Theseus::LTETable::Data> lteTableData;

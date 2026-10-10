@@ -20,6 +20,23 @@ namespace Theseus
       * inverse_jacobian;
   }
 
+  template<typename Gas, typename State>
+  MFEM_HOST_DEVICE inline mfem::real_t EffectiveStabilityDiffusivity(
+    const Gas &gas, const State &state)
+  {
+    const mfem::real_t density = gas.density(state);
+    const mfem::real_t gamma = gas.gamma(state);
+    const mfem::real_t shear_viscosity = gas.viscosity(state);
+    const mfem::real_t stokes_coeff = gas.bulk_viscosity(state);
+    const mfem::real_t longitudinal_viscosity =
+      (mfem::real_t(2.0) - stokes_coeff) * shear_viscosity;
+    const mfem::real_t momentum_diffusivity =
+      Kernels::rmax(shear_viscosity, longitudinal_viscosity) / density;
+    const mfem::real_t thermal_diffusivity =
+      gas.thermal_conductivity(state) * gamma / (density * gas.cp(state));
+    return Kernels::rmax(momentum_diffusivity, thermal_diffusivity);
+  }
+
   struct StabilityEstimate
   {
     mfem::real_t advective_rate = 0.0;
