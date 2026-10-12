@@ -1,0 +1,91 @@
+schema = 1
+
+[[test]]
+id = "smoke-vortex"
+title = "Inviscid Isentropic Vortex smoke test"
+script = "tests/recipes/smoke/vortex.sh"
+suites = ["cartesian", "smoke", "full", "integrated"]
+build = "standard"
+requires = []
+stages = ["run"]
+order = 100
+
+[[test]]
+id = "smoke-cavity"
+title = "Viscous Lid-Driven Cavity smoke test"
+script = "tests/recipes/smoke/cavity.sh"
+suites = ["cartesian", "smoke", "full", "integrated"]
+build = "standard"
+requires = []
+stages = ["run"]
+order = 110
+
+[[test]]
+id = "smoke-lte"
+title = "Inviscid LTE Vortex smoke test"
+script = "tests/recipes/smoke/lte-vortex.sh"
+suites = ["cartesian", "smoke", "full", "integrated"]
+build = "standard"
+requires = []
+stages = ["run"]
+order = 120
+
+[[test]]
+id = "cyclic-vortex"
+title = "Isentropic Vortex cyclic regression"
+script = "tests/recipes/regression/cyclic-vortex.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "compare"]
+order = 200
+
+[[test]]
+id = "golden-vortex"
+title = "Isentropic Vortex golden regression"
+script = "tests/recipes/regression/golden-vortex.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "prepare", "compare"]
+order = 300
+
+[[test]]
+id = "golden-lte-vortex"
+title = "LTE Vortex golden regression"
+script = "tests/recipes/regression/golden-lte-vortex.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "prepare", "compare"]
+order = 310
+
+[[test]]
+id = "golden-cavity"
+title = "Lid-Driven Cavity golden regression"
+script = "tests/recipes/regression/golden-cavity.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "prepare", "compare"]
+order = 320
+
+[[test]]
+id = "golden-tgv"
+title = "Taylor–Green Vortex golden regression"
+script = "tests/recipes/regression/golden-tgv.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "prepare", "compare"]
+order = 330
+
+[[test]]
+id = "golden-step"
+title = "Forward-Facing Step golden regression"
+script = "tests/recipes/regression/golden-step.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["run", "prepare", "compare"]
+order = 340

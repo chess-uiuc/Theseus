@@ -44,7 +44,7 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 
 ## Verification
 
-[Running tests](validation-runner.md): framework diagram, local and HPC commands,
+[Running tests](test-runner.md): framework diagram, local and HPC commands,
 results and failure diagnosis.
 
 See the [verification and CI matrix](verification.md) for the maintained test

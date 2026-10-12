@@ -1,7 +1,7 @@
 # Test inventory
 
 The full suite combines unit/helper tests, integrated simulations, smoke runs and
-numerical regression comparisons. [Running tests](validation-runner.md) explains
+numerical regression comparisons. [Running tests](test-runner.md) explains
 how to execute it locally or on an HPC system. [Adding tests](adding-tests.md)
 explains registration and checker structure.
 
@@ -33,7 +33,7 @@ suitable subsonic characteristic boundaries, steady-state and mesh-convergence
 studies, and automated separation-point extraction.
 
 Run the complete integrated suite against prepared Cartesian and axisymmetric builds
-using the command in [Validation runner](validation-runner.md#integrated-tests-with-prepared-builds-hpc-or-workstation).
+using the command in [Test runner](test-runner.md#integrated-tests-with-prepared-builds-hpc-or-workstation).
 
 ## Unit and helper tests
 
@@ -81,9 +81,10 @@ topology at the specified output cycle:
 | Taylor-Green Vortex 2D | `0.0001` | 100 | `1e-13` | `1e-13` |
 | Forward-Facing Step | `0.0001` | 100 | `3e-13` | `1e-13` |
 
-`scripts/validate.py` is the executable source of truth for the full suite. Update
-this matrix whenever a case, step count, tolerance, build configuration, or
-required assertion changes.
+The executable recipes in `tests/recipes/` are the source of truth for these
+smoke and regression workflows; `tests/recipes/recipes.toml` registers them with
+the central runner. Update this matrix whenever a case, step count, tolerance,
+build configuration, or required assertion changes.
 
 ## PX chamber startup
 

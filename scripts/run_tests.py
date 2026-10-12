@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the complete local/CI validation suite and verify its saved results."""
+"""Run the complete local/CI test suite and verify its saved results."""
 from __future__ import annotations
 
 import argparse
@@ -12,8 +12,14 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from typing import NamedTuple
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9 and 3.10
+    import tomli as tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +31,120 @@ class Command(NamedTuple):
     cwd: Path
     label: str
     requires: tuple[str, ...] = ()
+
+
+RECIPE_MANIFEST = Path('tests/recipes/recipes.toml')
+
+
+def load_recipes(source):
+    source = Path(source).resolve()
+    manifest_path = source / RECIPE_MANIFEST
+    with manifest_path.open('rb') as stream:
+        manifest = tomllib.load(stream)
+    if manifest.get('schema') != 1:
+        raise ValueError(f'Unsupported recipe manifest schema: {manifest.get("schema")}')
+    recipes = []
+    identifiers = set()
+    registered_scripts = set()
+    required = {'id', 'title', 'script', 'suites', 'build', 'requires'}
+    for record in manifest.get('test', []):
+        missing = required - record.keys()
+        if missing:
+            raise ValueError(f'Recipe is missing fields: {", ".join(sorted(missing))}')
+        identifier = record['id']
+        if identifier in identifiers:
+            raise ValueError(f'Duplicate recipe id: {identifier}')
+        identifiers.add(identifier)
+        script = (source / record['script']).resolve()
+        if source not in script.parents or not script.is_file():
+            raise ValueError(f'Missing or invalid recipe script for {identifier}: {script}')
+        if script in registered_scripts:
+            raise ValueError(f'Recipe script is registered more than once: {script}')
+        if not os.access(script, os.X_OK):
+            raise ValueError(f'Recipe script is not executable: {script}')
+        stages = record.get('stages', [])
+        if len(stages) != len(set(stages)) or not set(stages) <= {'run', 'prepare', 'compare'}:
+            raise ValueError(f'Invalid recipe stages for {identifier}: {stages}')
+        registered_scripts.add(script)
+        recipes.append({**record, 'script_path': script})
+    discovered_scripts = set((source / 'tests/recipes').rglob('*.sh'))
+    unregistered = sorted(discovered_scripts - registered_scripts)
+    if unregistered:
+        names = ', '.join(str(path.relative_to(source)) for path in unregistered)
+        raise ValueError(f'Unregistered test recipe scripts: {names}')
+    return sorted(recipes, key=lambda recipe: (recipe.get('order', 1000), recipe['id']))
+
+
+def select_recipe(recipes, identifier):
+    matches = [recipe for recipe in recipes if recipe['id'] == identifier]
+    if not matches:
+        raise ValueError(f'Unknown test recipe: {identifier}')
+    return matches[0]
+
+
+def print_recipe_list(recipes):
+    print(f'{"ID":24} {"BUILD":12} {"SUITES":28} TITLE')
+    for recipe in recipes:
+        suites = ','.join(recipe['suites'])
+        print(f'{recipe["id"]:24} {recipe["build"]:12} {suites:28} {recipe["title"]}')
+
+
+def show_recipe(recipe, source):
+    script = recipe['script_path']
+    print(f'ID:       {recipe["id"]}')
+    print(f'Title:    {recipe["title"]}')
+    print(f'Build:    {recipe["build"]}')
+    print(f'Suites:   {", ".join(recipe["suites"])}')
+    print(f'Requires: {", ".join(recipe["requires"])}')
+    print(f'Script:   {script.relative_to(Path(source).resolve())}')
+    print('\n--- recipe ---')
+    print(script.read_text(), end='')
+
+
+def recipe_command(recipe, args, stage=None):
+    build_option = '--build-' + recipe['build']
+    build = getattr(args, 'build_' + recipe['build'])
+    if build is None:
+        raise ValueError(f'{recipe["id"]} requires {build_option}')
+    command = [
+        'bash', str(recipe['script_path']),
+        '--source', str(args.source.resolve()),
+        build_option, str(build.resolve()),
+        '--prefix', str(args.prefix.resolve()),
+        '--output', str(args.results.resolve()),
+        '--device', args.device,
+        '--python', str(Path(args.python).expanduser()),
+        '--ranks', str(args.ranks),
+    ]
+    if stage is not None:
+        command.extend(['--stage', stage])
+    return command
+
+
+def write_mpi_launcher(path, python, helper, mpiexec, mpi_args):
+    path.write_text('#!/bin/bash\nexec ' + shlex.join(
+        [str(python), str(helper), str(mpiexec), json.dumps(mpi_args)]) + ' "$@"\n')
+    path.chmod(0o755)
+
+
+def run_recipe(recipe, args):
+    command = recipe_command(recipe, args)
+    print('Recipe command: ' + shlex.join(command), flush=True)
+    env = os.environ.copy()
+    if not args.mpiexec:
+        return subprocess.run(command, cwd=args.source.resolve(), env=env,
+                              check=False).returncode
+    mpiexec = shutil.which(args.mpiexec)
+    if not mpiexec:
+        raise ValueError(f'Executable not found: {args.mpiexec}')
+    with tempfile.TemporaryDirectory(prefix='theseus-mpi-launcher-') as directory:
+        launcher = Path(directory) / 'theseus-mpi-launcher'
+        write_mpi_launcher(launcher, Path(args.python).expanduser(),
+                           args.source.resolve() / 'scripts/mpi_launcher.py',
+                           mpiexec, args.mpi_arg)
+        env['THESEUS_MPI_LAUNCHER'] = str(launcher)
+        return subprocess.run(command, cwd=args.source.resolve(), env=env,
+                              check=False).returncode
 
 
 def git(source, *args):
@@ -69,7 +189,7 @@ def write_json(path, value):
 
 def save_results(run, results):
     write_json(run / 'results.json', results)
-    lines = [f"Validation: {results['state'].upper()}", f"Run: {run}",
+    lines = [f"Test suite: {results['state'].upper()}", f"Run: {run}",
              f"Suite: {results.get('suite', 'full')}; device: {results.get('device', 'cpu')}", '']
     for step in results['steps']:
         elapsed = f"{step['elapsed_seconds']:.2f} s" if 'elapsed_seconds' in step else '—'
@@ -79,7 +199,7 @@ def save_results(run, results):
     if results.get('error'):
         lines.extend(['', results['error']])
     if results.get('suite', 'full') == 'full':
-        lines.extend(['', 'Commit eligibility: run validate.py check against the current source.'])
+        lines.extend(['', 'Commit eligibility: run scripts/run_tests.py check against the current source.'])
     else:
         lines.extend(['', 'Integrated-only results for the recorded binaries; not a full-suite commit gate.'])
     temporary = run / 'summary.tmp'
@@ -120,8 +240,62 @@ def integrated_commands(run, manifest, builds):
     return commands
 
 
+def suite_recipe_commands(run, manifest, builds):
+    source = run / 'source'
+    suite = manifest.get('suite', 'full')
+    commands = []
+    for recipe in load_recipes(source):
+        if suite not in recipe['suites']:
+            continue
+        arguments = argparse.Namespace(
+            source=source,
+            build_standard=builds['standard'],
+            build_axisymmetric=builds['axisymmetric'],
+            prefix=Path(manifest['prefix']),
+            results=run / 'recipes' / recipe['id'],
+            device=manifest.get('device', 'cpu'),
+            python=manifest['python'],
+            ranks=2,
+        )
+        requirements = []
+        if suite == 'full':
+            requirements.append('build-' + recipe['build'])
+        if {'python', 'pyvista'} & set(recipe['requires']):
+            requirements.append('python-dependencies')
+        previous = None
+        stages = recipe.get('stages', [])
+        if not stages:
+            commands.append(Command(
+                'recipe-' + recipe['id'],
+                recipe_command(recipe, arguments),
+                source,
+                recipe['title'] + ' — recipe',
+                tuple(requirements),
+            ))
+            continue
+        stage_labels = {
+            'run': 'Theseus run',
+            'prepare': 'reference preparation',
+            'compare': 'comparison',
+        }
+        for stage in stages:
+            stage_requirements = list(requirements)
+            if previous is not None:
+                stage_requirements.append(previous)
+            name = 'recipe-' + recipe['id'] + '-' + stage
+            commands.append(Command(
+                name,
+                recipe_command(recipe, arguments, stage),
+                source,
+                recipe['title'] + ' — ' + stage_labels.get(stage, stage),
+                tuple(stage_requirements),
+            ))
+            previous = name
+    return commands
+
+
 def suite_commands(run, manifest):
-    """The full suite, shared by local validation and both CI workflows."""
+    """The full test suite shared by local runs and both CI workflows."""
     source = run / 'source'
     python = manifest['python']
     prefix = manifest['prefix']
@@ -150,7 +324,7 @@ def suite_commands(run, manifest):
                          f'-DPython3_EXECUTABLE={python}',
                          ]
             if manifest.get('mpiexec'):
-                configure.append(f'-DMPIEXEC_EXECUTABLE={run / "bin" / "mpiexec"}')
+                configure.append(f'-DMPIEXEC_EXECUTABLE={run / "bin" / "theseus-mpi-launcher"}')
             commands.extend([
                 Command('configure-' + label, configure, run, label.capitalize() + ' configuration',
                         ('cmake-version', 'compiler-c', 'compiler-cxx')),
@@ -161,55 +335,7 @@ def suite_commands(run, manifest):
                         ('build-' + label, 'python-dependencies')),
             ])
     commands.extend(integrated_commands(run, manifest, builds))
-    cases = {
-        'vortex': ('Euler/2D/IsentropicVortex', 'IsentropicVortex', 'Inviscid Isentropic Vortex'),
-        'cavity': ('NavierStokes/2D/LidDrivenCavity', 'LidDrivenCavity', 'Viscous Lid-Driven Cavity'),
-        'lte': ('LTE/Euler/LTEVortex', 'LTEVortex', 'Inviscid LTE Vortex'),
-        'tgv': ('NavierStokes/2D/TaylorGreenVortex', 'TaylorGreenVortex2D', 'Viscous Taylor–Green Vortex'),
-        'step': ('Euler/2D/ForwardFacingStep', 'ForwardFacingStep', 'Inviscid Forward-Facing Step'),
-    }
-
-    def simulation(label, case, dt=None, steps=None):
-        directory, _, title = cases[case]
-        command = ['bash', str(source / 'scripts/run_theseus.sh'),
-                   '-b', str(builds['standard']), '-r', manifest.get('device', 'cpu'), '-c', f'TestCases/{directory}/config.json',
-                   '-o', f'../cases/{label}']
-        if dt is not None:
-            command += ['-t', dt, '-n', str(steps)]
-        kind = 'cyclic' if label == 'cyclic' else ('smoke' if label.startswith('smoke-') else 'gold-standard')
-        commands.append(Command(label, command, source, f'{title} — {kind} run',
-                                ('build-standard',) if full else ()))
-        return run / 'cases' / label / Path(directory).name / 'ParaView'
-
-    for case, dt in [('vortex', '0.002'), ('cavity', '0.0001'), ('lte', '1e-5')]:
-        simulation('smoke-' + case, case, dt, 100)
-    output = simulation('cyclic', 'vortex')
-    compare = [python, str(source / 'scripts/compare_viz.py')]
-    commands.append(Command('compare-cyclic', compare + [str(output / 'ParaView.pvd'),
-                     '--fields', 'Density', '--atol', '5e-5', '--rtol', '2e-6'], run,
-                     cases['vortex'][2] + ' — cyclic comparison', ('cyclic', 'python-dependencies')))
-    for case, dt, steps, atol, rtol in [
-        ('vortex', '0.001', 500, '1e-13', '1e-13'),
-        ('lte', '1e-5', 200, '1e-10', '1e-10'),
-        ('cavity', '0.0001', 4000, '1e-12', '1e-12'),
-        ('tgv', '0.0001', 100, '1e-13', '1e-13'),
-        ('step', '0.0001', 100, '3e-13', '1e-13'),
-    ]:
-        output = simulation('golden-' + case, case, dt, steps)
-        cycle = f'Cycle{steps:06d}/data.pvtu'
-        reference_name = cases[case][1]
-        reference = run / 'references' / reference_name / cycle
-        preparation = 'prepare-reference-' + case
-        commands.append(Command(preparation,
-                        [python, str(source / 'scripts/prepare_golden_reference.py'),
-                         str(source / 'TestCases/GoldenData'), reference_name,
-                         str(run / 'references' / reference_name), cycle], run,
-                        cases[case][2] + ' — prepare gold-standard reference'))
-        prerequisites = ('golden-' + case, 'python-dependencies', preparation)
-        commands.append(Command('compare-' + case, compare + [str(output / cycle), str(reference),
-                         '--atol', atol, '--rtol', rtol], run,
-                         cases[case][2] + ' — gold-standard comparison',
-                         prerequisites))
+    commands.extend(suite_recipe_commands(run, manifest, builds))
     return commands
 
 
@@ -297,17 +423,12 @@ def prepare(args):
         write_json(run / 'manifest.json', manifest)
         (run / 'bin').mkdir()
         if manifest['mpiexec']:
-            launcher = run / 'bin/mpiexec'
-            launcher.write_text('#!/bin/bash\nexec ' + shlex.join(
-                [sys.executable, str(snapshot / 'scripts/mpi_launcher.py'),
-                 manifest['mpiexec'], json.dumps(manifest['mpi_args'])]) + ' "$@"\n')
-            launcher.chmod(0o755)
+            launcher = run / 'bin/theseus-mpi-launcher'
+            write_mpi_launcher(launcher, manifest['python'],
+                               snapshot / 'scripts/mpi_launcher.py',
+                               manifest['mpiexec'], manifest['mpi_args'])
         (snapshot / 'tpl').mkdir(exist_ok=True)
         (snapshot / 'tpl/install').symlink_to(prefix, target_is_directory=True)
-        # Existing example configs resolve ../../TestCases and ../../tpl/install.
-        (run / 'cases/tpl').mkdir(parents=True)
-        (run / 'cases/TestCases').symlink_to(snapshot / 'TestCases', target_is_directory=True)
-        (run / 'cases/tpl/install').symlink_to(prefix, target_is_directory=True)
         for command in suite_commands(run, manifest):
             command.cwd.mkdir(parents=True, exist_ok=True)
         results['suite'] = suite
@@ -376,12 +497,14 @@ def worker(run):
     results.update(state='running', pid=os.getpid())
     save_results(run, results)
     def interrupted(signum, frame):
-        raise InterruptedError(f"Validation interrupted by signal {signum}")
+        raise InterruptedError(f"Test suite interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, interrupted)
     env = os.environ.copy()
     env.update(PATH=str(run / 'bin') + os.pathsep + env['PATH'],
                PYTHON=manifest['python'],
                PYVISTA_OFF_SCREEN='true', QT_QPA_PLATFORM='offscreen')
+    if manifest.get('mpiexec'):
+        env['THESEUS_MPI_LAUNCHER'] = str(run / 'bin/theseus-mpi-launcher')
     if manifest.get('cc'):
         env.update(CC=manifest['cc'], CXX=manifest['cxx'])
     try:
@@ -417,7 +540,7 @@ def check(run, source):
     manifest = json.loads((run / 'manifest.json').read_text())
     results = json.loads((run / 'results.json').read_text())
     if manifest['schema'] != 1 or results['state'] != 'passed':
-        raise ValueError(f"Validation is not complete and passing: {results['state']}")
+        raise ValueError(f"Test suite is not complete and passing: {results['state']}")
     if manifest.get('suite', 'full') != 'full':
         raise ValueError('Integrated-only results are not a full-suite commit gate.')
     expected = suite_commands(run, manifest)
@@ -443,22 +566,46 @@ def check(run, source):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['run', 'start', 'check', '_worker'])
+    parser.add_argument('action', choices=['run', 'start', 'check', 'list', 'show',
+                                          'run-test', '_worker'])
+    parser.add_argument('test', nargs='?', help='recipe id for show or run-test')
     parser.add_argument('--source', type=Path, default=ROOT)
-    parser.add_argument('--results', type=Path, required=True)
+    parser.add_argument('--results', type=Path)
     parser.add_argument('--prefix', type=Path)
     parser.add_argument('--python', default=sys.executable)
-    parser.add_argument('--mpiexec', help='Optional fallback MPI launcher; otherwise run_theseus selects it')
+    parser.add_argument('--mpiexec', help='Exceptional MPI executable override; normal users omit this so run_theseus selects the platform launcher')
     parser.add_argument('--suite', choices=['full', 'integrated'], default='full')
     parser.add_argument('--build-standard', type=Path)
     parser.add_argument('--build-axisymmetric', type=Path)
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
+    parser.add_argument('--ranks', type=int, default=2,
+                        help='MPI ranks for direct recipe execution (default: 2)')
     parser.add_argument('--mpi-arg', action='append', default=[])
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--timeout', type=float, default=3600,
                         help='Maximum seconds per command, including its child processes')
     args = parser.parse_args()
     try:
+        if args.action in {'list', 'show', 'run-test'}:
+            recipes = load_recipes(args.source)
+            if args.action == 'list':
+                if args.test is not None:
+                    parser.error('list does not accept a recipe id')
+                print_recipe_list(recipes)
+                return 0
+            if args.test is None:
+                parser.error(f'{args.action} requires a recipe id')
+            recipe = select_recipe(recipes, args.test)
+            if args.action == 'show':
+                show_recipe(recipe, args.source)
+                return 0
+            if args.results is None or args.prefix is None or args.ranks < 1:
+                parser.error('run-test requires --results, --prefix and positive --ranks')
+            if args.mpi_arg and not args.mpiexec:
+                parser.error('--mpi-arg requires the exceptional --mpiexec override')
+            return run_recipe(recipe, args)
+        if args.results is None:
+            parser.error(f'{args.action} requires --results')
         if args.action == 'check':
             return check(args.results.resolve(), args.source.resolve())
         if args.action == '_worker':
@@ -474,14 +621,14 @@ def main():
             return worker(run)
         # Execute the frozen runner, independently of this invocation and terminal.
         with (run / 'launcher.log').open('w') as log:
-            process = subprocess.Popen([sys.executable, str(run / 'source/scripts/validate.py'),
+            process = subprocess.Popen([sys.executable, str(run / 'source/scripts/run_tests.py'),
                                         '_worker', '--results', str(run)],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                        start_new_session=True)
-        print(f'Started validation PID {process.pid}. Status: {run / "summary.txt"}')
+        print(f'Started test suite PID {process.pid}. Status: {run / "summary.txt"}')
         return 0
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        print(f'Validation error: {error}', file=sys.stderr)
+        print(f'Test runner error: {error}', file=sys.stderr)
         return 1
 
 

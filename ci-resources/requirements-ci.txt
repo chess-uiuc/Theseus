@@ -2,3 +2,4 @@ numpy>=1.26
 meshio>=5.3         # optional; our script falls back to pyvista if meshio fails
 pyvista>=0.43
 vtk>=9.3
+tomli>=2.0; python_version < "3.11"

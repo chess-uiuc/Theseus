@@ -1,6 +1,6 @@
 # Running tests
 
-Use `scripts/validate.py` to run the test suite and collect its results.
+Use `scripts/run_tests.py` to run the test suite and collect its results.
 Choose a mode based on whether you need fresh CPU builds or want to test executables
 that you have already built.
 
@@ -17,7 +17,7 @@ For registration and checker examples, see [Adding tests](adding-tests.md).
 
 ```mermaid
 flowchart TD
-    Entry[CI, terminal, or HPC batch job] --> Runner[validate.py]
+    Entry[CI, terminal, or HPC batch job] --> Runner[run_tests.py]
     Runner --> Builds[Full mode: build Cartesian and axisymmetric executables]
     Prepared[Integrated mode: supplied executables] --> Runner
     Builds --> Units[CTest: unit and helper tests]
@@ -41,6 +41,55 @@ The runner selects tests and records results. Python checkers prepare inputs and
 check the simulation output. `run_theseus.sh` selects the platform launcher and
 sets up device execution. Each integrated check has one entry in the suite.
 
+## Discover and read executable recipes
+
+Human-readable Bash recipes are being introduced as the canonical definition of
+simulation and comparison workflows. List the available recipes without configuring
+or running a build:
+
+```bash
+python3 scripts/run_tests.py list
+```
+
+Display a recipe's metadata and complete Bash source:
+
+```bash
+python3 scripts/run_tests.py show golden-vortex
+```
+
+Run one recipe against an existing build:
+
+```bash
+python3 scripts/run_tests.py run-test golden-vortex \
+  --build-standard /path/to/build \
+  --prefix /path/to/tpl/install \
+  --results /path/to/new/test-output \
+  --device cpu --ranks 2
+```
+
+The recipes live under `tests/recipes/`. Their simulation, reference-preparation,
+and comparison commands are intentionally visible and directly executable. All
+Cartesian smoke, cyclic and golden-data workflows use these recipes as their
+canonical full-suite and prepared-build entries; they are not duplicated in the
+Python command registry.
+
+A staged recipe still runs all stages when invoked directly. In the central suite,
+the runner invokes its visible `run`, `prepare`, and `compare` stages separately.
+The summary therefore reports the `run_theseus.sh` duration independently of
+reference preparation and comparison time.
+
+To bypass the runner entirely, invoke the displayed script with the same explicit
+inputs used by `run-test`:
+
+```bash
+bash tests/recipes/regression/golden-vortex.sh \
+  --source "$(pwd)" \
+  --build-standard /path/to/build \
+  --prefix /path/to/tpl/install \
+  --output /path/to/new/test-output \
+  --device cpu --python python3 --ranks 2
+```
+
 ## Run the full suite locally
 
 You need Python 3.9 or later, Git, Bash, CMake/CTest, MPI compilers, and installed
@@ -51,10 +100,10 @@ From the repository root:
 
 ```bash
 export CC=mpicc CXX=mpicxx
-python3 scripts/validate.py run \
+python3 scripts/run_tests.py run \
   --prefix /path/to/tpl/install \
   --python /path/to/test-environment/bin/python \
-  --results ../validation/run-001 --jobs 4
+  --results ../test-runs/run-001 --jobs 4
 ```
 
 Choose a **new results directory outside the checkout**. The runner copies the
@@ -84,12 +133,12 @@ containing the CI requirements.
 Run this command inside your HPC allocation, or directly for prepared local builds:
 
 ```bash
-python3 scripts/validate.py run --suite integrated \
+python3 scripts/run_tests.py run --suite integrated \
   --build-standard /path/to/build-gpu \
   --build-axisymmetric /path/to/build-axis-gpu \
   --device cuda --prefix /path/to/tpl/install \
   --python /path/to/test-environment/bin/python \
-  --results /path/to/scratch/validation-run-001
+  --results /path/to/scratch/test-run-001
 ```
 
 Use `--device cpu` for CPU execution. The suite includes one- and two-rank cases;
@@ -113,12 +162,16 @@ batch output to persistent storage when the job finishes.
 | `tuo*` | `flux run` |
 | Other hosts | `mpiexec` from PATH |
 
-The device scripts select visibility from the local MPI rank. The test checkers
-pass the device and rank count to `run_theseus`; they do not select schedulers.
+The device scripts select visibility from the local MPI rank. Tests and recipes
+pass only the device and rank count to `run_theseus.sh`; they never select a
+scheduler or MPI executable. Normal developers and HPC jobs do not configure a
+launcher through the test runner.
 
-For the fallback MPI path, `--mpiexec /path/to/mpiexec` selects an executable and
-repeated `--mpi-arg` options supply its arguments. For example, a local OpenMPI
-installation may need:
+An unusual execution environment may need to decorate the otherwise automatic
+launch. Configure that exception once on the top-level `run_tests.py` invocation
+with `--mpiexec` and repeated `--mpi-arg` options. The runner creates one wrapper,
+exports it as `THESEUS_MPI_LAUNCHER`, and every `run_theseus.sh` call inherits it.
+For example, the local Codex environment requires:
 
 ```bash
 --mpi-arg=--host --mpi-arg=localhost:4 \
@@ -126,8 +179,13 @@ installation may need:
 --mpi-arg=--bind-to --mpi-arg=none
 ```
 
-These are local placement options, not HPC allocation settings. Without MPI overrides,
-the runner leaves launcher selection to the harness.
+These are local placement options, not HPC allocation settings. Without this
+exceptional override, the runner leaves launcher selection entirely to
+`run_theseus.sh`.
+
+For direct harness or recipe execution in an unusual environment, set
+`THESEUS_MPI_LAUNCHER` once to an executable wrapper that accepts normal
+`mpiexec`-style `-n N ...` arguments. Do not put launcher logic in a test recipe.
 
 ## Read the results
 
@@ -140,8 +198,7 @@ work. Golden simulations and comparisons have separate timings.
 | `summary.txt` | Overall status and per-check results |
 | `logs/` | Command lines, working directories and captured output |
 | `integrated/` | Generated inputs, per-simulation logs and integrated-test output |
-| `cases/` | Smoke, cyclic and golden simulation output |
-| `references/` | Prepared golden data |
+| `recipes/` | Smoke, cyclic and golden recipe output, including prepared references |
 | `results.json` | Commands, exit codes, timestamps and log hashes |
 | `manifest.json` | Source hashes, tool paths, build information and run options |
 | `source/` | Source snapshot |
@@ -171,7 +228,7 @@ or unfinished run does not establish a passing result.
 For a completed full run:
 
 ```bash
-python3 scripts/validate.py check --results ../validation/run-001
+python3 scripts/run_tests.py check --results ../test-runs/run-001
 ```
 
 This verifies that every required check passed, saved logs and the source snapshot
