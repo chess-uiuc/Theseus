@@ -48,6 +48,7 @@ class HarnessFixture:
         )
 
         self._write_launcher("mpiexec", 2)
+        self._write_launcher("custom-launcher", 2)
         self._write_launcher("ibrun", 2)
         self._write_launcher("flux", 6)
         self._write_hostname()
@@ -102,7 +103,8 @@ class HarnessFixture:
         )
         executable.chmod(0o755)
 
-    def run(self, *args: str, hostname: str = "workstation", output: str = "none"):
+    def run(self, *args: str, hostname: str = "workstation", output: str = "none",
+            launcher: str | None = None):
         env = os.environ.copy()
         env.update(
             {
@@ -115,6 +117,9 @@ class HarnessFixture:
                 "NGPU": "4",
             }
         )
+        env.pop("THESEUS_MPI_LAUNCHER", None)
+        if launcher is not None:
+            env["THESEUS_MPI_LAUNCHER"] = launcher
         return subprocess.run(
             ["/bin/bash", str(HARNESS), "-b", str(self.builddir), *args, "-c", str(self.config)],
             cwd=self.root,
@@ -270,6 +275,15 @@ class RunTheseusHarnessTests(unittest.TestCase):
                 log = fixture.launcher_log()
                 self.assertTrue(log.startswith(expected[0]), log)
                 self.assertIn(expected[1], log)
+
+    def test_one_explicit_launcher_override_precedes_platform_detection(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            launcher = str(fixture.bindir / "custom-launcher")
+            result = fixture.run("-k", "-p", "5", hostname="front123",
+                                 launcher=launcher)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertTrue(fixture.launcher_log().startswith("custom-launcher"))
 
 
 if __name__ == "__main__":

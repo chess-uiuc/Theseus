@@ -101,35 +101,35 @@ jobs:
           cat tpl/logs/deps-build*.txt
           find tpl/install -name 'libGKlib*' -o -name 'libmetis*' -o -name 'libmfem*'
 
-      - name: Full validation suite
+      - name: Full test suite
         run: |
-          python scripts/validate.py run \
+          python scripts/run_tests.py run \
             --prefix "$GITHUB_WORKSPACE/tpl/install" \
-            --results "$RUNNER_TEMP/theseus-validation" --jobs 4
-          python scripts/validate.py check \
-            --results "$RUNNER_TEMP/theseus-validation"
+            --results "$RUNNER_TEMP/theseus-tests" --jobs 4
+          python scripts/run_tests.py check \
+            --results "$RUNNER_TEMP/theseus-tests"
 
-      - name: Validation summary
+      - name: Test summary
         if: always()
         run: |
-          if [ -f "$RUNNER_TEMP/theseus-validation/summary.txt" ]; then
-            cat "$RUNNER_TEMP/theseus-validation/summary.txt"
+          if [ -f "$RUNNER_TEMP/theseus-tests/summary.txt" ]; then
+            cat "$RUNNER_TEMP/theseus-tests/summary.txt"
           else
-            echo "Validation summary unavailable; validation did not produce a record."
+            echo "Test summary unavailable; the test suite did not produce a record."
             exit 1
           fi
 
-      - name: Upload validation results
+      - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: theseus-validation
+          name: theseus-tests
           path: |
-            ${{ runner.temp }}/theseus-validation/manifest.json
-            ${{ runner.temp }}/theseus-validation/results.json
-            ${{ runner.temp }}/theseus-validation/summary.txt
-            ${{ runner.temp }}/theseus-validation/integrated
-            ${{ runner.temp }}/theseus-validation/logs
-            ${{ runner.temp }}/theseus-validation/build-*/Testing
-            ${{ runner.temp }}/theseus-validation/build-*/CMakeCache.txt
-            ${{ runner.temp }}/theseus-validation/cases
+            ${{ runner.temp }}/theseus-tests/manifest.json
+            ${{ runner.temp }}/theseus-tests/results.json
+            ${{ runner.temp }}/theseus-tests/summary.txt
+            ${{ runner.temp }}/theseus-tests/integrated
+            ${{ runner.temp }}/theseus-tests/logs
+            ${{ runner.temp }}/theseus-tests/build-*/Testing
+            ${{ runner.temp }}/theseus-tests/build-*/CMakeCache.txt
+            ${{ runner.temp }}/theseus-tests/cases

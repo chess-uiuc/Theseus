@@ -75,7 +75,7 @@ ctest --test-dir build-state-cuda \
 
 The conversion unit tests execute on the host even in a CUDA build. To run the
 integrated simulations on CUDA, also prepare an axisymmetric build and use the
-[central integrated runner](validation-runner.md#integrated-tests-with-prepared-builds-hpc-or-workstation)
+[central integrated runner](test-runner.md#integrated-tests-with-prepared-builds-hpc-or-workstation)
 with `--device cuda`.
 `PhysicalInitialStateIntegration` uses the configured device for the simulation,
 including RHS execution after host initialization. Its coverage includes initial

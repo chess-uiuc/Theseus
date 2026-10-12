@@ -20,8 +20,8 @@
 # Unit testing self-test suite
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-add_test(NAME ValidationRunnerTests
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/validation_runner_tests.py)
+add_test(NAME TestRunnerTests
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_runner_tests.py)
 
 add_test(
     NAME RunTheseusHarnessTests

@@ -74,6 +74,7 @@ DEVICE="cpu"
 NHOSTS="1"
 UTILDIR="${TOP}/scripts"
 HOST_SHORT="$(hostname -s)"
+MPI_LAUNCHER_OVERRIDE="${THESEUS_MPI_LAUNCHER:-}"
 MESHNAME="default"
 MESH_OVERRIDE=0
 ORDER="default"
@@ -302,10 +303,16 @@ PY
 printf "Theseus configuration:\n"
 cat "${patched}"
 
-local -a run_command=(mpiexec -n "${NMPIRANKS}")
-
-# Override MPI_LAUNCHER if required for this platform:
-case "${HOST_SHORT}" in
+local -a run_command
+if [[ -n "${MPI_LAUNCHER_OVERRIDE}" ]]; then
+    if ! command -v "${MPI_LAUNCHER_OVERRIDE}" >/dev/null 2>&1; then
+        echo "ERROR: THESEUS_MPI_LAUNCHER is not executable: ${MPI_LAUNCHER_OVERRIDE}" >&2
+        return 2
+    fi
+    run_command=("${MPI_LAUNCHER_OVERRIDE}" -n "${NMPIRANKS}")
+else
+    run_command=(mpiexec -n "${NMPIRANKS}")
+    case "${HOST_SHORT}" in
     tuo*)
         # Tuolumne@LC
         run_command=(flux run --exclusive -N "${NHOSTS}" -n "${NMPIRANKS}")
@@ -325,7 +332,8 @@ case "${HOST_SHORT}" in
 	cp "${UTILDIR}/launch_delta_device.sh" "${RUNDIR}/device_launcher.sh"
         run_command=(srun -N "${NHOSTS}" -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
-esac
+    esac
+fi
 run_command+=(../theseus -d "${DEVICE}" -c "${patched}")
 printf 'run command:'
 printf ' %q' "${run_command[@]}"

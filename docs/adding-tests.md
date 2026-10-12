@@ -4,8 +4,8 @@ Every new capability, construct or behavioral change must include automated test
 Bug fixes must add or extend regression coverage. Choose tests that establish the
 intended behavior, including relevant invalid inputs and boundary cases.
 
-Register tests in the shared validation suite. **Do not add individual test commands
-to CI workflow files.** Workflows prepare the environment, invoke `validate.py`, and
+Register tests in the shared test suite. **Do not add individual test commands
+to CI workflow files.** Workflows prepare the environment, invoke `run_tests.py`, and
 publish results. Test selection belongs to the registration paths below, so the same
 checks are available locally, on HPC systems and in CI.
 
@@ -14,11 +14,47 @@ Choose the kind of test by what it needs to execute.
 | Test kind | Purpose | Register in |
 | --- | --- | --- |
 | Unit/helper | Check a function, data structure or infrastructure script | `tests/CMakeLists.txt` |
-| Integrated | Run Theseus and check simulation behavior | `integrated_commands` in `scripts/validate.py` |
-| Smoke or golden case | Run an example, optionally compare its visualization output | `suite_commands` in `scripts/validate.py` |
+| Integrated | Run Theseus and check simulation behavior | `integrated_commands` in `scripts/run_tests.py` |
+| Smoke or golden case | Run an example, optionally compare its visualization output | `suite_commands` in `scripts/run_tests.py` |
 
 Register each check once. The full suite runs CTest and the integrated registry;
 registering the same simulation in both would execute it twice.
+
+## Human-readable test recipes
+
+Simulation workflows are migrating to executable Bash recipes under
+`tests/recipes/`. A recipe is the canonical, human-readable sequence of input
+preparation, `run_theseus.sh` invocations, and result comparisons. Python helpers
+may generate data or assert numerical results, but they must not hide the overall
+simulation sequence.
+
+Register each recipe in `tests/recipes/recipes.toml`. The registration supplies
+its stable identifier, title, script path, suites, required build geometry, and
+external requirements. It does not duplicate any command from the Bash script.
+The test runner rejects duplicate identifiers, duplicate script paths,
+missing or non-executable scripts, and unregistered `*.sh` files in the recipe
+tree.
+
+Use the canonical Golden Vortex recipe as the initial pattern:
+
+```text
+tests/recipes/recipes.toml
+tests/recipes/recipe-environment.bash
+tests/recipes/regression/golden-vortex.sh
+```
+
+Verify discovery and inspect exactly what a developer will see:
+
+```bash
+python3 scripts/run_tests.py list
+python3 scripts/run_tests.py show golden-vortex
+```
+
+Run the recipe either through `run_tests.py run-test` or directly with Bash. See
+[Running tests](test-runner.md#discover-and-read-executable-recipes) for
+both command forms. Register each workflow exactly once. When migrating an old
+central-runner entry, remove that entry only after the recipe has equivalent
+coverage and has completed review.
 
 ## Add a unit or helper test
 
@@ -105,7 +141,7 @@ Choose tolerances for the numerical method and the quantity being checked.
 
 ### Register the checker
 
-Add an entry to `integrated_commands` in `scripts/validate.py`. Its fields are:
+Add an entry to `integrated_commands` in `scripts/run_tests.py`. Its fields are:
 
 | Field | Meaning |
 | --- | --- |
@@ -143,10 +179,10 @@ python /path/to/Theseus/tests/axisymmetric_entropy_wave_convergence_test.py \
 ```
 
 Use the same command inside an allocation with `--device cuda` and a CUDA executable.
-The fallback `mpiexec` launcher is resolved from PATH; scheduler selection belongs
-to the harness.
+Launcher and scheduler selection belongs to `run_theseus.sh`. Test code supplies
+only the requested rank count and device.
 
-Then run the [central suite](validation-runner.md) and check that the new entry
+Then run the [central suite](test-runner.md) and check that the new entry
 appears once, executes, and reports the intended result. Update the
 [test inventory](verification.md) with its purpose, geometry and acceptance criteria.
 Changes to established expectations or tolerances require an explanation of why the
@@ -262,7 +298,7 @@ Before requesting review:
   each intended configuration, and reports its result. Check that no second CI or
   CTest entry executes the same integrated simulation.
 - For integrated tests, exercise the selected device path on the target platform
-  and retain its logs; record any outstanding platform validation in project records.
+  and retain its logs; record any outstanding platform testing in project records.
 - Update the [test inventory](verification.md) with the recipe and acceptance criteria.
 
 Direct execution alone does not register coverage. Changes to a test's registration,
