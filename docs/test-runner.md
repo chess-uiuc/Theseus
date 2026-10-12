@@ -171,7 +171,7 @@ An unusual execution environment may need to decorate the otherwise automatic
 launch. Configure that exception once on the top-level `run_tests.py` invocation
 with `--mpiexec` and repeated `--mpi-arg` options. The runner creates one wrapper,
 exports it as `THESEUS_MPI_LAUNCHER`, and every `run_theseus.sh` call inherits it.
-For example, the local Codex environment requires:
+For example, a constrained local environment might require:
 
 ```bash
 --mpi-arg=--host --mpi-arg=localhost:4 \
