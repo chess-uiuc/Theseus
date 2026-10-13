@@ -52,7 +52,7 @@ namespace Theseus
         const mfem::real_t v2 = gasModel.velocity(S2, d);
         del_mom[d] = v2 - v1;
         roe_state[mom0_eq + d] = a*v1 + b*v2;
-        ke += roe_state[mom0_eq + d]*roe_state[mom0_eq + d];
+        ke += 0.5*roe_state[mom0_eq + d]*roe_state[mom0_eq + d];
         vn1 += v1 * nor[d];
         vn2 += v2 * nor[d];
         vn_roe  += roe_state[mom0_eq + d] * nor[d];
@@ -62,7 +62,7 @@ namespace Theseus
     vn1 *= inv_nor_mag;
     vn2 *= inv_nor_mag;
     vn_roe *= inv_nor_mag;
-    mfem::real_t c_roe = Theseus::Kernels::rsqrt((gasModel.gamma(S1) - 1)*(roe_state[ener_eq] - 0.5*ke));
+    mfem::real_t c_roe = Theseus::Kernels::rsqrt((gasModel.gamma(S1) - 1)*(roe_state[ener_eq] - ke));
 
     // Harten-Hyman entropy fix for the Roe flux
     mfem::real_t eig[3] = {0.,Kernels::rabs(vn_roe),0.}; // [u-c, u, u+c]
