@@ -8,6 +8,7 @@
 #include "mfem.hpp"
 #include "AxisymmetricGeometry.hpp"
 #include "GasModel.hpp"
+#include <cstdio>
 
 namespace Theseus
 {
@@ -101,7 +102,8 @@ namespace Theseus
                                          mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM],
                                          bool axisymmetric = false,
                                          mfem::real_t radius = 0.0,
-                                         mfem::real_t *azimuthal_stress = nullptr)
+                                         mfem::real_t *azimuthal_stress = nullptr,
+					 int diagnostic_side=-1)
     {
 
       // TODO: Update for scalar transport
@@ -179,6 +181,25 @@ namespace Theseus
 	    }
           div_vel += radial_rate;
         }
+      if (diagnostic_side >= 0 && dim == 2)
+	{
+	  printf("STRESS_INPUT side=%d axisymmetric=%d radius=%.17e "
+               "axis_branch=%d mu=%.17e kappa=%.17e mu_bulk=%.17e "
+		 "q=[%.17e %.17e %.17e %.17e]\n",
+		 diagnostic_side, int(axisymmetric), radius,
+		 int(axisymmetric &&
+		     radius <= AxisymmetricGeometry::radius_tolerance),
+		 mu, kappa, mu_bulk,
+		 S.mass(gas.L), S.momentum(gas.L, 0),
+		 S.momentum(gas.L, 1), S.energy(gas.L));
+	  printf("STRESS_INTERMEDIATE side=%d "
+               "dux_dx=%.17e dux_dr=%.17e dur_dx=%.17e dur_dr=%.17e "
+		 "ux=%.17e ur=%.17e radial_rate=%.17e div=%.17e\n",
+		 diagnostic_side,
+		 grad_vel[0][0], grad_vel[0][1],
+		 grad_vel[1][0], grad_vel[1][1],
+		 vel[0], vel[1], radial_rate, div_vel);
+	}
 
       if (azimuthal_stress)
         {
@@ -221,6 +242,15 @@ namespace Theseus
             }
           visc_flux[eq_ener][dir] = eflux;
         }
+      if (diagnostic_side >= 0 && dim == 2)
+	{
+	  printf("STRESS_OUTPUT side=%d tau_xx=%.17e tau_xr=%.17e "
+		 "tau_rx=%.17e tau_rr=%.17e energy_x=%.17e energy_r=%.17e\n",
+		 diagnostic_side,
+		 visc_flux[eq_mom0][0], visc_flux[eq_mom0][1],
+		 visc_flux[eq_mom0 + 1][0], visc_flux[eq_mom0 + 1][1],
+		 visc_flux[eq_ener][0], visc_flux[eq_ener][1]);
+	}
     }
 
     template<typename GasT>

@@ -3,6 +3,9 @@
 // This file is part of Theseus.
 //
 // SPDX-License-Identifier: BSD-3-Clause
+#include <cstdlib>
+#include <fstream>
+#include <string>
 
 namespace Theseus
 {
@@ -650,7 +653,57 @@ namespace Theseus
     const mfem::real_t *inv2_d  = dc.fw_plus_d;  // size nfaces*nfp
     const mfem::real_t *face_radius_d = dc.face_radius_d;
 
+    static int face_diagnostic_call = 0;
+    const int diagnostic_call = face_diagnostic_call++;
+    const char *diagnostic_prefix =
+      std::getenv("THESEUS_FACE_FLUX_SNAPSHOT_PREFIX");
+    const bool capture_flux = diagnostic_prefix != nullptr && diagnostic_call == 0;
+    if (diagnostic_call == 0)
+      {
+	printf("TRACE_GATE prefix=%s capture=%d nfaces=%d nfp=%d neq=%d\n",
+	       diagnostic_prefix ? diagnostic_prefix : "(unset)",
+	       int(capture_flux), nfaces, nfp, neq);
+	fflush(stdout);
+      }
+#ifndef POINT_PARALLEL_INTERIOR_FACES
+    MFEM_VERIFY(!capture_flux,
+                "Face diagnostic requires POINT_PARALLEL_INTERIOR_FACES");
+#endif
+    const int diagnostic_flux_face_size = neq * nfp;
+    const int diagnostic_property_face_size = 10 * nfp;
+    mfem::Vector diagnostic_inviscid;
+    mfem::Vector diagnostic_viscous;
+    mfem::Vector diagnostic_combined;
+    mfem::Vector diagnostic_properties;
+    mfem::real_t *diagnostic_inviscid_d = nullptr;
+    mfem::real_t *diagnostic_viscous_d = nullptr;
+    mfem::real_t *diagnostic_combined_d = nullptr;
+    mfem::real_t *diagnostic_properties_d = nullptr;
+    if (capture_flux)
+      {
+	diagnostic_inviscid.SetSize(nfaces * diagnostic_flux_face_size);
+	diagnostic_viscous.SetSize(nfaces * diagnostic_flux_face_size);
+	diagnostic_combined.SetSize(nfaces * diagnostic_flux_face_size);
+	diagnostic_properties.SetSize(nfaces * diagnostic_property_face_size);
+	diagnostic_inviscid.UseDevice(true);
+	diagnostic_viscous.UseDevice(true);
+	diagnostic_combined.UseDevice(true);
+	diagnostic_properties.UseDevice(true);
+	diagnostic_inviscid_d = diagnostic_inviscid.Write();
+	diagnostic_viscous_d = diagnostic_viscous.Write();
+	diagnostic_combined_d = diagnostic_combined.Write();
+	diagnostic_properties_d = diagnostic_properties.Write();
+      }
     {
+      static int face_diagnostic_call = 0;
+      const int diagnostic_call = face_diagnostic_call++;
+      const char *diagnostic_prefix =
+	std::getenv("THESEUS_FACE_FLUX_SNAPSHOT_PREFIX");
+      const bool capture_flux = diagnostic_prefix != nullptr && diagnostic_call == 0;
+#ifndef POINT_PARALLEL_INTERIOR_FACES
+      MFEM_VERIFY(!capture_flux,
+		  "Face diagnostic requires POINT_PARALLEL_INTERIOR_FACES");
+#endif      
       Theseus::ScopedTimer ifkern("CNSInteriorFaceKernel");
 #ifdef POINT_PARALLEL_INTERIOR_FACES
       mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
@@ -671,10 +724,27 @@ namespace Theseus
         const mfem::real_t radius =
           dc.axisymmetric ? face_radius_d[point_offset] : 0.0;
 
-        Theseus::DGSEMIntegrator::AssembleViscousFacePointKernel(
-          dc, u_face_d, nor_d + point_offset*dim,
-          inv1_d[point_offset], inv2_d[point_offset],
-          dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d);
+	if (capture_flux && f == 30982 && fp == 0)
+	  {
+	    printf("TRACE_SELECTED face=%d fp=%d\n", f, fp);
+	  }
+	Theseus::DGSEMIntegrator::AssembleViscousFacePointKernel(
+								 dc, u_face_d, nor_d + point_offset * dim,
+								 inv1_d[point_offset], inv2_d[point_offset],
+								 dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d,
+								 capture_flux ? diagnostic_inviscid_d
+								 + f * diagnostic_flux_face_size : nullptr,
+								 capture_flux ? diagnostic_viscous_d
+								 + f * diagnostic_flux_face_size : nullptr,
+								 capture_flux ? diagnostic_combined_d
+								 + f * diagnostic_flux_face_size : nullptr,
+								 capture_flux ? diagnostic_properties_d
+								 + f * diagnostic_property_face_size : nullptr,
+								 capture_flux && f == 30982 && fp == 0);
+        // Theseus::DGSEMIntegrator::AssembleViscousFacePointKernel(
+        //   dc, u_face_d, nor_d + point_offset*dim,
+        //   inv1_d[point_offset], inv2_d[point_offset],
+        //   dprim_face_x, dprim_face_y, dprim_face_z, radius, fp, rhs_face_d);
       });
 #else
       const int norm_size = nfp*dim;
@@ -703,6 +773,25 @@ namespace Theseus
       });
 #endif
     }
+    
+    if (capture_flux)
+      {
+	auto write_flux_snapshot = [&](const char *phase, const mfem::Vector &values)
+	  {
+	    const std::string path = std::string(diagnostic_prefix)
+	    + ".rhs0." + phase + ".bin";
+	    std::ofstream stream(path, std::ios::binary);
+	    MFEM_VERIFY(stream.is_open(), "Could not open face-flux snapshot");
+	    const mfem::real_t *host = values.HostRead();
+	    stream.write(reinterpret_cast<const char *>(host),
+			 values.Size() * sizeof(mfem::real_t));
+	    MFEM_VERIFY(stream.good(), "Could not write face-flux snapshot");
+	  };
+	write_flux_snapshot("face_inviscid", diagnostic_inviscid);
+	write_flux_snapshot("face_viscous", diagnostic_viscous);
+	write_flux_snapshot("face_combined", diagnostic_combined);
+	write_flux_snapshot("face_properties", diagnostic_properties);
+      }
 
     {
       Theseus::ScopedTimer ifscatter("CNSInteriorFaceScatter");
@@ -829,10 +918,27 @@ namespace Theseus
                                              dim, nfp, neq, fp, gradPrim_x, gradPrim_y,
                                              gradPrim_z);
       Theseus::Kernels::el_gather_state(u_face_d, nfp, neq, fp, state1);
-
-      Theseus::BC::ApplyViscousBoundaryCondition(
-        dc, bc, state1, gradPrim_x, gradPrim_y,
-        gradPrim_z, nor_point, radius, fluxN);
+      if (!(state1[0] > 0.0))
+	{
+	  printf("BAD BOUNDARY INTERIOR p=%d face=%d fp=%d marker=%d "
+		 "type=%d data_index=%d q=[%e %e %e %e]\n",
+		 p, f, fp, bnd_face_marker_index, bc.type, bc.data_index,
+		 state1[0], state1[1], state1[2], state1[3]);
+	}
+      if (bc.type == int(Theseus::BCType::PrescribedState) ||
+	  bc.type == int(Theseus::BCType::SupersonicInflow))
+	{
+	  const mfem::real_t *exterior = dc.bc_vector_d + bc.data_index;
+	  if (!(exterior[0] > 0.0))
+	    {
+	      printf("BAD BOUNDARY EXTERIOR p=%d face=%d fp=%d marker=%d "
+		     "type=%d data_index=%d q=[%e %e %e %e]\n",
+		     p, f, fp, bnd_face_marker_index, bc.type, bc.data_index,
+		     exterior[0], exterior[1], exterior[2], exterior[3]);
+	    }
+	}      
+      Theseus::BC::ApplyViscousBoundaryCondition(dc, bc, state1, gradPrim_x, gradPrim_y,
+						 gradPrim_z, nor_point, radius, fluxN);
       Theseus::Kernels::el_scatter_add(fluxN, nfp, neq, fp, scale, rhs_face_d);
     });
 
@@ -1099,9 +1205,42 @@ namespace Theseus
       }
     const std::vector<mfem::Vector *> &pGradPrim = this->P ? p_grad_ : grad_prim;
 
+    static int diagnostic_call = 0;
+    const int call = diagnostic_call++;
+    const char *prefix = std::getenv("THESEUS_RHS_SNAPSHOT_PREFIX");
+    const bool capture = prefix != nullptr && call < 6;
+    auto snapshot = [&](const char *phase, const mfem::Vector &values)
+      {
+	if (!capture)
+	  {
+	    return;
+	  }
+	const std::string path = std::string(prefix) + ".rhs"
+        + std::to_string(call) + "." + phase + ".bin";
+	std::ofstream stream(path, std::ios::binary);
+	MFEM_VERIFY(stream.is_open(), "Could not open RHS diagnostic snapshot");
+	const mfem::real_t *host = values.HostRead();
+	stream.write(reinterpret_cast<const char *>(host),
+		     values.Size() * sizeof(mfem::real_t));
+	MFEM_VERIFY(stream.good(), "Could not write RHS diagnostic snapshot");
+      };
+    snapshot("input", u);
     MultCNS_Volume(u, pGradPrim, pdudt);
+    snapshot("volume", pdudt);
     MultCNS_InteriorFaces(u, pGradPrim, pdudt);
+    snapshot("face_input", operator_cache.uInt);
+    snapshot("face_rhs", operator_cache.rhsInt);
+    snapshot("face_scattered", operator_cache.dudtInt);
+    snapshot("interior", pdudt);
+    snapshot("face_grad_x", operator_cache.gradInt[0]);
+    snapshot("face_grad_y", operator_cache.gradInt[1]);
+    snapshot("face_normals", operator_cache.face_normals);
     MultCNS_BoundaryFaces(u, pGradPrim, pdudt);
+    snapshot("boundary", pdudt);
+
+    //MultCNS_Volume(u, pGradPrim, pdudt);
+    //MultCNS_InteriorFaces(u, pGradPrim, pdudt);
+    //MultCNS_BoundaryFaces(u, pGradPrim, pdudt);
   }
 
 }

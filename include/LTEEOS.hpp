@@ -366,6 +366,12 @@ namespace Theseus
       if(l_x < 0 || u_x >= lteTables.L.nx || l_y < 0 || u_y >= lteTables.L.ny)
         {
 #ifdef __CUDA_ARCH__
+	  printf("FAILED LTE STATE: dim=%d neq=%d "
+		 "mass_index=%d energy_index=%d "
+		 "rho=%e mx=%e mr=%e rhoE=%e e=%e\n",
+		 L.dim, L.nequations(), L.eq_mass, L.eq_energy,
+		 S.mass(L), S.momentum(L, 0), S.momentum(L, 1),
+		 S.energy(L), e);
           printf(" CL ALERT : Out of bounds in LTE table lookup! \n");
           printf("l_x : %d l_y : %d \n", l_x, l_y);
           printf("rho : %e < %e < %e \n", lteTables.tables.rho_grid[0],
