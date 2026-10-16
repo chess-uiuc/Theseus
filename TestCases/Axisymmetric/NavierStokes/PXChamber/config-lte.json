@@ -80,7 +80,7 @@
     "gas_model": "lte",
     "paraview": true,
     "visit": false,
-    "vis_steps": 100,
+    "vis_steps": 10,
     "alpha_max": 0.5,
     "gas_mixture": "air11",
     "plato_solver": "LTE_table_rhoT_(air11)",

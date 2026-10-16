@@ -367,7 +367,8 @@ namespace Theseus
 
       // Diagnostic isolation: materialize the minus projection before the
       // second constitutive call. Volatile prevents sinking these stores.
-      volatile mfem::real_t projected_minus[Theseus::MAXEQ] = {0.0};
+      // volatile mfem::real_t projected_minus[Theseus::MAXEQ] = {0.0};
+      mfem::real_t projected_minus[Theseus::MAXEQ] = {0.0};
       mfem::real_t projected_plus[Theseus::MAXEQ] = {0.0};
 
       NavierStokesFlux::ComputeViscousFluxKernel(
