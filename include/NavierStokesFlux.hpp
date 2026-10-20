@@ -8,7 +8,7 @@
 #include "mfem.hpp"
 #include "AxisymmetricGeometry.hpp"
 #include "GasModel.hpp"
-#include <cstdio>
+#include "ViscousInvariants.hpp"
 
 namespace Theseus
 {
@@ -102,10 +102,18 @@ namespace Theseus
                                          mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM],
                                          bool axisymmetric = false,
                                          mfem::real_t radius = 0.0,
-                                         mfem::real_t *azimuthal_stress = nullptr,
-					 int diagnostic_side=-1)
+                                         mfem::real_t *azimuthal_stress = nullptr)
     {
 
+      ViscousInvariants::Layout(gas, "constitutive_entry");
+      ViscousInvariants::Tables(gas, "constitutive_entry");
+      if (!state || !dprim_x || (gas.dim() > 1 && !dprim_y) ||
+          (gas.dim() > 2 && !dprim_z) || !visc_flux ||
+          (axisymmetric && gas.dim() != 2))
+        {
+          ViscousInvariants::Fail("constitutive_entry", "pointers_or_axisymmetry",
+                                  gas.dim(), gas.num_equations(), -1, 0.0);
+        }
       // TODO: Update for scalar transport
       const int dim = gas.dim();
       // Zero the flux to start
@@ -121,6 +129,8 @@ namespace Theseus
       const mfem::real_t mu = gas.viscosity(S);
       const mfem::real_t kappa = gas.thermal_conductivity(S);
       const mfem::real_t mu_bulk = gas.bulk_viscosity(S);
+      ViscousInvariants::Layout(gas, "after_transport");
+      ViscousInvariants::Tables(gas, "after_transport");
 
       // State structure constants
       const int eq_mass = gas.L.eq_mass;
@@ -181,25 +191,6 @@ namespace Theseus
 	    }
           div_vel += radial_rate;
         }
-      if (diagnostic_side >= 0 && dim == 2)
-	{
-	  printf("STRESS_INPUT side=%d axisymmetric=%d radius=%.17e "
-               "axis_branch=%d mu=%.17e kappa=%.17e mu_bulk=%.17e "
-		 "q=[%.17e %.17e %.17e %.17e]\n",
-		 diagnostic_side, int(axisymmetric), radius,
-		 int(axisymmetric &&
-		     radius <= AxisymmetricGeometry::radius_tolerance),
-		 mu, kappa, mu_bulk,
-		 S.mass(gas.L), S.momentum(gas.L, 0),
-		 S.momentum(gas.L, 1), S.energy(gas.L));
-	  printf("STRESS_INTERMEDIATE side=%d "
-               "dux_dx=%.17e dux_dr=%.17e dur_dx=%.17e dur_dr=%.17e "
-		 "ux=%.17e ur=%.17e radial_rate=%.17e div=%.17e\n",
-		 diagnostic_side,
-		 grad_vel[0][0], grad_vel[0][1],
-		 grad_vel[1][0], grad_vel[1][1],
-		 vel[0], vel[1], radial_rate, div_vel);
-	}
 
       if (azimuthal_stress)
         {
@@ -242,15 +233,89 @@ namespace Theseus
             }
           visc_flux[eq_ener][dir] = eflux;
         }
-      if (diagnostic_side >= 0 && dim == 2)
-	{
-	  printf("STRESS_OUTPUT side=%d tau_xx=%.17e tau_xr=%.17e "
-		 "tau_rx=%.17e tau_rr=%.17e energy_x=%.17e energy_r=%.17e\n",
-		 diagnostic_side,
-		 visc_flux[eq_mom0][0], visc_flux[eq_mom0][1],
-		 visc_flux[eq_mom0 + 1][0], visc_flux[eq_mom0 + 1][1],
-		 visc_flux[eq_ener][0], visc_flux[eq_ener][1]);
-	}
+      ViscousInvariants::Mass(gas, visc_flux, "constitutive_exit");
+    }
+
+    // Restricted primitive gradients: directions are separate global arrays,
+    // equations are strided by nfp, and offset selects one face point and side.
+    struct FacePrimitiveGradientView
+    {
+      const mfem::real_t *x;
+      const mfem::real_t *y;
+      const mfem::real_t *z;
+      int equation_stride;
+      int offset;
+
+      MFEM_HOST_DEVICE mfem::real_t Get(int equation, int direction) const
+      {
+        const mfem::real_t *data = direction == 0 ? x : (direction == 1 ? y : z);
+        return data[offset + equation * equation_stride];
+      }
+    };
+
+    // The normal includes the face metric; do not normalize it. This computes
+    // tau*n and (k*grad(T) + u*tau)*n without a local physical-flux tensor,
+    // velocity-gradient matrix, or temperature-gradient copy.
+    template<typename GasT>
+    MFEM_HOST_DEVICE inline void ComputeNormalViscousFluxKernel(
+      const GasT &gas, const mfem::real_t *state,
+      const FacePrimitiveGradientView &gradient, const mfem::real_t *normal,
+      bool axisymmetric, mfem::real_t radius, mfem::real_t *normal_flux)
+    {
+      ViscousInvariants::Layout(gas, "normal_constitutive_entry");
+      ViscousInvariants::Tables(gas, "normal_constitutive_entry");
+      const int dim = gas.dim();
+      const int equations = gas.num_equations();
+      if (!state || !normal || !normal_flux || !gradient.x ||
+          (dim > 1 && !gradient.y) || (dim > 2 && !gradient.z) ||
+          gradient.equation_stride <= 0 || gradient.offset < 0 ||
+          (axisymmetric && dim != 2))
+        {
+          ViscousInvariants::Fail("normal_constitutive_entry", "gradient_or_pointers",
+                                  dim, equations, gradient.offset, 0.0);
+        }
+      PointStateView S{state};
+      const mfem::real_t mu = gas.viscosity(S);
+      const mfem::real_t kappa = gas.thermal_conductivity(S);
+      const mfem::real_t bulk_coefficient = gas.bulk_viscosity(S);
+      const int momentum = gas.L.eq_mom0;
+      const int energy = gas.L.eq_energy;
+      mfem::real_t divergence = 0.0;
+      for (int d = 0; d < dim; ++d)
+        {
+          divergence += gradient.Get(momentum + d, d);
+        }
+      const int radial = AxisymmetricGeometry::radial_coordinate;
+      const bool at_axis = axisymmetric && radius <= AxisymmetricGeometry::radius_tolerance;
+      if (axisymmetric)
+        {
+          divergence += at_axis ? gradient.Get(momentum + radial, radial)
+                               : gas.velocity(S, radial) / radius;
+        }
+      for (int q = 0; q < equations; ++q)
+        {
+          normal_flux[q] = 0.0;
+        }
+      for (int direction = 0; direction < dim; ++direction)
+        {
+          const mfem::real_t temperature_gradient = gas.temperature_gradient_component(
+            S, gradient.Get(0, direction), gradient.Get(energy, direction));
+          mfem::real_t energy_flux = kappa * temperature_gradient;
+          for (int component = 0; component < dim; ++component)
+            {
+              const mfem::real_t tau = component == direction
+                ? mu * (2.0 * gradient.Get(momentum + component, direction)
+                        - bulk_coefficient * divergence)
+                : mu * (gradient.Get(momentum + component, direction)
+                        + gradient.Get(momentum + direction, component));
+              normal_flux[momentum + component] += normal[direction] * tau;
+              const mfem::real_t velocity = at_axis && component == radial
+                ? 0.0 : gas.velocity(S, component);
+              energy_flux += velocity * tau;
+            }
+          normal_flux[energy] += normal[direction] * energy_flux;
+        }
+      ViscousInvariants::Projection(gas, normal_flux[0], "normal_constitutive_exit");
     }
 
     template<typename GasT>

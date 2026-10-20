@@ -87,6 +87,8 @@ namespace Theseus
     mfem::Vector uInt;
     mfem::Vector sInt;
     mfem::Vector rhsInt;
+    // Exclusive per-face-point scratch; reused between sequential RHS calls.
+    mfem::Vector viscousFaceScratch;
     mfem::Vector dudtInt;
     mfem::Vector uBnd;
     mfem::Vector sBnd;

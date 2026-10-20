@@ -6,8 +6,6 @@
 #pragma once
 
 #include <cmath>
-#include <stdexcept>
-#include <limits>
 #include "Physics.hpp"
 #include "GasState.hpp"
 #include "LTETable.hpp"
@@ -23,55 +21,6 @@ namespace Theseus
   // ============================================================================
   struct LTEGasEOS
   {
-
-    MFEM_HOST_DEVICE
-    static void RejectInvalidState(const char *message)
-    {
-#ifdef __CUDA_ARCH__
-      printf("LTE runtime error: %s\n", message);
-      asm("trap;");
-#else
-      throw std::invalid_argument(message);
-#endif
-    }
-
-    MFEM_HOST_DEVICE
-    static mfem::real_t CheckedCoordinate(const mfem::real_t *grid, int count,
-                                         mfem::real_t value)
-    {
-      if (count < 2 || grid == nullptr)
-        {
-          RejectInvalidState("LTE lookup requires a grid with at least two entries");
-          return value;
-        }
-      if (Kernels::is_bad_value(value))
-        {
-          RejectInvalidState("LTE lookup coordinate is nonfinite");
-          return value;
-        }
-      // Recovery can place an endpoint a few ulps outside its grid. Snap only
-      // roundoff-sized excursions, before hunt can generate an invalid index.
-      constexpr auto tolerance = 8 * std::numeric_limits<mfem::real_t>::epsilon();
-      if (value < grid[0])
-        {
-          const auto scale = Kernels::rmax(mfem::real_t(1), Kernels::rabs(grid[0]));
-          if (grid[0] - value > tolerance * scale)
-            {
-              RejectInvalidState("LTE lookup coordinate is below its grid");
-            }
-          return grid[0];
-        }
-      if (value > grid[count - 1])
-        {
-          const auto scale = Kernels::rmax(mfem::real_t(1), Kernels::rabs(grid[count - 1]));
-          if (value - grid[count - 1] > tolerance * scale)
-            {
-              RejectInvalidState("LTE lookup coordinate is above its grid");
-            }
-          return grid[count - 1];
-        }
-      return value;
-    }
 
     MFEM_HOST_DEVICE
     mfem::real_t isothermal_wall_beta(const PhysicsConstants &,
@@ -229,6 +178,16 @@ namespace Theseus
       return temp_from_internal_energy(phys, L, S, lteTables);
     }
 
+    // One directional component; LTE already stores temperature gradients.
+    template<typename StateView>
+    MFEM_HOST_DEVICE
+    inline mfem::real_t temperature_gradient_component(
+      const PhysicsConstants &phys, const StateLayout &L, const StateView &S,
+      mfem::real_t grad_rho, mfem::real_t grad_p, const LTETables &lteTables) const
+    {
+      return grad_p;
+    }
+
     template<typename StateView>
     MFEM_HOST_DEVICE
     inline void grad_temperature(const PhysicsConstants &phys, const StateLayout  &L,
@@ -373,25 +332,11 @@ namespace Theseus
     {
       const auto e = specific_internal_energy(phys, L, S, lteTables);
       detail::LTETemperatureRecovery recovery(biinterp_inverse_table(phys, L, S, lteTables));
-      recovery.temperature = CheckedCoordinate(lteTables.tables.T_grid, lteTables.L.ny, recovery.temperature);
-      if (recovery.temperature <= 0)
-        {
-          RejectInvalidState("LTE temperature recovery requires positive temperature");
-        }
       while (recovery.NeedsIteration())
         {
           const auto e_guess = biinterp_lte_table(lteTables.L.e_idx, phys, L, S, recovery.temperature, lteTables);
           const auto cv = biinterp_lte_table(lteTables.L.cv_idx, phys, L, S, recovery.temperature, lteTables);
-          if (Kernels::is_bad_value(e_guess) || Kernels::is_bad_value(cv) || cv <= 0)
-            {
-              RejectInvalidState("LTE temperature recovery requires finite energy and positive finite cv");
-            }
           recovery.Update(e, e_guess, cv);
-          recovery.temperature = CheckedCoordinate(lteTables.tables.T_grid, lteTables.L.ny, recovery.temperature);
-          if (recovery.temperature <= 0 || Kernels::is_bad_value(recovery.residual))
-            {
-              RejectInvalidState("LTE temperature recovery produced an invalid update");
-            }
           if (recovery.ExceededIterations())
             {
 #ifdef __CUDA_ARCH__
@@ -422,9 +367,6 @@ namespace Theseus
       // Point rho and e values
       mfem::real_t rho  = density(phys, L, S, lteTables);
       mfem::real_t e = specific_internal_energy(phys, L, S, lteTables);
-
-      rho = CheckedCoordinate(lteTables.tables.rho_grid, lteTables.L.nx, rho);
-      e = CheckedCoordinate(lteTables.tables.e_grid, lteTables.L.ny, e);
 
       // Get the lower and upper x and y indices of the cell
       int l_x = hunt(lteTables.tables.rho_grid, lteTables.L.nx, rho, 0);
@@ -493,16 +435,9 @@ namespace Theseus
 
       mfem::real_t rho  = density(phys, L, S, lteTables);
 
-      rho = CheckedCoordinate(lteTables.tables.rho_grid, lteTables.L.nx, rho);
-      const auto temperature = CheckedCoordinate(lteTables.tables.T_grid, lteTables.L.ny, T);
-      if (property_idx < 0 || property_idx >= lteTables.L.num_properties)
-        {
-          RejectInvalidState("LTE lookup property index is outside the forward table");
-        }
-
       // Get the lower and upper x and y indices of the cell
       int l_x = hunt(lteTables.tables.rho_grid, lteTables.L.nx, rho, 0);
-      int l_y = hunt(lteTables.tables.T_grid, lteTables.L.ny, temperature, 0);
+      int l_y = hunt(lteTables.tables.T_grid, lteTables.L.ny, T, 0);
       int u_x = l_x + 1  , u_y = l_y + 1;
 
       // Get the lower and upper x and y coordinates of the cell
@@ -516,7 +451,7 @@ namespace Theseus
       mfem::real_t Q11 = lteTables.tables.lte_table[lteTables.L.property_index(property_idx, u_x, u_y)];
 
       mfem::real_t wx = (rho  - rho_l)  / (rho_u - rho_l);
-      mfem::real_t wy = (temperature - T_l) / (T_u - T_l);
+      mfem::real_t wy = (T - T_l) / (T_u - T_l);
 
       // Clamp to [0, 1]
       wx = Theseus::Kernels::rmax(mfem::real_t(0), Theseus::Kernels::rmin(mfem::real_t(1), wx));

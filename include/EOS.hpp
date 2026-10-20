@@ -156,6 +156,20 @@ namespace Theseus
       return p / (rho * phys.R_gas);
     }
 
+    // Convert one directional pressure/density gradient to a temperature gradient.
+    template<typename StateView>
+    MFEM_HOST_DEVICE
+    inline mfem::real_t temperature_gradient_component(
+      const PhysicsConstants &phys, const StateLayout &L, const StateView &S,
+      mfem::real_t grad_rho, mfem::real_t grad_p) const
+    {
+      const mfem::real_t rho = density(phys, L, S);
+      const mfem::real_t pressure_over_rho = pressure(phys, L, S) / rho;
+      const mfem::real_t cv = cp(phys, L, S) / phys.gamma;
+      const mfem::real_t factor = phys.gammaM1Inverse / (cv * rho);
+      return factor * (grad_p - pressure_over_rho * grad_rho);
+    }
+
     template<typename StateView>
     MFEM_HOST_DEVICE
     inline void grad_temperature(const PhysicsConstants &phys, const StateLayout  &L,

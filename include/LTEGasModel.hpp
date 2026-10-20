@@ -238,6 +238,14 @@ namespace Theseus
 
     template<typename StateView>
     MFEM_HOST_DEVICE
+    inline mfem::real_t temperature_gradient_component(
+      const StateView &S, mfem::real_t grad_rho, mfem::real_t grad_p) const
+    {
+      return eos.temperature_gradient_component(phys, L, S, grad_rho, grad_p, T);
+    }
+
+    template<typename StateView>
+    MFEM_HOST_DEVICE
     inline void grad_temperature(const StateView &S,
                                  const mfem::real_t *grad_r, const mfem::real_t *grad_p,
                                  mfem::real_t *grad_t) const

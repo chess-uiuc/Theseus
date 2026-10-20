@@ -10,7 +10,10 @@ LOG_DIR="${LOG_DIR:-$TPL_DIR/logs}"
 
 JOBS="${JOBS:-4}"
 DEVICE="${DEVICE:-cpu}"       # cpu, cuda, hip
-CUDA_ARCH="${CUDA_ARCH:-75}"
+# A100 : 80
+# A40: 86
+# H200, GraceHopper: 90
+CUDA_ARCH="${CUDA_ARCH:-90}"
 HIP_ARCH="${HIP_ARCH:-}"
 
 export CC="${CC:-mpicc}"
@@ -29,10 +32,10 @@ HYPRE_REF="${HYPRE_REF:-master}"
 MFEM_REPO="${MFEM_REPO:-https://github.com/mfem/mfem.git}"
 MFEM_REF="${MFEM_REF:-master}"
 
-PLATO_REPO="${PLATO_REPO:-https://github.com/chess-uiuc/plato.git}"
+PLATO_REPO="${PLATO_REPO:-git@github.com:/chess-uiuc/plato.git}"
 PLATO_REF="${PLATO_REF:-main}"
 
-THERMO_DATABASE_REPO="${THERMO_DATABASE_REPO:-https://github.com/chess-uiuc/database.git}"
+THERMO_DATABASE_REPO="${THERMO_DATABASE_REPO:-git@github.com:/chess-uiuc/database.git}"
 THERMO_DATABASE_REF="${THERMO_DATABASE_REF:-main}"
 
 mkdir -p "$SRC_DIR" "$BUILD_DIR" "$PREFIX" "$LOG_DIR"

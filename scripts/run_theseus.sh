@@ -328,7 +328,13 @@ else
         run_command=(ibrun -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
     gh*)
-        # GraceHopper/Delta
+        # DeltaAI GraceHopper
+	cp "${UTILDIR}/launch_delta_device.sh" "${RUNDIR}/device_launcher.sh"
+        run_command=(srun -N "${NHOSTS}" -n "${NMPIRANKS}" ../device_launcher.sh)
+        ;;
+    gpua*)
+	printf "DeltaAI> UTILS: ${UTILDIR}, RUNDIR: ${RUNDIR}\n"
+        # Delta A100
 	cp "${UTILDIR}/launch_delta_device.sh" "${RUNDIR}/device_launcher.sh"
         run_command=(srun -N "${NHOSTS}" -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
