@@ -3,7 +3,7 @@
     "PARABOLIC": true,
     "AXISYMMETRIC": true,
     "SUBCELL_FV_BLENDING": true,
-    "SUTHERLAND": false,
+    "SUTHERLAND": true,
     "USE_FILTER": false
   },
   "runTime": {
@@ -17,7 +17,7 @@
     "nancheck_steps": 1,
     "clock_simulation": false,
     "variable_dt": false,
-    "dt": 1e-09,
+    "dt": 1e-08,
     "final_time": 1e-07,
     "flow_model": "cns",
     "Pr": 0.72,
@@ -80,7 +80,7 @@
     "gas_model": "lte",
     "paraview": true,
     "visit": false,
-    "vis_steps": 10,
+    "vis_steps": 1000,
     "alpha_max": 0.5,
     "gas_mixture": "air11",
     "plato_solver": "LTE_table_rhoT_(air11)",
