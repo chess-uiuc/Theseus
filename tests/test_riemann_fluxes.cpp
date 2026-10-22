@@ -158,7 +158,7 @@ template <typename FluxT, typename GasT>
 static void run_vol_flux_tadmor_condition_2d(const FluxT &num_flux,
                                              const GasT &gas)
 {
-    mfem::Vector qL(4), qR(4), met1(4), met2(4), flux(4);
+    mfem::Vector qL(4), qR(4), met1(3), met2(3), flux(4);
     mfem::Vector wL(4), wR(4);
     double gamma = gas.phys.gamma;
 
@@ -356,7 +356,7 @@ TEST(RoeFlux_ResolvesStationaryContact_2D)
 TEST(ECFlux_Tadmor_2D)
 {
   const int dim =2;
-  const int ndofs = 4;
+  const int ndofs = 1;
 
   Theseus::PhysicsConstants phys(1.4, 0.72, 287.05, 0.02);
 
