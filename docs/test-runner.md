@@ -43,19 +43,30 @@ sets up device execution. Each integrated check has one entry in the suite.
 
 ## Discover and read executable recipes
 
-Human-readable Bash recipes are being introduced as the canonical definition of
-simulation and comparison workflows. List the available recipes without configuring
-or running a build:
+Human-readable Bash recipes are the canonical definition of simulation and
+comparison workflows. Suites are ordered lists of those individual recipes. List
+the available recipes and suites without configuring or running a build:
 
 ```bash
 python3 scripts/run_tests.py list
 ```
 
-Display a recipe's metadata and complete Bash source:
+Display only the commands needed to reproduce one recipe:
 
 ```bash
 python3 scripts/run_tests.py show golden-vortex
 ```
+
+Display the same concise commands for every recipe in a suite:
+
+```bash
+python3 scripts/run_tests.py show regression
+```
+
+The output is organized into `run`, `prepare`, and `compare` stages. It shows the
+literal `run_theseus.sh` command, including the case, mesh, timestep and step
+count, followed by any reference-preparation and comparison commands. Recipe
+setup and argument-parsing boilerplate is omitted.
 
 Run one recipe against an existing build:
 
@@ -67,8 +78,10 @@ python3 scripts/run_tests.py run-test golden-vortex \
   --device cpu --ranks 2
 ```
 
-The recipes live under `tests/recipes/`. Their simulation, reference-preparation,
-and comparison commands are intentionally visible and directly executable. All
+The individual recipes live under `tests/recipes/`; suites only compose their
+identifiers in `tests/recipes/recipes.toml`. Their simulation,
+reference-preparation, and comparison commands are intentionally visible and
+directly executable. All
 Cartesian smoke, cyclic and golden-data workflows use these recipes as their
 canonical full-suite and prepared-build entries; they are not duplicated in the
 Python command registry.

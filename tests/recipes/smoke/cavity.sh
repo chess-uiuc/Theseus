@@ -11,6 +11,7 @@ RUN_OUTPUT_REL="$(recipe_output_relative_to_source "$RUN_OUTPUT")"
 echo "==> Run the Lid-Driven Cavity smoke test"
 (
   cd "$THESEUS_SOURCE"
+  # THESEUS_SHOW run
   scripts/run_theseus.sh \
     -b "$THESEUS_BUILD_STANDARD" \
     -p "$THESEUS_RANKS" \
@@ -20,4 +21,5 @@ echo "==> Run the Lid-Driven Cavity smoke test"
     -t 0.0001 \
     -n 100 \
     -o "$RUN_OUTPUT_REL"
+  # THESEUS_SHOW_END
 )

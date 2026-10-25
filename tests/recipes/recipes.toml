@@ -1,5 +1,17 @@
 schema = 1
 
+[[suite]]
+id = "smoke"
+title = "Cartesian smoke tests"
+
+[[suite]]
+id = "regression"
+title = "Cartesian regression comparisons"
+
+[[suite]]
+id = "cartesian"
+title = "All Cartesian smoke and regression tests"
+
 [[test]]
 id = "smoke-vortex"
 title = "Inviscid Isentropic Vortex smoke test"

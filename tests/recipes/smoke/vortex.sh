@@ -11,6 +11,7 @@ RUN_OUTPUT_REL="$(recipe_output_relative_to_source "$RUN_OUTPUT")"
 echo "==> Run the Isentropic Vortex smoke test"
 (
   cd "$THESEUS_SOURCE"
+  # THESEUS_SHOW run
   scripts/run_theseus.sh \
     -b "$THESEUS_BUILD_STANDARD" \
     -p "$THESEUS_RANKS" \
@@ -20,4 +21,5 @@ echo "==> Run the Isentropic Vortex smoke test"
     -t 0.002 \
     -n 100 \
     -o "$RUN_OUTPUT_REL"
+  # THESEUS_SHOW_END
 )
