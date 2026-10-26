@@ -15,14 +15,14 @@ Choose the kind of test by what it needs to execute.
 | --- | --- | --- |
 | Unit/helper | Check a function, data structure or infrastructure script | `tests/CMakeLists.txt` |
 | Integrated | Run Theseus and check simulation behavior | `integrated_commands` in `scripts/run_tests.py` |
-| Smoke or golden case | Run an example, optionally compare its visualization output | `suite_commands` in `scripts/run_tests.py` |
+| Smoke or golden case | Run an example, optionally compare its visualization output | `tests/recipes/recipes.toml` |
 
 Register each check once. The full suite runs CTest and the integrated registry;
 registering the same simulation in both would execute it twice.
 
 ## Human-readable test recipes
 
-Simulation workflows are migrating to executable Bash recipes under
+Simulation workflows use executable Bash recipes under
 `tests/recipes/`. A recipe is the canonical, human-readable sequence of input
 preparation, `run_theseus.sh` invocations, and result comparisons. Python helpers
 may generate data or assert numerical results, but they must not hide the overall
@@ -34,6 +34,27 @@ external requirements. It does not duplicate any command from the Bash script.
 The test runner rejects duplicate identifiers, duplicate script paths,
 missing or non-executable scripts, and unregistered `*.sh` files in the recipe
 tree.
+
+Put display markers immediately around each meaningful command in the recipe:
+
+```bash
+# THESEUS_SHOW run
+scripts/run_theseus.sh \
+  -b "$THESEUS_BUILD_STANDARD" \
+  -c TestCases/path/to/case/config.json \
+  -t 0.001 -n 100
+# THESEUS_SHOW_END
+```
+
+Use the stage names `run`, `prepare`, and `compare`, in the same order as the
+recipe's `stages` list. `show` extracts these commands from the executable recipe,
+so the displayed and executed definitions cannot drift apart. Keep setup,
+conditionals, and status messages outside the markers.
+
+To add a recipe to a suite, include the suite identifier in the recipe's `suites`
+list. A `[[suite]]` entry gives each user-visible suite its title; it contains no
+commands or duplicate membership list. Recipes appear in their manifest `order`.
+The runner rejects empty suites and identifiers shared by a recipe and suite.
 
 Use the canonical Golden Vortex recipe as the initial pattern:
 
@@ -48,6 +69,7 @@ Verify discovery and inspect exactly what a developer will see:
 ```bash
 python3 scripts/run_tests.py list
 python3 scripts/run_tests.py show golden-vortex
+python3 scripts/run_tests.py show regression
 ```
 
 Run the recipe either through `run_tests.py run-test` or directly with Bash. See
@@ -95,8 +117,24 @@ conditions when a check requires a particular geometry or dependency.
 
 ## Add an integrated test
 
-An integrated checker has three jobs: prepare a physical case, launch Theseus,
-and assert the expected result. Keep those steps visible in the code.
+An integrated recipe has three jobs: prepare physical cases, launch Theseus, and
+assert the expected results. Keep those steps visible in its Bash recipe. Use a
+Python helper for generated inputs and numerical assertions, but put each actual
+`run_theseus.sh` command in the recipe rather than launching it from Python.
+
+The Axisymmetric Uniform Flow recipe is the compact staged example:
+
+```text
+tests/recipes/integration/axisymmetric-uniform-flow.sh
+tests/axisymmetric_uniform_flow_integration_test.py
+```
+
+Its `prepare` stage generates four configurations, its `run` stage visibly invokes
+the one- and two-rank Euler and Navier–Stokes cases, and its `compare` stage checks
+the logs. `show axis-uniform` prints that same sequence.
+
+Some older integrated checkers still launch simulations from Python while they are
+migrated to this structure. Do not use that legacy structure for new tests.
 
 Use [the entropy-wave checker](../tests/axisymmetric_entropy_wave_convergence_test.py)
 as a compact example of multiple simulations followed by a numerical assertion.
@@ -139,33 +177,17 @@ For rejection tests, require both a nonzero exit status and the expected diagnos
 For numerical tests, derive the expected result independently of the implementation.
 Choose tolerances for the numerical method and the quantity being checked.
 
-### Register the checker
+### Register the recipe
 
-Add an entry to `integrated_commands` in `scripts/run_tests.py`. Its fields are:
+Register the executable Bash recipe in `tests/recipes/recipes.toml` with the
+appropriate build, suites, requirements and stage order. The runner supplies source,
+the selected build, dependency prefix, output directory, device and Python
+interpreter. It records each recipe stage separately, so solver runtime is not
+combined with preparation or comparison time.
 
-| Field | Meaning |
-| --- | --- |
-| Identifier | Unique short name used in log and result paths |
-| Title | Human-readable name shown in the summary |
-| Geometry | `standard` or `axisymmetric` build |
-| Script | Checker filename under `tests/` |
-| Options | Extra checker arguments, such as a database or reference executable |
-
-For example, the registry entry for the existing entropy-wave checker is:
-
-```python
-('axis-convergence', 'Axisymmetric Entropy-Wave Convergence', 'axisymmetric',
- 'axisymmetric_entropy_wave_convergence_test.py', []),
-```
-
-To add another checker, place its script under `tests/`, choose a unique identifier
-and descriptive title, select its build geometry, and add its tuple to `entries`.
-Use the options list for extra inputs. A new required executable must also be
-accounted for in `prepared_builds`, so HPC users receive a clear prerequisite check.
-
-The runner supplies source, executable and device arguments. It creates a dedicated
-working directory under `integrated/` and records one timed result for the checker.
-Do not also register this simulation in CTest.
+A new required executable must also be accounted for in `prepared_builds`, so HPC
+users receive a clear prerequisite check. Do not also register the simulation in
+CTest or `integrated_commands`.
 
 ### Exercise the checker
 
@@ -195,18 +217,11 @@ A smoke test checks that a configuration starts, completes and produces the requ
 output. Use an integrated numerical check when success also depends on physical values,
 convergence, conservation, restart behavior or another property of the result.
 
-In `suite_commands`, add the case to `cases`, then add its identifier and timestep
-to the smoke loop. For example, the existing vortex case is defined by:
-
-```python
-'vortex': ('Euler/2D/IsentropicVortex', 'IsentropicVortex',
-           'Inviscid Isentropic Vortex'),
-```
-
-The three fields are the configuration directory relative to `TestCases`, the golden
-reference directory name, and the summary title. The smoke loop supplies 100 steps;
-use an explicit `simulation` call if a new case needs another duration. Check that
-the case's final-time setting allows the requested steps to complete.
+Create an executable recipe under `tests/recipes/smoke/` with its literal
+`run_theseus.sh` command, add display markers, and register it as a `[[test]]` in
+`tests/recipes/recipes.toml`. Add its identifier to the ordered `smoke` and
+`cartesian` suite lists. Check that the case's final-time setting allows the
+requested steps to complete.
 
 ## Add golden results for regression
 
@@ -222,7 +237,8 @@ is not, on its own, evidence of physical correctness.
 3. Inspect the candidate fields and check the intended physical behavior. Document
    why the reference and comparison tolerances are appropriate before adopting it.
 4. Store the reference cycle and every piece file named by its `data.pvtu`, then
-   register the simulation and comparison in `suite_commands`.
+   create and register a regression recipe containing the run, preparation and
+   comparison commands.
 
 For example, this generates a *candidate* for the existing vortex recipe, using the
 harness's default two ranks. It does not install or approve a new reference:
@@ -264,12 +280,15 @@ archive. Missing data or failed extraction makes reference preparation fail.
 
 ### Register the comparison
 
-Add the case mapping described above and an entry in the golden loop of
-`suite_commands`. The existing vortex entry is:
+Create a recipe under `tests/recipes/regression/` and register its `run`, `prepare`,
+and `compare` stages in `tests/recipes/recipes.toml`. The existing vortex recipe
+contains this comparison:
 
-```python
-('vortex', '0.001', 500, '1e-13', '1e-13'),
-# identifier, timestep, output cycle/step count, absolute tolerance, relative tolerance
+```bash
+"$THESEUS_PYTHON" "$THESEUS_SOURCE/scripts/compare_viz.py" \
+  "$RUN_OUTPUT/IsentropicVortex/ParaView/Cycle000500/data.pvtu" \
+  "$REFERENCE_OUTPUT/Cycle000500/data.pvtu" \
+  --atol 1e-13 --rtol 1e-13
 ```
 
 The runner launches the simulation, prepares its reference and invokes
@@ -328,7 +347,7 @@ The runner's main responsibilities are grouped into these functions:
 | Function | Responsibility |
 | --- | --- |
 | `integrated_commands` | List integrated checkers and their build/input requirements |
-| `suite_commands` | Assemble build, unit, integrated, smoke and comparison commands |
+| `suite_commands` | Assemble build, unit, integrated and registered recipe commands |
 | `prepare` | Snapshot source, create result directories and record run settings |
 | `prepared_builds` | Validate supplied builds and record their binaries/cache hashes |
 | `worker` | Execute the commands in order and block checks whose prerequisites failed |

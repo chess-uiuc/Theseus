@@ -2,6 +2,7 @@
 
 recipe_usage() {
   echo "Usage: $1 --source DIR --build-standard DIR --prefix DIR --output DIR" >&2
+  echo "          [--build-axisymmetric DIR]" >&2
   echo "          [--device cpu|cuda] [--python PYTHON] [--ranks N]" >&2
   echo "          [--stage all|run|prepare|compare]" >&2
 }
@@ -9,6 +10,7 @@ recipe_usage() {
 recipe_parse_arguments() {
   THESEUS_SOURCE=""
   THESEUS_BUILD_STANDARD=""
+  THESEUS_BUILD_AXISYMMETRIC=""
   THESEUS_PREFIX=""
   THESEUS_TEST_OUTPUT=""
   THESEUS_DEVICE="cpu"
@@ -20,6 +22,7 @@ recipe_parse_arguments() {
     case "$1" in
       --source) THESEUS_SOURCE="$2"; shift 2 ;;
       --build-standard) THESEUS_BUILD_STANDARD="$2"; shift 2 ;;
+      --build-axisymmetric) THESEUS_BUILD_AXISYMMETRIC="$2"; shift 2 ;;
       --prefix) THESEUS_PREFIX="$2"; shift 2 ;;
       --output) THESEUS_TEST_OUTPUT="$2"; shift 2 ;;
       --device) THESEUS_DEVICE="$2"; shift 2 ;;
@@ -30,18 +33,26 @@ recipe_parse_arguments() {
     esac
   done
 
-  if [[ -z "$THESEUS_SOURCE" || -z "$THESEUS_BUILD_STANDARD" ||
+  if [[ -z "$THESEUS_SOURCE" ||
+        ( -z "$THESEUS_BUILD_STANDARD" && -z "$THESEUS_BUILD_AXISYMMETRIC" ) ||
         -z "$THESEUS_PREFIX" || -z "$THESEUS_TEST_OUTPUT" ]]; then
     recipe_usage "$0"
     exit 2
   fi
   THESEUS_SOURCE="$(cd "$THESEUS_SOURCE" && pwd)"
-  THESEUS_BUILD_STANDARD="$(cd "$THESEUS_BUILD_STANDARD" && pwd)"
-  THESEUS_PREFIX="$(cd "$THESEUS_PREFIX" && pwd)"
-  if [[ ! -x "$THESEUS_BUILD_STANDARD/theseus" ]]; then
-    echo "Missing executable: $THESEUS_BUILD_STANDARD/theseus" >&2
-    exit 2
+  if [[ -n "$THESEUS_BUILD_STANDARD" ]]; then
+    THESEUS_BUILD_STANDARD="$(cd "$THESEUS_BUILD_STANDARD" && pwd)"
   fi
+  if [[ -n "$THESEUS_BUILD_AXISYMMETRIC" ]]; then
+    THESEUS_BUILD_AXISYMMETRIC="$(cd "$THESEUS_BUILD_AXISYMMETRIC" && pwd)"
+  fi
+  THESEUS_PREFIX="$(cd "$THESEUS_PREFIX" && pwd)"
+  for build in "$THESEUS_BUILD_STANDARD" "$THESEUS_BUILD_AXISYMMETRIC"; do
+    if [[ -n "$build" && ! -x "$build/theseus" ]]; then
+      echo "Missing executable: $build/theseus" >&2
+      exit 2
+    fi
+  done
   if [[ ! "$THESEUS_RANKS" =~ ^[1-9][0-9]*$ ]]; then
     echo "Ranks must be a positive integer: $THESEUS_RANKS" >&2
     exit 2
@@ -56,17 +67,36 @@ import sys
 print(pathlib.Path(sys.argv[1]).resolve())
 PY
 )"
+  recipe_create_output() {
+    mkdir -p "$THESEUS_TEST_OUTPUT"
+    mkdir -p "$THESEUS_TEST_OUTPUT/tpl"
+    ln -s "$THESEUS_PREFIX" "$THESEUS_TEST_OUTPUT/tpl/install"
+  }
   case "$THESEUS_RECIPE_STAGE" in
-    all|run)
+    all)
       if [[ -e "$THESEUS_TEST_OUTPUT" ]]; then
         echo "Output path already exists: $THESEUS_TEST_OUTPUT" >&2
         exit 2
       fi
-      mkdir -p "$THESEUS_TEST_OUTPUT"
-      mkdir -p "$THESEUS_TEST_OUTPUT/tpl"
-      ln -s "$THESEUS_PREFIX" "$THESEUS_TEST_OUTPUT/tpl/install"
+      recipe_create_output
       ;;
-    prepare|compare)
+    run)
+      if [[ ! -e "$THESEUS_TEST_OUTPUT" ]]; then
+        recipe_create_output
+      elif [[ -f "$THESEUS_TEST_OUTPUT/.theseus-recipe-prepared" ]]; then
+        rm "$THESEUS_TEST_OUTPUT/.theseus-recipe-prepared"
+      else
+        echo "Output path already exists: $THESEUS_TEST_OUTPUT" >&2
+        exit 2
+      fi
+      ;;
+    prepare)
+      if [[ ! -e "$THESEUS_TEST_OUTPUT" ]]; then
+        recipe_create_output
+        touch "$THESEUS_TEST_OUTPUT/.theseus-recipe-prepared"
+      fi
+      ;;
+    compare)
       if [[ ! -d "$THESEUS_TEST_OUTPUT" ]]; then
         echo "Output path does not exist: $THESEUS_TEST_OUTPUT" >&2
         exit 2

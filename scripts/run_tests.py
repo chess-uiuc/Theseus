@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 from typing import NamedTuple
 
@@ -82,23 +83,79 @@ def select_recipe(recipes, identifier):
     return matches[0]
 
 
-def print_recipe_list(recipes):
+def load_recipe_suites(source, recipes):
+    source = Path(source).resolve()
+    with (source / RECIPE_MANIFEST).open('rb') as stream:
+        manifest = tomllib.load(stream)
+    recipe_ids = {recipe['id'] for recipe in recipes}
+    suite_ids = set()
+    suites = []
+    for record in manifest.get('suite', []):
+        identifier = record.get('id')
+        if not identifier or not record.get('title'):
+            raise ValueError(f'Invalid recipe suite: {record}')
+        if identifier in suite_ids or identifier in recipe_ids:
+            raise ValueError(f'Duplicate recipe or suite id: {identifier}')
+        members = [recipe['id'] for recipe in recipes if identifier in recipe['suites']]
+        if not members:
+            raise ValueError(f'Recipe suite has no members: {identifier}')
+        suite_ids.add(identifier)
+        suites.append({**record, 'recipes': members})
+    return suites
+
+
+def recipe_display_commands(recipe):
+    sections = []
+    stage = None
+    lines = []
+    for line in recipe['script_path'].read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith('# THESEUS_SHOW '):
+            if stage is not None:
+                raise ValueError(f'Nested display section in {recipe["id"]}')
+            stage = stripped.removeprefix('# THESEUS_SHOW ')
+            lines = []
+        elif stripped == '# THESEUS_SHOW_END':
+            if stage is None:
+                raise ValueError(f'Unmatched display section end in {recipe["id"]}')
+            sections.append((stage, textwrap.dedent('\n'.join(lines)).strip()))
+            stage = None
+        elif stage is not None:
+            lines.append(line)
+    if stage is not None or not sections or any(not command for _, command in sections):
+        raise ValueError(f'Invalid or missing display sections in {recipe["id"]}')
+    expected = recipe.get('stages', [])
+    shown = [section_stage for section_stage, _ in sections]
+    if shown != expected:
+        raise ValueError(f'Display stages for {recipe["id"]} are {shown}; expected {expected}')
+    return sections
+
+
+def print_recipe_list(recipes, recipe_suites):
+    print('Recipes:')
     print(f'{"ID":24} {"BUILD":12} {"SUITES":28} TITLE')
     for recipe in recipes:
         suites = ','.join(recipe['suites'])
         print(f'{recipe["id"]:24} {recipe["build"]:12} {suites:28} {recipe["title"]}')
+    if recipe_suites:
+        print('\nSuites:')
+        for suite in recipe_suites:
+            print(f'{suite["id"]:24} {suite["title"]}')
 
 
-def show_recipe(recipe, source):
-    script = recipe['script_path']
-    print(f'ID:       {recipe["id"]}')
-    print(f'Title:    {recipe["title"]}')
-    print(f'Build:    {recipe["build"]}')
-    print(f'Suites:   {", ".join(recipe["suites"])}')
-    print(f'Requires: {", ".join(recipe["requires"])}')
-    print(f'Script:   {script.relative_to(Path(source).resolve())}')
-    print('\n--- recipe ---')
-    print(script.read_text(), end='')
+def show_recipe(recipe):
+    print(f'# {recipe["id"]}: {recipe["title"]}')
+    for stage, command in recipe_display_commands(recipe):
+        print(f'\n# {stage}')
+        print(command)
+
+
+def show_recipe_suite(suite, recipes):
+    by_id = {recipe['id']: recipe for recipe in recipes}
+    print(f'# {suite["id"]}: {suite["title"]}')
+    for identifier in suite['recipes']:
+        print()
+        show_recipe(by_id[identifier])
 
 
 def recipe_command(recipe, args, stage=None):
@@ -213,13 +270,12 @@ def integrated_commands(run, manifest, builds):
     entries = [
         ('cfl', 'Timestep and CFL', 'standard', 'timestep_cfl_integration_test.py',
          ['--database', manifest['prefix'] + '/database', '--reference', str(builds['standard'] / 'tests/table_lookup_tests')]),
+        ('lte-tgv-device', '3D LTE TGV evolution and device parity', 'standard',
+         'lte_tgv_device_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('restart', 'Cartesian Checkpoint Restart', 'standard', 'restart_integration_test.py', []),
         ('initial-state', 'Physical Initial States', 'standard', 'physical_initial_state_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('visualization', 'Derived Visualization', 'standard', 'derived_visualization_integration_test.py',
          ['--database', manifest['prefix'] + '/database', '--reference', str(builds['standard'] / 'tests/table_lookup_tests')]),
-        ('axis-uniform', 'Axisymmetric Uniform Flow', 'axisymmetric', 'axisymmetric_uniform_flow_integration_test.py',
-         ['--results', str(run / 'integrated/axis-uniform/cases')]),
-        ('axis-convergence', 'Axisymmetric Entropy-Wave Convergence', 'axisymmetric', 'axisymmetric_entropy_wave_convergence_test.py', []),
         ('axis-inviscid-sphere', 'Axisymmetric Inviscid Sphere', 'axisymmetric', 'axisymmetric_flow_over_sphere_integration_test.py', ['--case', 'inviscid']),
         ('axis-viscous-sphere', 'Axisymmetric Viscous Sphere', 'axisymmetric', 'axisymmetric_flow_over_sphere_integration_test.py', ['--case', 'viscous']),
         ('axis-restart', 'Axisymmetric Checkpoint Restart', 'axisymmetric', 'restart_integration_test.py', ['--axisymmetric']),
@@ -588,17 +644,25 @@ def main():
     try:
         if args.action in {'list', 'show', 'run-test'}:
             recipes = load_recipes(args.source)
+            recipe_suites = load_recipe_suites(args.source, recipes)
             if args.action == 'list':
                 if args.test is not None:
                     parser.error('list does not accept a recipe id')
-                print_recipe_list(recipes)
+                print_recipe_list(recipes, recipe_suites)
                 return 0
             if args.test is None:
                 parser.error(f'{args.action} requires a recipe id')
-            recipe = select_recipe(recipes, args.test)
             if args.action == 'show':
-                show_recipe(recipe, args.source)
+                recipe = next((item for item in recipes if item['id'] == args.test), None)
+                suite = next((item for item in recipe_suites if item['id'] == args.test), None)
+                if recipe is None and suite is None:
+                    raise ValueError(f'Unknown recipe or suite: {args.test}')
+                if recipe is not None:
+                    show_recipe(recipe)
+                else:
+                    show_recipe_suite(suite, recipes)
                 return 0
+            recipe = select_recipe(recipes, args.test)
             if args.results is None or args.prefix is None or args.ranks < 1:
                 parser.error('run-test requires --results, --prefix and positive --ranks')
             if args.mpi_arg and not args.mpiexec:

@@ -1048,6 +1048,7 @@ namespace Theseus
           {
             pd = std::make_unique<mfem::ParaViewDataCollection>(paraview_folder, pmesh.get());
             pd->SetPrefixPath(output_file_path);
+            pd->UseRestartMode(checkpoint_config.LoadEnabled());
             visualization_fields->Register(*pd);
             pd->SetLevelsOfDetail(order);
             pd->SetDataFormat(mfem::VTKFormat::BINARY);

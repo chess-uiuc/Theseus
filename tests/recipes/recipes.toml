@@ -1,5 +1,41 @@
 schema = 1
 
+[[suite]]
+id = "smoke"
+title = "Cartesian smoke tests"
+
+[[suite]]
+id = "regression"
+title = "Cartesian regression comparisons"
+
+[[suite]]
+id = "cartesian"
+title = "All Cartesian smoke and regression tests"
+
+[[suite]]
+id = "axisymmetric"
+title = "Axisymmetric integrated tests"
+
+[[test]]
+id = "axis-uniform"
+title = "Axisymmetric Uniform Flow"
+script = "tests/recipes/integration/axisymmetric-uniform-flow.sh"
+suites = ["axisymmetric", "full", "integrated"]
+build = "axisymmetric"
+requires = ["python"]
+stages = ["prepare", "run", "compare"]
+order = 400
+
+[[test]]
+id = "axis-convergence"
+title = "Axisymmetric Entropy-Wave Convergence"
+script = "tests/recipes/integration/axisymmetric-entropy-wave-convergence.sh"
+suites = ["axisymmetric", "full", "integrated"]
+build = "axisymmetric"
+requires = ["python"]
+stages = ["prepare", "run", "compare"]
+order = 410
+
 [[test]]
 id = "smoke-vortex"
 title = "Inviscid Isentropic Vortex smoke test"

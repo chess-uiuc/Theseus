@@ -116,7 +116,8 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn('cyclic comparison', summary)
 
     def test_recipe_manifest_is_discoverable_and_human_readable(self):
-        recipes = run_tests.load_recipes(Path(SPEC.origin).resolve().parents[1])
+        repository = Path(SPEC.origin).resolve().parents[1]
+        recipes = run_tests.load_recipes(repository)
         recipe = run_tests.select_recipe(recipes, 'golden-vortex')
         self.assertEqual(recipe['build'], 'standard')
         self.assertIn('regression', recipe['suites'])
@@ -125,6 +126,9 @@ class TestRunnerTests(unittest.TestCase):
         self.assertIn('TestCases/Euler/2D/IsentropicVortex/IsentropicVortex.mesh', text)
         self.assertIn('scripts/compare_viz.py', text)
         self.assertIn('--atol 1e-13', text)
+        for discovered in recipes:
+            sections = run_tests.recipe_display_commands(discovered)
+            self.assertEqual([stage for stage, _ in sections], discovered['stages'])
 
     def test_list_and_show_recipe_commands(self):
         runner = Path(SPEC.origin)
@@ -134,12 +138,59 @@ class TestRunnerTests(unittest.TestCase):
                                 text=True, capture_output=True, check=False)
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertIn('golden-vortex', listed.stdout)
-        shown = subprocess.run([sys.executable, str(runner), 'show', 'golden-vortex',
+        self.assertIn('Suites:', listed.stdout)
+        self.assertIn('regression', listed.stdout)
+        shown = subprocess.run([sys.executable, str(runner), 'show', 'golden-tgv',
                                 '--source', str(repository)],
                                text=True, capture_output=True, check=False)
         self.assertEqual(shown.returncode, 0, shown.stderr)
-        self.assertIn('TestCases/Euler/2D/IsentropicVortex/config.json', shown.stdout)
+        self.assertIn('scripts/run_theseus.sh', shown.stdout)
+        self.assertIn('TestCases/NavierStokes/2D/TaylorGreenVortex/config.json', shown.stdout)
+        self.assertIn('-t 0.0001', shown.stdout)
+        self.assertIn('-n 100', shown.stdout)
+        self.assertIn('prepare_golden_reference.py', shown.stdout)
         self.assertIn('compare_viz.py', shown.stdout)
+        self.assertIn('--atol 1e-13 --rtol 1e-13', shown.stdout)
+        self.assertNotIn('recipe_parse_arguments', shown.stdout)
+        self.assertNotIn('set -euo pipefail', shown.stdout)
+
+        suite = subprocess.run([sys.executable, str(runner), 'show', 'regression',
+                                '--source', str(repository)],
+                               text=True, capture_output=True, check=False)
+        self.assertEqual(suite.returncode, 0, suite.stderr)
+        suite_ids = ['cyclic-vortex', 'golden-vortex', 'golden-lte-vortex',
+                     'golden-cavity', 'golden-tgv', 'golden-step']
+        positions = [suite.stdout.index(f'# {identifier}:') for identifier in suite_ids]
+        self.assertEqual(positions, sorted(positions))
+        for identifier in suite_ids:
+            self.assertEqual(suite.stdout.count(f'# {identifier}:'), 1)
+
+    def test_recipe_suites_reject_empty_suites(self):
+        recipe_script = self.source / 'tests/recipes/example.sh'
+        recipe_script.write_text(
+            '#!/usr/bin/env bash\n'
+            '# THESEUS_SHOW run\n'
+            'scripts/run_theseus.sh -c config.json\n'
+            '# THESEUS_SHOW_END\n'
+        )
+        recipe_script.chmod(0o755)
+        (self.source / 'tests/recipes/recipes.toml').write_text(
+            'schema = 1\n'
+            '[[suite]]\n'
+            'id = "all"\n'
+            'title = "All recipes"\n'
+            '[[test]]\n'
+            'id = "example"\n'
+            'title = "Example"\n'
+            'script = "tests/recipes/example.sh"\n'
+            'suites = ["full"]\n'
+            'build = "standard"\n'
+            'requires = []\n'
+            'stages = ["run"]\n'
+        )
+        recipes = run_tests.load_recipes(self.source)
+        with self.assertRaisesRegex(ValueError, 'suite has no members: all'):
+            run_tests.load_recipe_suites(self.source, recipes)
 
     def test_recipe_command_exposes_all_direct_execution_inputs(self):
         repository = Path(SPEC.origin).resolve().parents[1]
@@ -223,6 +274,8 @@ class TestRunnerTests(unittest.TestCase):
         commands = run_tests.suite_commands(run, manifest)
         names = [command.name for command in commands]
         expected = {
+            'axis-uniform': ('prepare', 'run', 'compare'),
+            'axis-convergence': ('prepare', 'run', 'compare'),
             'smoke-vortex': ('run',),
             'smoke-cavity': ('run',),
             'smoke-lte': ('run',),
@@ -237,6 +290,8 @@ class TestRunnerTests(unittest.TestCase):
             for stage in stages:
                 self.assertEqual(names.count(f'recipe-{recipe}-{stage}'), 1)
         for duplicate in (
+            'integration-axis-uniform',
+            'integration-axis-convergence',
             'smoke-vortex', 'smoke-cavity', 'smoke-lte', 'cyclic',
             'compare-cyclic', 'golden-vortex', 'golden-lte', 'golden-cavity',
             'golden-tgv', 'golden-step', 'prepare-reference-vortex',
@@ -262,6 +317,55 @@ class TestRunnerTests(unittest.TestCase):
         for recipe, stages in expected.items():
             for stage in stages:
                 self.assertEqual(names.count(f'recipe-{recipe}-{stage}'), 1)
+
+    def test_axisymmetric_uniform_flow_helper_prepares_and_checks_recipe_data(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        helper = repository / 'tests/axisymmetric_uniform_flow_integration_test.py'
+        results = self.root / 'uniform-flow'
+        prepared = subprocess.run(
+            [sys.executable, str(helper), 'prepare', '--source', str(repository),
+             '--results', str(results)],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        output = (
+            'rho(1.0,1.0), p(0.7142857142857143,0.7142857142857143)\n'
+            'TotalChange: Mass: 0.0, Energy: 0.0, K.E.: 0.0\n'
+        )
+        for name in ('euler', 'navier-stokes'):
+            for ranks in (1, 2):
+                directory = results / f'{name}-{ranks}'
+                config = json.loads((directory / 'config.json').read_text())
+                self.assertEqual(config['runTime']['output_file_path'], str(directory))
+                (directory / 'run.log').write_text(output)
+        checked = subprocess.run(
+            [sys.executable, str(helper), 'check', '--source', str(repository),
+             '--results', str(results)],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+
+    def test_axisymmetric_convergence_helper_prepares_and_checks_recipe_data(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        helper = repository / 'tests/axisymmetric_entropy_wave_convergence_test.py'
+        results = self.root / 'entropy-wave'
+        prepared = subprocess.run(
+            [sys.executable, str(helper), 'prepare', '--source', str(repository),
+             '--results', str(results)],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        for level, error in enumerate((1.0, 0.25, 0.0625)):
+            directory = results / f'level-{level}'
+            config = json.loads((directory / 'config.json').read_text())
+            self.assertEqual(config['runTime']['ser_ref_levels'], level)
+            (directory / 'run.log').write_text(f'Exact L2 Error: {error}\n')
+        checked = subprocess.run(
+            [sys.executable, str(helper), 'check', '--source', str(repository),
+             '--results', str(results)],
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
 
     def test_recipe_discovery_rejects_unregistered_shell_scripts(self):
         recipes = self.source / 'tests/recipes'

@@ -6,15 +6,18 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from integration_support import run_simulation, work_directory
 
 
-def run(executable: Path, config: Path, device: str) -> None:
-    result = run_simulation(executable, config, 2, device, timeout=60)
+def run(executable: Path, config: Path, device: str, restart_selection=None) -> str:
+    result = run_simulation(executable, config, 2, device, timeout=60,
+                            restart_selection=restart_selection)
     if result.returncode != 0:
         raise RuntimeError(f"Theseus exited with {result.returncode}:\n{result.stdout}")
+    return result.stdout
 
 
 def write_config(base: dict, path: Path, output: Path, *, load: bool) -> None:
@@ -62,6 +65,23 @@ def compare_output_trees(continuous: Path, restarted: Path) -> None:
             )
 
 
+def compare_collections(expected: Path, actual: Path) -> None:
+    def entries(output):
+        collection = output / "ParaView/ParaView.pvd"
+        datasets = ET.parse(collection).findall(".//DataSet")
+        values = [(float(entry.attrib["timestep"]), entry.attrib["file"])
+                  for entry in datasets]
+        if len(values) != len(set(values)):
+            raise RuntimeError(f"Duplicate collection entries in {collection}")
+        for _, relative in values:
+            if not (collection.parent / relative).is_file():
+                raise RuntimeError(f"Missing visualization referenced by {collection}: {relative}")
+        return values
+    if entries(expected) != entries(actual):
+        raise RuntimeError(f"Restart discarded or duplicated visualization history: "
+                           f"{entries(expected)} != {entries(actual)}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--executable", required=True, type=Path)
@@ -101,6 +121,7 @@ def main() -> None:
         if not source_cycle.is_dir():
             raise RuntimeError(f"Initial run did not create {source_cycle}")
         shutil.copytree(source_cycle, restarted / "Checkpoints/Cycle1")
+        shutil.copytree(continuous / "ParaView", restarted / "ParaView")
 
         write_config(base, restart_config, restarted, load=True)
         run(args.executable.resolve(), restart_config, args.device)
@@ -143,6 +164,73 @@ def main() -> None:
             continuous / "ParaView/Cycle000002",
             restarted / "ParaView/Cycle000002",
         )
+        compare_collections(continuous, restarted)
+
+        # A new output directory has no previous manifest to preserve.
+        fresh = root / "fresh-output"
+        fresh.mkdir()
+        shutil.copytree(source_cycle, fresh / "Checkpoints/Cycle1")
+        fresh_config = root / "fresh-output.json"
+        write_config(base, fresh_config, fresh, load=True)
+        run(args.executable.resolve(), fresh_config, args.device)
+        fresh_entries = ET.parse(fresh / "ParaView/ParaView.pvd").findall(".//DataSet")
+        if [float(entry.attrib["timestep"]) for entry in fresh_entries] != [0.001, 0.002]:
+            raise RuntimeError("Fresh restart output has unexpected collection history")
+        compare_output_trees(continuous / "ParaView/Cycle000002", fresh / "ParaView/Cycle000002")
+
+        extended = root / "uninterrupted-three-steps"
+        extended.mkdir()
+        extended_config = root / "three-steps.json"
+        write_config(base, extended_config, extended, load=False)
+        config = json.loads(extended_config.read_text())
+        config["runTime"]["nsteps_max"] = 3
+        extended_config.write_text(json.dumps(config))
+        run(args.executable.resolve(), extended_config, args.device)
+
+        # Retain the explicit-JSON restart checks above; additionally exercise
+        # launcher selection without depending on checkpoint_load/cycle in JSON.
+        for name, selection in (("latest", "latest"), ("prescribed", 1)):
+            selected_output = root / name
+            selected_output.mkdir()
+            shutil.copytree(source_cycle, selected_output / "Checkpoints/Cycle1")
+            shutil.copytree(continuous / "ParaView", selected_output / "ParaView")
+            # A newer abandoned checkpoint must not displace the complete one.
+            (selected_output / "Checkpoints/Cycle999").mkdir()
+            selected_config = root / f"{name}.json"
+            write_config(base, selected_config, selected_output, load=False)
+            config = json.loads(selected_config.read_text())
+            config["runTime"]["checkpoint_cycle"] = 999
+            selected_config.write_text(json.dumps(config))
+            log = run(args.executable.resolve(), selected_config, args.device, selection)
+            if "Restart selected: cycle 1 " not in log:
+                raise RuntimeError(f"Launcher did not select cycle 1: {log}")
+            for rank in range(2):
+                filename = f"checkpoint_cycle_2.{rank:08d}.chk"
+                expected = continuous / "Checkpoints/Cycle2" / filename
+                actual = selected_output / "Checkpoints/Cycle2" / filename
+                if expected.read_bytes() != actual.read_bytes():
+                    raise RuntimeError(f"{name} restart differs for rank {rank}")
+            compare_output_trees(continuous / "ParaView/Cycle000002",
+                                 selected_output / "ParaView/Cycle000002")
+            compare_collections(continuous, selected_output)
+
+            # Continue the same output collection across a second restart.
+            config["runTime"].update(checkpoint_load=False, checkpoint_cycle=999,
+                                     nsteps_max=3)
+            selected_config.write_text(json.dumps(config))
+            repeated_selection = "latest" if selection == "latest" else 2
+            log = run(args.executable.resolve(), selected_config, args.device, repeated_selection)
+            if "Restart selected: cycle 2 " not in log:
+                raise RuntimeError(f"Second restart did not select cycle 2: {log}")
+            compare_collections(extended, selected_output)
+            compare_output_trees(extended / "ParaView/Cycle000003",
+                                 selected_output / "ParaView/Cycle000003")
+            for rank in range(2):
+                filename = f"checkpoint_cycle_3.{rank:08d}.chk"
+                expected = extended / "Checkpoints/Cycle3" / filename
+                actual = selected_output / "Checkpoints/Cycle3" / filename
+                if expected.read_bytes() != actual.read_bytes():
+                    raise RuntimeError(f"Repeated {name} restart differs for rank {rank}")
 
 
 if __name__ == "__main__":
