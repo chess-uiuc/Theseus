@@ -160,3 +160,46 @@ check CPG/LTE output against individual EOS/transport queries. It checks dimensi
 velocity arrays, both ParaView mesh modes, two-rank MPI, VisIt files, selection and
 bitwise-equal final derived fields after conservative restart. Numerical comparisons
 use `rtol=1e-9, atol=1e-10`. The test uses the integrated runner’s `--device` selection.
+
+## LTE runtime lookup safety
+
+`LTERuntimeMemory_<case>` exercises the production runtime EOS with synthetic
+three-by-three tables. PLATO and a solver simulation are not required.
+
+| Case suffix | Purpose |
+|---|---|
+| `valid` | Check interior interpolation, both temperature endpoints, one-ULP endpoint excursions, and temperature recovery. |
+| `forward_temperature_low`, `forward_temperature_high` | Reject temperature outside the forward grid before a table read. |
+| `forward_density_low`, `forward_density_high` | Reject density outside the forward grid before a table read. |
+| `forward_temperature_nan`, `forward_density_nan` | Reject nonfinite lookup coordinates. |
+| `forward_property_low`, `forward_property_high` | Reject negative and excessive property indices. |
+| `inverse_guess_low`, `inverse_guess_high`, `inverse_guess_nan` | Reject invalid inverse-table temperature seeds before forward interpolation. |
+| `newton_overshoot_high`, `newton_negative_temperature` | Reject out-of-domain Newton updates, including false convergence at negative temperature. |
+| `newton_zero_cv`, `newton_nan_cv`, `newton_negative_cv`, `newton_infinite_cv` | Reject nonpositive or nonfinite heat capacity before division. |
+| `inverse_density_domain` | Reject an inverse query inside the global energy rectangle whose temperature is outside the forward domain at that density. |
+
+CPU tests place grid edges beside inaccessible pages; a memory fault fails the
+test. Invalid inputs must throw `std::invalid_argument`. CUDA builds also register
+`LTERuntimeMemoryCUDA_<case>` using owned device buffers. Valid device queries must
+complete successfully. Invalid device queries must terminate with the explicit
+`LTE runtime error:` diagnostic; an unrelated CUDA fault does not pass.
+Each rejection test runs in a separate process.
+
+Runtime lookups accept coordinate excursions of at most eight machine epsilons
+times `max(1, abs(endpoint))`, snapping them to the endpoint before searching.
+Larger excursions and nonfinite coordinates are rejected. Temperature recovery
+requires positive finite temperature and heat capacity. It rejects an invalid
+seed or update rather than extrapolating or clipping a physical state into the
+table. Grid arrays must contain at least two finite, strictly increasing entries.
+
+The checks are always enabled on host and device. They introduce no allocations,
+communication, synchronization, or valid-path diagnostics. Energy and heat
+capacity share one checked cell search and interpolation weights per Newton
+iteration. Performance measurements should use valid queries in optimized builds;
+rejection timing is not representative of solver throughput.
+
+Run the focused tests with:
+
+```sh
+ctest --test-dir build -R '^LTERuntimeMemory' --output-on-failure
+```

@@ -328,3 +328,39 @@ endforeach()
 
 add_test(NAME LTETGVComparisonContractTests
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lte_tgv_checker_tests.py)
+
+# Synthetic runtime EOS reproducers: no PLATO database or full solver required.
+if(UNIX)
+  add_executable(lte_runtime_memory_tests lte_runtime_memory_tests.cpp)
+  target_include_directories(lte_runtime_memory_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(lte_runtime_memory_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(ENABLE_CUDA)
+    set_source_files_properties(lte_runtime_memory_tests.cpp PROPERTIES LANGUAGE CUDA)
+    target_include_directories(lte_runtime_memory_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    target_compile_options(lte_runtime_memory_tests PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  endif()
+  set(lte_memory_cases
+    valid
+    forward_temperature_low forward_temperature_high
+    forward_density_low forward_density_high
+    inverse_guess_low inverse_guess_high inverse_guess_nan
+    newton_overshoot_high newton_negative_temperature newton_zero_cv newton_nan_cv
+    inverse_density_domain
+    forward_temperature_nan forward_density_nan
+    forward_property_low forward_property_high
+    newton_negative_cv newton_infinite_cv)
+  foreach(lte_memory_case IN LISTS lte_memory_cases)
+    add_test(NAME LTERuntimeMemory_${lte_memory_case}
+      COMMAND lte_runtime_memory_tests ${lte_memory_case} cpu)
+    set_tests_properties(LTERuntimeMemory_${lte_memory_case} PROPERTIES
+      LABELS "LTE;MemorySafety;Reproducer" TIMEOUT 15)
+    if(ENABLE_CUDA)
+      add_test(NAME LTERuntimeMemoryCUDA_${lte_memory_case}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/check_lte_device_rejection.py
+          $<TARGET_FILE:lte_runtime_memory_tests> ${lte_memory_case})
+      set_tests_properties(LTERuntimeMemoryCUDA_${lte_memory_case} PROPERTIES
+        LABELS "LTE;MemorySafety;DeviceReproducer" TIMEOUT 60)
+    endif()
+  endforeach()
+endif()
