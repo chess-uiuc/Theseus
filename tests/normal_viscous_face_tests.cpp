@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include "DGSEMIntegrator.hpp"
 #include "LaxFriedrichsFlux.hpp"
+#include "ChandrashekarFlux.hpp"
+#include "HLLFlux.hpp"
+#include "RoeFlux.hpp"
+#include "PirozzoliFlux.hpp"
+#include "RanochaFlux.hpp"
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <typeinfo>
+#include <type_traits>
 
 namespace
 {
-  template<typename Gas>
+  template<typename Gas, typename Flux = Theseus::LaxFriedrichsFlux::InviscidFlux>
   struct FaceContext
   {
     int dim;
@@ -16,7 +23,7 @@ namespace
     int num_face_points;
     bool axisymmetric;
     Gas gas;
-    Theseus::LaxFriedrichsFlux::InviscidFlux iflux;
+    Flux iflux;
 
     MFEM_HOST_DEVICE int iface_idx(int side, int fp, int q) const
     {
@@ -90,7 +97,7 @@ namespace
       }
   }
 
-  template<typename Gas>
+  template<typename Gas, typename Flux = Theseus::LaxFriedrichsFlux::InviscidFlux>
   bool CheckFaces(int dim, int nfp, bool axisymmetric, bool lte,
                   const Gas &host_gas, const Gas &device_gas, bool face_parallel,
                   int generation = 0)
@@ -109,7 +116,7 @@ namespace
         buffer->UseDevice(true);
       }
     actual = -987654.25;
-    FaceContext<Gas> host{dim, equations, nfp, axisymmetric, host_gas, {}};
+    FaceContext<Gas, Flux> host{dim, equations, nfp, axisymmetric, host_gas, {}};
     for (int f = 0; f < faces; ++f)
       {
         for (int fp = 0; fp < nfp; ++fp)
@@ -122,6 +129,22 @@ namespace
               {
                 normal.HostReadWrite()[point * dim + d] =
                   (point % (dim + 1) == d ? 0.0 : (d % 2 ? -0.8 : 0.3)) * (1.0 + 0.01 * point);
+              }
+            if constexpr (std::is_same_v<Flux, Theseus::RoeFlux::InviscidFlux> ||
+                          std::is_same_v<Flux, Theseus::RanochaFlux::InviscidFlux> ||
+                          std::is_same_v<Flux, Theseus::PirozzoliFlux::InviscidFlux>)
+              {
+                // Roe-based decompositions require a defined normal direction.
+                mfem::real_t magnitude_squared = 0.0;
+                for (int d = 0; d < dim; ++d)
+                  {
+                    const auto value = normal.HostRead()[point * dim + d];
+                    magnitude_squared += value * value;
+                  }
+                if (magnitude_squared == 0.0)
+                  {
+                    normal.HostReadWrite()[point * dim] = 0.3;
+                  }
               }
             mfem::real_t minus[5] = {}, plus[5] = {}, numerical[5] = {}, viscous[5] = {};
             for (int side = 0; side < 2; ++side)
@@ -215,6 +238,206 @@ namespace
       }
     return true;
   }
+  template<typename Gas, typename Flux>
+  struct BoundaryContext
+  {
+    int dim;
+    int num_equations;
+    bool axisymmetric;
+    Gas gas;
+    Flux iflux;
+    const mfem::real_t *bc_scalar_d;
+    const mfem::real_t *bc_vector_d;
+  };
+
+  template<typename Gas, typename Flux>
+  bool CheckBoundaryFaces(int dim, bool axisymmetric, bool lte,
+                          const Gas &host_gas, const Gas &device_gas)
+  {
+    const int points = 12;
+    const int equations = dim + 2;
+    mfem::Vector state(points * equations), gx(state.Size()), gy(state.Size()), gz(state.Size());
+    mfem::Vector normal(points * dim), radius(points), actual(state.Size()), expected(state.Size());
+    mfem::Vector payload(equations);
+    mfem::Vector *buffers[] = {&state, &gx, &gy, &gz, &normal, &radius, &actual, &payload};
+    for (auto *buffer : buffers)
+      {
+        buffer->UseDevice(true);
+      }
+    const mfem::real_t wall_velocity[3] = {0.04, -0.03, 0.02};
+    const mfem::real_t wall_heat = 0.17;
+    for (int point = 0; point < points; ++point)
+      {
+        auto *q = state.HostReadWrite() + point * equations;
+        q[0] = 1.1 + 0.01 * point;
+        mfem::real_t kinetic = 0.0;
+        for (int d = 0; d < dim; ++d)
+          {
+            const mfem::real_t velocity = 0.12 + 0.03 * d;
+            q[1 + d] = q[0] * velocity;
+            kinetic += 0.5 * q[0] * velocity * velocity;
+            normal.HostReadWrite()[point * dim + d] =
+              (d % 2 ? -0.8 : 0.3) * (1.0 + 0.03 * point);
+          }
+        q[dim + 1] = q[0] * 287.05 * 350.0 / 0.4 + kinetic;
+        radius.HostReadWrite()[point] = point % 2 ? 0.0 : 0.19;
+        for (int equation = 0; equation < equations; ++equation)
+          {
+            const int index = point * equations + equation;
+            gx.HostReadWrite()[index] = lte && equation == 0 ? 0.0 : 0.11 * (equation + 1);
+            gy.HostReadWrite()[index] = lte && equation == 0 ? 0.0 : -0.07 * (equation + 1);
+            gz.HostReadWrite()[index] = lte && equation == 0 ? 0.0 : 0.09 * (equation + 1);
+          }
+      }
+    for (auto type : {Theseus::BCType::PrescribedState, Theseus::BCType::NoSlipAdiab,
+                      Theseus::BCType::NoSlipIso, Theseus::BCType::Axis})
+      {
+        if (type == Theseus::BCType::Axis && !axisymmetric)
+          {
+            continue;
+          }
+        if (type == Theseus::BCType::PrescribedState)
+          {
+            for (int equation = 0; equation < equations; ++equation)
+              {
+                payload.HostReadWrite()[equation] = state.HostRead()[equation];
+              }
+          }
+        else
+          {
+            for (int d = 0; d < dim; ++d)
+              {
+                payload.HostReadWrite()[d] = wall_velocity[d];
+              }
+            payload.HostReadWrite()[dim] = type == Theseus::BCType::NoSlipAdiab ? wall_heat : 300.0;
+          }
+        for (int point = 0; point < points; ++point)
+          {
+            const auto *q = state.HostRead() + point * equations;
+            const auto *n = normal.HostRead() + point * dim;
+            mfem::real_t inviscid[5] = {};
+            mfem::real_t viscous[5] = {};
+            mfem::real_t exterior[5] = {};
+            if (type == Theseus::BCType::PrescribedState || type == Theseus::BCType::Axis)
+              {
+                const mfem::real_t *outside = payload.HostRead();
+                if (type == Theseus::BCType::Axis)
+                  {
+                    Theseus::BC::ReflectAxisState(host_gas, q, exterior);
+                    outside = exterior;
+                  }
+                Flux{}.ComputeFaceFlux(host_gas, q, outside, n, inviscid);
+              }
+            else
+              {
+                mfem::real_t unit[3] = {};
+                for (int equation = 0; equation < equations; ++equation)
+                  {
+                    exterior[equation] = q[equation];
+                  }
+                for (int d = 0; d < dim; ++d)
+                  {
+                    unit[d] = n[d];
+                  }
+                Theseus::Kernels::Normalize(dim, unit);
+                Theseus::PointStateViewRW rotated(exterior);
+                Theseus::Flow::RotateState(host_gas.L, unit, rotated);
+                const auto pressure = Theseus::Flow::slipwall_pstar(rotated, host_gas);
+                for (int d = 0; d < dim; ++d)
+                  {
+                    inviscid[1 + d] = pressure * n[d];
+                  }
+              }
+            Reference(host_gas, lte, axisymmetric, radius.HostRead()[point], q,
+                      gx.HostRead() + point * equations, gy.HostRead() + point * equations,
+                      gz.HostRead() + point * equations, 1, 0, n, viscous);
+            if (type == Theseus::BCType::NoSlipAdiab || type == Theseus::BCType::NoSlipIso)
+              {
+                mfem::real_t energy = viscous[dim + 1];
+                if (type == Theseus::BCType::NoSlipAdiab)
+                  {
+                    mfem::real_t norm_squared = 0.0;
+                    for (int d = 0; d < dim; ++d)
+                      {
+                        norm_squared += n[d] * n[d];
+                      }
+                    energy = wall_heat * std::sqrt(norm_squared);
+                  }
+                else
+                  {
+                    for (int d = 0; d < dim; ++d)
+                      {
+                        energy -= q[1 + d] / q[0] * viscous[1 + d];
+                      }
+                  }
+                for (int d = 0; d < dim; ++d)
+                  {
+                    energy += wall_velocity[d] * viscous[1 + d];
+                  }
+                viscous[dim + 1] = energy;
+              }
+            for (int equation = 0; equation < equations; ++equation)
+              {
+                expected[point * equations + equation] = inviscid[equation] - viscous[equation];
+              }
+          }
+        const BoundaryContext<Gas, Flux> context{
+          dim, equations, axisymmetric, device_gas, {}, nullptr, payload.Read()};
+        Theseus::BCDescriptor bc{};
+        bc.type = int(type);
+        bc.data_index = 0;
+        const auto *u = state.Read();
+        const auto *x = gx.Read();
+        const auto *y = gy.Read();
+        const auto *z = gz.Read();
+        const auto *n = normal.Read();
+        const auto *r = radius.Read();
+        auto *result = actual.Write();
+        mfem::forall(points, [=] MFEM_HOST_DEVICE (int point)
+        {
+          const int offset = point * equations;
+          Theseus::BC::ApplyViscousBoundaryCondition(
+            context, bc, u + offset, x + offset, y + offset, z + offset,
+            n + point * dim, r[point], result + offset);
+        });
+        const auto *output = actual.HostRead();
+        for (int index = 0; index < actual.Size(); ++index)
+          {
+            if (!std::isfinite(output[index]) ||
+                std::abs(output[index] - expected[index]) > 2e-12 * (1.0 + std::abs(expected[index])))
+              {
+                std::cerr << "Boundary flux mismatch type=" << int(type) << " dim=" << dim
+                          << " axis=" << axisymmetric << " LTE=" << lte << " index=" << index
+                          << " expected=" << expected[index] << " actual=" << output[index] << '\n';
+                return false;
+              }
+          }
+      }
+    return true;
+  }
+
+  template<typename Gas, typename Flux>
+  bool CheckFluxVariant(const char *name, int dim, int nfp, bool axisymmetric,
+                        bool lte, const Gas &host_gas, const Gas &device_gas)
+  {
+    if (!CheckBoundaryFaces<Gas, Flux>(dim, axisymmetric, lte, host_gas, device_gas) ||
+        !CheckFaces<Gas, Flux>(dim, nfp, axisymmetric, lte, host_gas, device_gas, false) ||
+        !CheckFaces<Gas, Flux>(dim, nfp, axisymmetric, lte, host_gas, device_gas, true))
+      {
+        std::cerr << "Flux configuration failed: " << name << " LTE=" << lte << '\n';
+        return false;
+      }
+    return true;
+  }
+
+  template<typename Gas, typename... Fluxes>
+  bool CheckFluxVariants(int dim, int nfp, bool axisymmetric, bool lte,
+                         const Gas &host_gas, const Gas &device_gas)
+  {
+    return (CheckFluxVariant<Gas, Fluxes>(typeid(Fluxes).name(), dim, nfp,
+                                        axisymmetric, lte, host_gas, device_gas) && ...);
+  }
+
 }
 
 int main(int argc, char **argv)
@@ -279,13 +502,22 @@ int main(int argc, char **argv)
                 {
                   continue;
                 }
-              for (bool face_parallel : {false, true})
+              const bool cpg_passed = CheckFluxVariants<Theseus::IdealGasModel,
+                Theseus::LaxFriedrichsFlux::InviscidFlux,
+                Theseus::HLLFlux::InviscidFlux,
+                Theseus::RoeFlux::InviscidFlux,
+                Theseus::ChandrashekarFlux::InviscidFlux,
+                Theseus::RanochaFlux::InviscidFlux,
+                Theseus::PirozzoliFlux::InviscidFlux>(
+                  dim, nfp, axisymmetric, false, cpg, cpg);
+              const bool lte_passed = CheckFluxVariants<Theseus::LTEGas,
+                Theseus::LaxFriedrichsFlux::InviscidFlux,
+                Theseus::HLLFlux::InviscidFlux,
+                Theseus::PirozzoliFlux::InviscidFlux>(
+                  dim, nfp, axisymmetric, true, lte, device_lte);
+              if (!cpg_passed || !lte_passed)
                 {
-                  if (!CheckFaces(dim, nfp, axisymmetric, false, cpg, cpg, face_parallel) ||
-                      !CheckFaces(dim, nfp, axisymmetric, true, lte, device_lte, face_parallel))
-                    {
-                      return 1;
-                    }
+                  return 1;
                 }
             }
         }

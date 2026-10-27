@@ -48,7 +48,10 @@ and 6 in 1D/2D/3D and axisymmetric geometry (including axis points). It accepts
 `cuda` as a command-line device argument in CUDA builds. `NormalViscousFaces_standard_CPU` and `NormalViscousFaces_sutherland_CPU`
 compare interior-face assembly against independent stress and heat-flux formulas
 for CPG/LTE, dimensions 1–3, orders 1–3, point/face execution modes,
-axisymmetric regularization, changing inputs and output-array bounds. CUDA builds
+axisymmetric regularization, changing inputs and output-array bounds. They also
+check moving adiabatic/isothermal walls, prescribed states and axis boundaries;
+CPG face tests exercise LLF, HLL, Roe, Chandrashekar, Ranocha and Pirozzoli;
+the analytic LTE fixture exercises LLF, HLL and Pirozzoli. CUDA builds
 register corresponding `_CUDA` tests. `ViscousInvariantTests` exercises standalone
 metadata and zero-mass-flux guard helpers; it does not install guards in solver
 assembly. `LTETGVComparisonContractTests` checks rejection of CPU fallback,
