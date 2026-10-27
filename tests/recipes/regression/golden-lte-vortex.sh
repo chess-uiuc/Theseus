@@ -13,6 +13,7 @@ if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "run" ]]; t
   echo "==> Run the LTE Vortex regression case"
   (
     cd "$THESEUS_SOURCE"
+    # THESEUS_SHOW run
     scripts/run_theseus.sh \
       -b "$THESEUS_BUILD_STANDARD" \
       -p "$THESEUS_RANKS" \
@@ -22,20 +23,25 @@ if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "run" ]]; t
       -t 1e-5 \
       -n 200 \
       -o "$RUN_OUTPUT_REL"
+    # THESEUS_SHOW_END
   )
 fi
 
 if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "prepare" ]]; then
   echo "==> Prepare the approved reference data"
+  # THESEUS_SHOW prepare
   "$THESEUS_PYTHON" "$THESEUS_SOURCE/scripts/prepare_golden_reference.py" \
     "$THESEUS_SOURCE/TestCases/GoldenData" LTEVortex "$REFERENCE_OUTPUT" \
     Cycle000200/data.pvtu
+  # THESEUS_SHOW_END
 fi
 
 if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "compare" ]]; then
   echo "==> Compare the result with the approved reference"
+  # THESEUS_SHOW compare
   "$THESEUS_PYTHON" "$THESEUS_SOURCE/scripts/compare_viz.py" \
     "$RUN_OUTPUT/LTEVortex/ParaView/Cycle000200/data.pvtu" \
     "$REFERENCE_OUTPUT/Cycle000200/data.pvtu" \
     --atol 1e-10 --rtol 1e-10
+  # THESEUS_SHOW_END
 fi

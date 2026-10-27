@@ -17,8 +17,9 @@ records their results individually.
 | **Derived Visualization** | Cartesian CPG/LTE, one and two MPI ranks | Emitted thermodynamic, energy and transport fields match individual gas queries; both ParaView mesh modes, VisIt, selected fields, disabled output and restart are checked. |
 | **Physical Initial States** | Cartesian CPG/LTE, one and two MPI ranks | Physical constant/profile initialization, thermodynamic pairs, rejection and conservative restart. |
 | **Physical Boundary States** | Axisymmetric CPG/LTE CNS, one and two MPI ranks | Uniform-state preservation, heated radial inflow response, selected-EOS energy, primitive interpolation, legacy CPG parity and coordinated rejection. |
-| **Cartesian Checkpoint Restart** | Cartesian vortex, two MPI ranks, two cycles | Restarted conservative state and final visualization match the uninterrupted run byte for byte; checkpoint metadata identifies Cartesian geometry. |
-| **Axisymmetric Checkpoint Restart** | Axisymmetric Euler uniform flow, two MPI ranks, two cycles | A restarted cycle produces byte-identical per-rank checkpoint state and ParaView output to an uninterrupted run. Metadata must contain the required format, state, geometry, MPI, and discretization fields and identify axisymmetric geometry. |
+| **3D LTE TGV evolution and device parity** | Periodic compressible AIR11 CNS vortex, p=2, 64 hexahedra, one rank, 20 RK3 steps, fixed DT and fixed CFL=0.3 | Positive finite evolving density/pressure/temperature and finite velocity; initial/intermediate/final fields agree at matching physical times with rtol=atol=1e-10. CPU suite checks repeatability; CUDA selection runs CPU and CUDA from the same binary and requires the reported CUDA backend. CPU execution does not count as CUDA parity coverage. |
+| **Cartesian Checkpoint Restart** | Cartesian vortex, two MPI ranks, two cycles | Explicit JSON, latest-complete and prescribed-cycle restarts match uninterrupted conservative state and final visualization byte for byte; the ParaView collection retains prior timesteps without duplicates; incomplete newer checkpoints are skipped; checkpoint metadata identifies Cartesian geometry. |
+| **Axisymmetric Checkpoint Restart** | Axisymmetric Euler uniform flow, two MPI ranks, two cycles | Explicit JSON, latest-complete and prescribed-cycle restarts produce byte-identical per-rank checkpoint state and ParaView output to an uninterrupted run; the collection retains prior timesteps without duplicates; incomplete newer checkpoints are skipped. Metadata must contain the required format, state, geometry, MPI, and discretization fields and identify axisymmetric geometry. |
 | **Axisymmetric Uniform Flow** | Exact Euler and CNS uniform axial flow, one and two MPI ranks | Density and pressure remain at the exact values, conserved-integral changes remain negligible, and serial/MPI results agree. |
 | **Axisymmetric Entropy-Wave Convergence** | Exact Euler entropy wave over three mesh levels | Cylindrical L2 errors decrease and both observed convergence rates are at least `1.7`. |
 | **Axisymmetric Inviscid Sphere** | Mach 2 Euler sphere, one and two MPI ranks | Both runs complete with finite positive density and pressure, develop nonuniform density and pressure ranges, and agree in their final reported ranges within `1e-5` absolute tolerance. |
@@ -44,7 +45,19 @@ checkpoint, table lookup, field evaluation and test-infrastructure checks.
 axis limits. `ViscousVolumeTests` compares cached-flux volume differentiation with
 the element reference kernel for CPG and analytic LTE transport at orders 2, 4,
 and 6 in 1D/2D/3D and axisymmetric geometry (including axis points). It accepts
-`cuda` as a command-line device argument in CUDA builds. Specialized physics
+`cuda` as a command-line device argument in CUDA builds. `NormalViscousFaces_standard_CPU` and `NormalViscousFaces_sutherland_CPU`
+compare interior-face assembly against independent stress and heat-flux formulas
+for CPG/LTE, dimensions 1–3, orders 1–3, point/face execution modes,
+axisymmetric regularization, changing inputs and output-array bounds. They also
+check moving adiabatic/isothermal walls, prescribed states and axis boundaries;
+CPG face tests exercise LLF, HLL, Roe, Chandrashekar, Ranocha and Pirozzoli;
+the analytic LTE fixture exercises LLF, HLL and Pirozzoli. CUDA builds
+register corresponding `_CUDA` tests. `ViscousInvariantTests` exercises standalone
+metadata and zero-mass-flux guard helpers; it does not install guards in solver
+assembly. `LTETGVComparisonContractTests` checks rejection of CPU fallback,
+missing frames and inconsistent or nonfinite comparison times.
+
+Specialized physics
 checks are described below.
 
 Run the registered unit/helper tests with:

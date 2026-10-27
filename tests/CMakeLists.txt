@@ -293,3 +293,38 @@ if(ENABLE_CUDA)
     $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
 endif()
 add_test(NAME ViscousVolumeTests COMMAND viscous_volume_tests)
+
+# Debugging guard contract: invalid metadata, NaN, and even tiny nonzero mass
+# flux must terminate with an explanation, including in NDEBUG builds.
+add_executable(viscous_invariant_probe viscous_invariant_probe.cpp)
+target_include_directories(viscous_invariant_probe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(viscous_invariant_probe PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+target_compile_definitions(viscous_invariant_probe PRIVATE NDEBUG)
+add_test(NAME ViscousInvariantTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/viscous_invariant_tests.py
+          $<TARGET_FILE:viscous_invariant_probe>)
+
+# Analytic face-assembly oracle covering both face execution modes,
+# LTE/CPG gradient conventions, output bounds, and axis regularization.
+foreach(transport_variant IN ITEMS standard sutherland)
+  set(normal_face_target normal_viscous_face_tests_${transport_variant})
+  add_executable(${normal_face_target} normal_viscous_face_tests.cpp)
+  target_include_directories(${normal_face_target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(${normal_face_target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(transport_variant STREQUAL "sutherland")
+    target_compile_definitions(${normal_face_target} PRIVATE SUTHERLAND)
+  endif()
+  if(ENABLE_CUDA)
+    set_source_files_properties(normal_viscous_face_tests.cpp PROPERTIES LANGUAGE CUDA)
+    target_include_directories(${normal_face_target} PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    target_compile_options(${normal_face_target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+    add_test(NAME NormalViscousFaces_${transport_variant}_CUDA
+      COMMAND ${normal_face_target} cuda)
+  endif()
+  add_test(NAME NormalViscousFaces_${transport_variant}_CPU
+    COMMAND ${normal_face_target} cpu)
+endforeach()
+
+add_test(NAME LTETGVComparisonContractTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lte_tgv_checker_tests.py)

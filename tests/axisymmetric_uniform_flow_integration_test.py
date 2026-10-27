@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Check exact axisymmetric Euler/CNS uniform flow in serial and MPI."""
+"""Prepare and check exact axisymmetric Euler/CNS uniform-flow recipe data."""
 
 import argparse
 import json
 import math
 import re
-import subprocess
-import tempfile
 from pathlib import Path
 
 
@@ -18,9 +16,16 @@ CHANGE_PATTERN = re.compile(
 )
 
 
-def run_case(executable: Path, source: Path, results: Path, case: Path,
-             ranks: int, device: str) -> tuple[tuple[float, ...],
-                                                tuple[float, ...]]:
+CASES = {
+    "euler": Path("TestCases/Axisymmetric/Euler/UniformFlow/config.json"),
+    "navier-stokes": Path(
+        "TestCases/Axisymmetric/NavierStokes/UniformFlow/config.json"
+    ),
+}
+
+
+def prepare_case(source: Path, results: Path, name: str, case: Path,
+                 ranks: int) -> None:
     config = json.loads((source / case).read_text())
     runtime = config["runTime"]
     runtime["mesh_file"] = str(
@@ -28,31 +33,24 @@ def run_case(executable: Path, source: Path, results: Path, case: Path,
          "LidDrivenCavity.msh").resolve()
     )
     runtime["print_interval"] = 1
-
-    directory = Path(tempfile.mkdtemp(prefix=f"{case.parts[2]}-{ranks}-", dir=results))
+    directory = results / f"{name}-{ranks}"
+    directory.mkdir(parents=True)
     runtime["output_file_path"] = str(directory)
-    config_path = directory / "config.json"
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
-    command = ["bash", str(source / "scripts/run_theseus.sh"),
-               "-e", str(executable), "-c", str(config_path),
-               "-o", str(directory / "launch"), "-p", str(ranks),
-               "-r", device, "-P", "-k"]
-    log_path = directory / "run.log"
-    with log_path.open("w") as log:
-        result = subprocess.run(command, cwd=source, text=True, stdout=log,
-                                stderr=subprocess.STDOUT, timeout=120, check=False)
+    (directory / "config.json").write_text(json.dumps(config, indent=2) + "\n")
+
+
+def read_case(results: Path, name: str, ranks: int) -> tuple[tuple[float, ...],
+                                                              tuple[float, ...]]:
+    log_path = results / f"{name}-{ranks}" / "run.log"
+    if not log_path.is_file():
+        raise RuntimeError(f"missing simulation log: {log_path}")
     output = log_path.read_text()
-    print(f"{case} ({ranks} ranks): {log_path}")
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"{case} ({ranks} ranks) exited with {result.returncode}:\n"
-            f"{output}"
-        )
+    print(f"{name} ({ranks} ranks): {log_path}")
     matches = RANGE_PATTERN.findall(output)
     changes = CHANGE_PATTERN.findall(output)
     if not matches or not changes:
         raise RuntimeError(
-            f"{case} ({ranks} ranks) did not report ranges and changes:\n"
+            f"{name} ({ranks} ranks) did not report ranges and changes:\n"
             f"{output}"
         )
     return (tuple(float(value) for value in matches[-1]),
@@ -69,26 +67,23 @@ def assert_close(actual: float, expected: float, tolerance: float,
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--executable", required=True, type=Path)
+    parser.add_argument("action", choices=("prepare", "check"))
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--results", type=Path, default=Path("uniform-flow-results"))
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--results", required=True, type=Path)
     args = parser.parse_args()
+    source = args.source.resolve()
     results = args.results.resolve()
-    results.mkdir(parents=True, exist_ok=True)
+    if args.action == "prepare":
+        results.mkdir(parents=True, exist_ok=True)
+        for name, case in CASES.items():
+            for ranks in (1, 2):
+                prepare_case(source, results, name, case, ranks)
+        return
 
     expected = (1.0, 1.0, 1.0/1.4, 1.0/1.4)
-    cases = (
-        Path("TestCases/Axisymmetric/Euler/UniformFlow/config.json"),
-        Path("TestCases/Axisymmetric/NavierStokes/UniformFlow/config.json"),
-    )
-    for case in cases:
-        serial_range, serial_change = run_case(
-            args.executable.resolve(), args.source.resolve(),
-            results, case, 1, args.device)
-        parallel_range, parallel_change = run_case(
-            args.executable.resolve(), args.source.resolve(),
-            results, case, 2, args.device)
+    for name, case in CASES.items():
+        serial_range, serial_change = read_case(results, name, 1)
+        parallel_range, parallel_change = read_case(results, name, 2)
         for label, values in (("serial", serial_range),
                               ("two-rank", parallel_range)):
             for index, (actual, target) in enumerate(zip(values, expected)):

@@ -130,6 +130,19 @@ class HarnessFixture:
             check=False,
         )
 
+    def checkpoint(self, cycle, *, ranks=2, folder="Checkpoints", metadata=True,
+                   files=None, empty_rank=None, extra_metadata=None):
+        directory = self.root / "RunTheseus/Case" / folder / f"Cycle{cycle}"
+        directory.mkdir(parents=True, exist_ok=True)
+        if metadata:
+            values = {"cycle": cycle, "time": cycle * 0.001, "mpi_ranks": ranks}
+            values.update(extra_metadata or {})
+            (directory / f"checkpoint_cycle_{cycle}.json").write_text(json.dumps(values))
+        for rank in range(ranks if files is None else files):
+            data = b"" if rank == empty_rank else b"checkpoint fixture"
+            (directory / f"checkpoint_cycle_{cycle}.{rank:08d}.chk").write_bytes(data)
+        return directory
+
     def patched_config(self):
         return json.loads((self.root / "patched-config.json").read_text())
 
@@ -176,6 +189,93 @@ class RunTheseusHarnessTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertTrue(fixture.patched_config()["runTime"]["checkpoint_load"])
+
+    def test_latest_selects_numeric_highest_complete_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = HarnessFixture(temporary)
+            fixture.checkpoint(9)
+            fixture.checkpoint(10)
+            fixture.checkpoint(100, files=1)
+            fixture.checkpoint(101, metadata=False)
+            fixture.checkpoint(102, empty_rank=1)
+            malformed = fixture.checkpoint(103)
+            (malformed / "checkpoint_cycle_103.json").write_text("{broken")
+            result = fixture.run("-L", "-k")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            runtime = fixture.patched_config()["runTime"]
+            self.assertTrue(runtime["checkpoint_load"])
+            self.assertEqual(runtime["checkpoint_cycle"], 10)
+            self.assertTrue((fixture.root / "RunTheseus/Case/Checkpoints/Cycle100").exists())
+
+    def test_explicit_cycle_overrides_json_and_does_not_select_latest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = HarnessFixture(temporary)
+            fixture.checkpoint(3)
+            fixture.checkpoint(20)
+            config = json.loads(fixture.config.read_text())
+            config["runTime"].update(checkpoint_load=False, checkpoint_cycle=40)
+            fixture.config.write_text(json.dumps(config))
+            result = fixture.run("-C", "3", "-k")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(fixture.patched_config()["runTime"]["checkpoint_cycle"], 3)
+            self.assertTrue(fixture.patched_config()["runTime"]["checkpoint_load"])
+
+    def test_latest_honors_custom_output_and_checkpoint_folder_with_P(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = HarnessFixture(temporary)
+            fixture.checkpoint(12, folder="unused/custom-checkpoints")
+            config = json.loads(fixture.config.read_text())
+            config["runTime"]["checkpoints_folder"] = "custom-checkpoints"
+            fixture.config.write_text(json.dumps(config))
+            result = fixture.run("-P", "-L", "-k")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(fixture.patched_config()["runTime"]["checkpoint_cycle"], 12)
+
+    def test_latest_skips_incompatible_rank_count_and_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = HarnessFixture(temporary)
+            fixture.checkpoint(10, extra_metadata={"order": 2})
+            fixture.checkpoint(20, extra_metadata={"order": 3})
+            fixture.checkpoint(30, ranks=3)
+            result = fixture.run("-L", "-y", "2", "-k")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(fixture.patched_config()["runTime"]["checkpoint_cycle"], 10)
+
+    def test_selection_failure_never_launches_solver(self):
+        for selection in (("-L",), ("-C", "5")):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as temporary:
+                fixture = HarnessFixture(temporary)
+                fixture.checkpoint(5, files=1)
+                result = fixture.run(*selection, "-k")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse((fixture.root / "launcher.log").exists())
+
+    def test_explicit_missing_cycle_does_not_fall_back(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = HarnessFixture(temporary)
+            fixture.checkpoint(10)
+            result = fixture.run("-C", "20", "-k")
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+            self.assertFalse((fixture.root / "launcher.log").exists())
+
+    def test_selectors_reject_wipe_before_removing_checkpoint_files(self):
+        for selection in (("-L",), ("-C", "10")):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as temporary:
+                fixture = HarnessFixture(temporary)
+                directory = fixture.checkpoint(10)
+                result = fixture.run(*selection, "-w", "-k")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertTrue(directory.exists())
+                self.assertFalse((fixture.root / "launcher.log").exists())
+
+    def test_invalid_or_conflicting_selectors_are_rejected(self):
+        for selection in (("-C", "0"), ("-C", "-1"), ("-C", "abc"),
+                          ("-L", "-C", "10"), ("-C", "10", "-L")):
+            with self.subTest(selection=selection), tempfile.TemporaryDirectory() as temporary:
+                fixture = HarnessFixture(temporary)
+                result = fixture.run(*selection, "-k")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertFalse((fixture.root / "launcher.log").exists())
 
     def test_mesh_filename_keeps_configured_directory(self):
         with tempfile.TemporaryDirectory() as tempdir:

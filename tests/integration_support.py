@@ -12,13 +12,15 @@ def work_directory(prefix):
     yield directory
 
 
-def run_simulation(executable, config, ranks, device, timeout=120):
+def run_simulation(executable, config, ranks, device, timeout=120, restart_selection=None):
     source = Path(__file__).resolve().parents[1]
     config = Path(config).resolve()
     launch = config.parent / (config.stem + "-launch")
     command = ["bash", str(source / "scripts/run_theseus.sh"),
                "-e", str(Path(executable).resolve()), "-c", str(config),
                "-o", str(launch), "-p", str(ranks), "-r", device, "-P", "-R", "-k"]
+    if restart_selection is not None:
+        command += ["-L"] if restart_selection == "latest" else ["-C", str(restart_selection)]
     log_path = config.with_suffix(".run.log")
     with log_path.open("w") as log:
         result = subprocess.run(command, cwd=source, stdout=log,
