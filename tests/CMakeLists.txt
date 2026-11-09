@@ -373,3 +373,17 @@ endforeach()
 
 add_test(NAME LTETGVComparisonContractTests
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/lte_tgv_checker_tests.py)
+
+# Host-boundary observer and end-to-end snapshot/comparison contracts.
+add_executable(array_debug_fixture array_debug_fixture.cpp)
+target_link_libraries(array_debug_fixture PRIVATE theseus_array_debug)
+if(ENABLE_CUDA)
+  set_source_files_properties(array_debug_fixture.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(array_debug_fixture PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(array_debug_fixture PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME ArrayDebugCUDA COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/array_debug_tests.py $<TARGET_FILE:array_debug_fixture> cuda)
+endif()
+add_test(NAME ArrayDebugCPU COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/array_debug_tests.py $<TARGET_FILE:array_debug_fixture> cpu)

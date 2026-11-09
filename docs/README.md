@@ -49,3 +49,5 @@ results and failure diagnosis.
 
 See the [verification and CI matrix](verification.md) for the maintained test
 inventory and exact regression tolerances.
+
+- [Inspect arrays between kernels](array-debugging.md): reusable summaries, snapshots and CPU/device comparisons.
