@@ -5,6 +5,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 
+#ifdef THESEUS_DEBUG_ARRAYS
+#include "ArrayDebug.hpp"
+#endif
 #include "DGSEMIntegrator.hpp"
 #include "AxisymmetricSource.hpp"
 #include "ModalBasis.hpp"
@@ -131,6 +134,9 @@ namespace Theseus
   protected:
     mutable OperatorCache operator_cache;
     mutable DeviceCache device_cache;
+#ifdef THESEUS_DEBUG_ARRAYS
+    mutable Debug::ArrayInspector array_inspector;
+#endif
     const std::string gasModelName;
     const std::string numFluxName;
     const std::string flowModelName;

@@ -720,6 +720,12 @@ namespace Theseus
   void RHSOperator<PhysicsT>::Mult(const mfem::Vector &u, mfem::Vector &dudt) const
   {
     Theseus::ScopedTimer timer("RHSMult");
+#ifdef THESEUS_DEBUG_ARRAYS
+    array_inspector.BeginCall(pmesh->GetComm(), GetTime(), dim, num_equations,
+                              order, gasModelName, numFluxName);
+    array_inspector.Record("input", u, {"equation", "dof"},
+                           {num_equations, u.Size() / num_equations});
+#endif
     operator_cache.u_vol_restr_ready = false;
     operator_cache.u_bnd_restr_ready = false;
     operator_cache.u_int_restr_ready = false;
@@ -727,6 +733,11 @@ namespace Theseus
       Theseus::ScopedTimer rhsPrep("RHSRestriction");
       const mfem::Vector &pu = this->Prolongate(u);
       FetchRestrictions(pu, operator_cache.uVol, operator_cache.uInt, operator_cache.uBnd);
+#ifdef THESEUS_DEBUG_ARRAYS
+      const int ndof = operator_cache.ndof_scalar_el;
+      array_inspector.Record("restricted.volume", operator_cache.uVol,
+        {"element", "equation", "point"}, {num_elements, num_equations, ndof});
+#endif
       if (this->P)
         {
           if(operator_cache.pdudt.Size() != this->P->Height()){
@@ -786,6 +797,11 @@ namespace Theseus
     auto DU_RW = dudt.ReadWrite();
     mfem::forall(N, [=] MFEM_HOST_DEVICE (int i) { DU_RW[idx[i]] = 0.0; });
 
+#ifdef THESEUS_DEBUG_ARRAYS
+    array_inspector.Record("rhs.final", dudt, {"equation", "dof"},
+                           {num_equations, dudt.Size() / num_equations});
+    array_inspector.EndCall();
+#endif
     // reset restriction readiness
     operator_cache.u_vol_restr_ready = false;
     operator_cache.u_bnd_restr_ready = false;

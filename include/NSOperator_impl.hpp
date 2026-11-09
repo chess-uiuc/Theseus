@@ -172,6 +172,10 @@ namespace Theseus
           entropyState.UseDevice();
         }
         ComputeEntropyState(u, entropyState);
+#ifdef THESEUS_DEBUG_ARRAYS
+        this->array_inspector.Record("entropy", entropyState, {"equation", "dof"},
+          {dim + 2, entropyState.Size() / (dim + 2)});
+#endif
       }
       std::vector<mfem::Vector *> gradPrim(dim);
       {
@@ -185,7 +189,23 @@ namespace Theseus
           gradPrim[idim] = &(*grad_u[idim]);
         }
         GradOperator(entropyState, gradPrim);
+#ifdef THESEUS_DEBUG_ARRAYS
+        for (int direction = 0; direction < dim; ++direction)
+        {
+          this->array_inspector.Record("gradient.entropy." + std::to_string(direction),
+            *gradPrim[direction], {"equation", "dof"},
+            {dim + 2, gradPrim[direction]->Size() / (dim + 2)});
+        }
+#endif
         ComputeGradPrimFromGradEntropy(u, gradPrim);
+#ifdef THESEUS_DEBUG_ARRAYS
+        for (int direction = 0; direction < dim; ++direction)
+        {
+          this->array_inspector.Record("gradient.primitive." + std::to_string(direction),
+            *gradPrim[direction], {"equation", "dof"},
+            {dim + 2, gradPrim[direction]->Size() / (dim + 2)});
+        }
+#endif
       }
       MultCNS(u, gradPrim, pdudt);
     }
@@ -706,7 +726,29 @@ namespace Theseus
 
     {
       Theseus::ScopedTimer ifscatter("CNSInteriorFaceScatter");
+#ifdef THESEUS_DEBUG_ARRAYS
+      this->array_inspector.Record("interior.normals", operator_cache.face_normals,
+        {"face", "point", "direction"}, {nfaces, nfp, dim});
+      this->array_inspector.Record("interior.weight_minus", operator_cache.face_wt_minus,
+        {"face", "point"}, {nfaces, nfp});
+      this->array_inspector.Record("interior.weight_plus", operator_cache.face_wt_plus,
+        {"face", "point"}, {nfaces, nfp});
+      this->array_inspector.Record("interior.input", int_u,
+        {"face", "side", "equation", "point"}, {nfaces, 2, neq, nfp});
+      for (int direction = 0; direction < dim; ++direction)
+      {
+        this->array_inspector.Record("interior.gradient." + std::to_string(direction),
+          int_grad_prim[direction], {"face", "side", "equation", "point"},
+          {nfaces, 2, neq, nfp});
+      }
+      this->array_inspector.Record("interior.residual", rhs_faces,
+        {"face", "side", "equation", "point"}, {nfaces, 2, neq, nfp});
+#endif
       operator_cache.restr_f->MultTranspose(rhs_faces, faces_dudt);
+#ifdef THESEUS_DEBUG_ARRAYS
+      this->array_inspector.Record("interior.scattered", faces_dudt,
+        {"equation", "dof"}, {neq, faces_dudt.Size() / neq});
+#endif
       pdudt += faces_dudt; // on device?
     }
 
@@ -836,6 +878,21 @@ namespace Theseus
       Theseus::Kernels::el_scatter_add(fluxN, nfp, neq, fp, scale, rhs_face_d);
     });
 
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("boundary.normals", operator_cache.bnd_normals,
+      {"face", "point", "direction"}, {nfaces_restr, nfp, dim});
+    this->array_inspector.Record("boundary.weights", operator_cache.bnd_wt,
+      {"face", "point"}, {nfaces_restr, nfp});
+    this->array_inspector.Record("boundary.input", bnd_u,
+      {"face", "equation", "point"}, {nfaces_restr, neq, nfp});
+    for (int direction = 0; direction < dim; ++direction)
+    {
+      this->array_inspector.Record("boundary.gradient." + std::to_string(direction),
+        bnd_grad_prim[direction], {"face", "equation", "point"}, {nfaces_restr, neq, nfp});
+    }
+    this->array_inspector.Record("boundary.residual", rhs_faces,
+      {"face", "equation", "point"}, {nfaces_restr, neq, nfp});
+#endif
     operator_cache.restr_b->MultTranspose(rhs_faces, faces_dudt);
     pdudt += faces_dudt; // on device? (likely yes)
 
@@ -954,8 +1011,20 @@ namespace Theseus
     });
 #endif
 
+#ifdef THESEUS_DEBUG_ARRAYS
+#ifdef POINT_PARALLEL_VOLUME
+    this->array_inspector.Record("volume.inviscid", dUe,
+      {"element", "equation", "point"}, {ne, neq, ndof});
+#endif
+#endif
 #ifdef SOURCE_TERMS
     Source::PreProcessSourceTerms(dc, operator_cache, Ue_d, this->pmesh->GetComm());
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("source.volume_average", operator_cache.volume_avg_state,
+      {"slot"}, {operator_cache.volume_avg_state.Size()});
+    this->array_inspector.Record("source.target", operator_cache.target_state,
+      {"slot"}, {operator_cache.target_state.Size()});
+#endif
 #endif
 
     // Inside the FORALL below, executed on device
@@ -1046,6 +1115,10 @@ namespace Theseus
         dim > 2 ? gradPrim_d[2] + element_offset : nullptr,
         point, volume_flux_write + e * flux_stride);
     });
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("volume.viscous_flux", volume_flux,
+      {"element", "direction", "equation", "point"}, {ne, dim, neq, ndof});
+#endif
     const mfem::real_t *volume_flux_read = volume_flux.Read();
     mfem::forall(npoints, [=] MFEM_HOST_DEVICE (int p)
     {
@@ -1075,6 +1148,14 @@ namespace Theseus
 
     // The rest is identical to Euler operator
     // Scatter RHS back to storage
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("volume.jacobian", operator_cache.elJac,
+      {"element", "point"}, {ne, ndof});
+    this->array_inspector.Record("volume.metrics", operator_cache.elMetric,
+      {"element", "point", "reference_direction", "physical_direction"}, {ne, ndof, dim, dim});
+    this->array_inspector.Record("volume.residual", dUe,
+      {"element", "equation", "point"}, {ne, neq, ndof});
+#endif
     operator_cache.restr_v->AddMultTranspose(dUe, pdudt);
 
   }
@@ -1107,8 +1188,20 @@ namespace Theseus
     const std::vector<mfem::Vector *> &pGradPrim = this->P ? p_grad_ : grad_prim;
 
     MultCNS_Volume(u, pGradPrim, pdudt);
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("rhs.volume", pdudt, {"equation", "dof"},
+      {operator_cache.num_equations, pdudt.Size() / operator_cache.num_equations});
+#endif
     MultCNS_InteriorFaces(u, pGradPrim, pdudt);
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("rhs.interior", pdudt, {"equation", "dof"},
+      {operator_cache.num_equations, pdudt.Size() / operator_cache.num_equations});
+#endif
     MultCNS_BoundaryFaces(u, pGradPrim, pdudt);
+#ifdef THESEUS_DEBUG_ARRAYS
+    this->array_inspector.Record("rhs.boundary", pdudt, {"equation", "dof"},
+      {operator_cache.num_equations, pdudt.Size() / operator_cache.num_equations});
+#endif
   }
 
 }
