@@ -160,3 +160,13 @@ check CPG/LTE output against individual EOS/transport queries. It checks dimensi
 velocity arrays, both ParaView mesh modes, two-rank MPI, VisIt files, selection and
 bitwise-equal final derived fields after conservative restart. Numerical comparisons
 use `rtol=1e-9, atol=1e-10`. The test uses the integrated runner’s `--device` selection.
+
+## Host-boundary array diagnostics
+
+`ArrayDebugCPU` exercises the production inspector and offline comparator with
+kernel-produced synthetic arrays, repeated writes through a cached device pointer,
+source validity flags, nonfinite values, empty arrays, output filters/limits,
+layout compatibility and missing/partial data. CUDA builds additionally register
+`ArrayDebugCUDA` with the same contracts on the CUDA backend. See
+[array debugging](array-debugging.md) for configuration and use. These tests do not
+establish correctness of the fluid solver or the LTEEC flux.

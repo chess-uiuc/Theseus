@@ -24,6 +24,7 @@ option(ENABLE_TIMERS "Enable performance timers." OFF)
 option(ENABLE_TIMER_BARRIER "MPI_BARRIER in performance timers." OFF)
 option(ENABLE_TIMER_OUTPUT_ALLRANKS "Output timers on all ranks." OFF)
 option(ENABLE_TIMER_SYNC_DEVICE "Fence timers with device sync." OFF)
+option(THESEUS_DEBUG_ARRAYS "Enable host-side array inspection in consumers" OFF)
 option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
 set(ENABLE_POINT_PARALLEL_INTERIOR_FACES ON)
@@ -268,6 +269,15 @@ target_link_libraries(theseus
     MPI::MPI_CXX
 )
 target_link_libraries(theseus PRIVATE ${EXTRA_LINK_LIBRARIES})
+
+# The inspector is an ordinary host C++ translation unit, including CUDA builds.
+add_library(theseus_array_debug STATIC src/ArrayDebug.cpp)
+target_include_directories(theseus_array_debug PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(theseus_array_debug PUBLIC ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(THESEUS_DEBUG_ARRAYS)
+  target_compile_definitions(theseus PRIVATE THESEUS_DEBUG_ARRAYS)
+  target_link_libraries(theseus PRIVATE theseus_array_debug)
+endif()
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake/TheseusConfig.hpp.in
