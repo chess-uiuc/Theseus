@@ -77,6 +77,26 @@ if (THESEUS_WITH_PLATO)
    )
 endif()
 
+# Compile and link the entropy API before enabling Helmholtz table construction.
+if(THESEUS_WITH_PLATO)
+  include(CheckCXXSourceCompiles)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+  set(CMAKE_REQUIRED_INCLUDES ${PLATO_INCLUDE_DIR})
+  set(CMAKE_REQUIRED_LIBRARIES Plato::Plato ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES})
+  foreach(directory IN LISTS CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES)
+    list(APPEND CMAKE_REQUIRED_LINK_OPTIONS "-L${directory}")
+  endforeach()
+  check_cxx_source_compiles("#include <plato_Cpp_library_interface.h>
+    int main() { double t=300, p=100000, s[64]; plato_get_species_entropy(&t,&p,s); }"
+    THESEUS_PLATO_HAS_ENTROPY)
+  cmake_pop_check_state()
+  if(NOT THESEUS_PLATO_HAS_ENTROPY)
+    message(STATUS "PLATO entropy API unavailable: legacy LTE remains enabled; Helmholtz table construction requires a newer PLATO")
+  endif()
+endif()
+
+
 find_package(MPI REQUIRED COMPONENTS CXX)
 
 add_executable(theseus src/main.cpp)
@@ -103,6 +123,9 @@ endif()
 
 if(THESEUS_WITH_PLATO)
   target_compile_definitions(theseus PRIVATE USE_PLATO)
+  if(THESEUS_PLATO_HAS_ENTROPY)
+    target_compile_definitions(theseus PRIVATE THESEUS_PLATO_HAS_ENTROPY)
+  endif()
   target_link_libraries(theseus PRIVATE Plato::Plato)
 
   # This bit is needed because PLATO does not properly

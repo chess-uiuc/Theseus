@@ -62,13 +62,14 @@ namespace Theseus
     {
     }
 
-    template<typename EOS, typename Transport>
-    MFEM_HOST_DEVICE inline void Tables(const LTEGasModel<EOS, Transport> &gas,
+    template<typename EOS, typename Transport, typename TableType>
+    MFEM_HOST_DEVICE inline void Tables(const LTEGasModel<EOS, Transport, TableType> &gas,
                                        const char *where)
     {
       const auto &layout = gas.T.L;
       const auto &view = gas.T.tables;
-      if (layout.nx < 2 || layout.ny < 2 || layout.num_properties != 9)
+      constexpr bool legacy = std::is_same_v<TableType, LTETable::LTETables>;
+      if (layout.nx < 2 || layout.ny < 2 || layout.num_properties != (legacy ? 9 : 6))
         {
           Fail(where, "table_shape", gas.dim(), gas.num_equations(),
                layout.nx, layout.ny);
@@ -79,12 +80,15 @@ namespace Theseus
           Fail(where, "table_index_overflow", gas.dim(), gas.num_equations(),
                layout.nx, layout.ny);
         }
-      if (layout.P_idx != 0 || layout.e_idx != 1 || layout.cv_idx != 2 ||
-          layout.cp_idx != 3 || layout.R_eq_idx != 4 || layout.gamma_eq_idx != 5 ||
-          layout.c_idx != 6 || layout.mu_idx != 7 || layout.lambda_idx != 8)
+      if constexpr (legacy)
         {
-          Fail(where, "table_property_indices", gas.dim(), gas.num_equations(),
-               layout.mu_idx, layout.lambda_idx);
+          if (layout.P_idx != 0 || layout.e_idx != 1 || layout.cv_idx != 2 ||
+              layout.cp_idx != 3 || layout.R_eq_idx != 4 || layout.gamma_eq_idx != 5 ||
+              layout.c_idx != 6 || layout.mu_idx != 7 || layout.lambda_idx != 8)
+            {
+              Fail(where, "table_property_indices", gas.dim(), gas.num_equations(),
+                   layout.mu_idx, layout.lambda_idx);
+            }
         }
       if (!view.lte_table || !view.inv_table || !view.rho_grid ||
           !view.T_grid || !view.e_grid)

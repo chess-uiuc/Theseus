@@ -13,6 +13,8 @@
 #include "LTEStateConversion.hpp"
 #include "GasProperties.hpp"
 #include "LTEPropertySample.hpp"
+#include "LTEHelmholtzGasEOS.hpp"
+#include "LTEHelmholtzStateConversion.hpp"
 
 using namespace Theseus::LTETable;
 
@@ -22,13 +24,13 @@ namespace Theseus
 // ============================================================================
 // LTEGasModel: Encapsulate/wrap LTE EOS/Transport in standard interface
 // ============================================================================
-  template <typename EOSImpl, typename TransportImpl>
+  template <typename EOSImpl, typename TransportImpl, typename TableType = LTETables>
   struct LTEGasModel
   {
 
     Theseus::PhysicsConstants phys;
     Theseus::StateLayout L;
-    LTETables T;
+    TableType T;
     EOSImpl eos;
     TransportImpl transport;
 
@@ -36,19 +38,19 @@ namespace Theseus
 
     MFEM_HOST_DEVICE
     LTEGasModel(const PhysicsConstants &phys_in, const StateLayout &L_in,
-                const LTETables &T_in, const EOSImpl &eos_in, const TransportImpl &tr_in)
+                const TableType &T_in, const EOSImpl &eos_in, const TransportImpl &tr_in)
       : phys(phys_in), L(L_in), T(T_in), eos(eos_in), transport(tr_in)
     { };
 
     MFEM_HOST_DEVICE
     LTEGasModel(const PhysicsConstants &phys_in, const StateLayout &L_in,
-                const LTETables &T_in)
+                const TableType &T_in)
       : phys(phys_in), L(L_in), T(T_in)
     { };
 
     template<typename HostDataT>
-    LTEGasModel<EOSImpl, TransportImpl>  to_device(HostDataT &host_data) {
-      LTEGasModel<EOSImpl, TransportImpl> retVal(phys, L, T, eos, transport);
+    LTEGasModel<EOSImpl, TransportImpl, TableType>  to_device(HostDataT &host_data) {
+      LTEGasModel<EOSImpl, TransportImpl, TableType> retVal(phys, L, T, eos, transport);
       retVal.T.tables = {
         host_data.lteTableData->lte_table.Read(),
         host_data.lteTableData->inv_table.Read(),
@@ -93,26 +95,54 @@ namespace Theseus
           return result;
         }
 
-      const LTEPropertySample sample(T, density(state), recovered_temperature);
-      if (request.pressure)
+      if constexpr (std::is_same_v<TableType, LTETables>)
         {
-          result.pressure = sample.Value(T.L.P_idx);
-        }
-      if (request.sound_speed)
-        {
-          result.sound_speed = sample.Value(T.L.c_idx);
-        }
-      if (request.viscosity)
-        {
+          const LTEPropertySample sample(T, density(state), recovered_temperature);
+          if (request.pressure)
+            {
+              result.pressure = sample.Value(T.L.P_idx);
+            }
+          if (request.sound_speed)
+            {
+              result.sound_speed = sample.Value(T.L.c_idx);
+            }
+          if (request.viscosity)
+            {
 #ifdef SUTHERLAND
-          result.viscosity = transport.viscosity_from_temperature(phys, recovered_temperature);
+              result.viscosity = transport.viscosity_from_temperature(phys, recovered_temperature);
 #else
-          result.viscosity = sample.Value(T.L.mu_idx);
+              result.viscosity = sample.Value(T.L.mu_idx);
 #endif
+            }
+          if (request.thermal_conductivity)
+            {
+              result.thermal_conductivity = sample.Value(T.L.lambda_idx);
+            }
         }
-      if (request.thermal_conductivity)
+      else
         {
-          result.thermal_conductivity = sample.Value(T.L.lambda_idx);
+          const auto sample = HelmholtzEOS::At(T, density(state), recovered_temperature);
+          LTEHelmholtzGasEOS::Require(sample.valid);
+          if (request.pressure)
+            {
+              result.pressure = sample.pressure();
+            }
+          if (request.sound_speed)
+            {
+              result.sound_speed = std::sqrt(sample.sound_speed_squared());
+            }
+          if (request.viscosity)
+            {
+#ifdef SUTHERLAND
+              result.viscosity = transport.viscosity_from_temperature(phys, recovered_temperature);
+#else
+              result.viscosity = sample.template transport<HelmholtzTable::Layout::mu_idx>(T);
+#endif
+            }
+          if (request.thermal_conductivity)
+            {
+              result.thermal_conductivity = sample.template transport<HelmholtzTable::Layout::lambda_idx>(T);
+            }
         }
       return result;
     }
@@ -306,5 +336,6 @@ namespace Theseus
   };
 
   using LTEGas = LTEGasModel<LTEGasEOS, LTETransport>;
+  using LTEHelmholtzGas = LTEGasModel<LTEHelmholtzGasEOS, LTETransport, HelmholtzTable::Tables>;
 
 } // namespace Theseus

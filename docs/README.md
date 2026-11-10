@@ -16,11 +16,15 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
   conditions and exterior/profile boundary inputs
 - [Migrating physical inputs](physical-state-migration.md): CPG/LTE compatibility,
   table coverage and a runnable LTE chamber example
+- [Helmholtz LTE and LTEEC](helmholtz-eos.md): select the EOS/flux, table generation,
+  entropy API requirements and numerical verification
 - General input-file reference (coming soon)
 - [Checkpoints and restarts](checkpoints.md): save solution state, validate
   restart compatibility, and resume a run through the standard helper
 - [Axisymmetric formulation](axisymmetry.md): configure swirl-free cylindrical
   Euler/CNS runs and understand their verification status
+- [Helmholtz LTEEC CPU/CUDA checks](lteec-hpc-validation.md): one build, kernel
+  oracles and automatic same-binary evolution comparisons
 - [Verification and CI matrix](verification.md): integration assertions, smoke
   cases, golden-data tolerances, and local reproduction commands
 - [Performance comparison](performance-comparison.md): compare timestep and

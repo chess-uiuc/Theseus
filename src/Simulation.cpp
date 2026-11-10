@@ -14,6 +14,7 @@
 #include "json.hpp"
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <mpi.h>
 
 namespace
@@ -1346,10 +1347,13 @@ namespace Theseus
               if (mfem::Mpi::Root())
                 {
                   std::ostringstream Ostr;
+                  const auto diagnostic_precision = Ostr.precision();
+                  Ostr.precision(std::numeric_limits<mfem::real_t>::max_digits10);
                   Ostr << "time step: " << ti << ", time: " << t;
                   if(variable_dt){
                     Ostr << ", dt: " << dt;
                   }
+                  Ostr.precision(diagnostic_precision);
                   Ostr << std::endl
                        << "rho(" << diag.min_dens << "," << diag.max_dens << "), "
                        << "p(" << diag.min_press << "," << diag.max_press << "), "
