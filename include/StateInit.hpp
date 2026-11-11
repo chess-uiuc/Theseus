@@ -6,6 +6,7 @@
 #pragma once
 
 #include "ConditionFactory.hpp"
+#include "ChannelFlowInitialCondition.hpp"
 
 namespace Prandtl
 {

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -230,7 +231,8 @@ def source_files(source):
 def documentation(name):
     path = Path(name)
     return (path.suffix in {'.md', '.dox'} and
-            (len(path.parts) == 1 or path.parts[0] == 'docs'))
+            (len(path.parts) == 1 or path.parts[0] == 'docs' or
+             (path.parts[0] == 'TestCases' and path.name == 'README.md')))
 
 
 def changed_files(before, after):
@@ -291,6 +293,8 @@ def integrated_commands(run, manifest, builds):
     ]
     commands = []
     for name, title, geometry, script, options in entries:
+        if manifest.get('suite', 'full') != 'full' and geometry not in manifest.get('builds', {}):
+            continue
         requirements = ('python-dependencies',)
         if manifest.get('suite', 'full') == 'full':
             requirements += ('build-' + geometry,)
@@ -307,7 +311,9 @@ def suite_recipe_commands(run, manifest, builds):
     suite = manifest.get('suite', 'full')
     commands = []
     for recipe in load_recipes(source):
-        if suite not in recipe['suites']:
+        if ('integrated' if suite == 'prepared' else suite) not in recipe['suites']:
+            continue
+        if suite != 'full' and recipe['build'] not in manifest.get('builds', {}):
             continue
         arguments = argparse.Namespace(
             source=source,
@@ -379,6 +385,7 @@ def suite_commands(run, manifest):
             build = builds[label]
             configure = ['cmake', '-S', str(source), '-B', str(build),
                          '-DCMAKE_BUILD_TYPE=Debug', '-DBUILD_TESTING=ON',
+                         f'-DTHESEUS_BUILD_KERNEL_STRESS={"ON" if manifest.get("kernel_stress", False) else "OFF"}',
                          f'-DCMAKE_PREFIX_PATH={prefix}', f'-DCMAKE_BUILD_RPATH={prefix}/lib',
                          f'-DCMAKE_INSTALL_RPATH={prefix}/lib', '-DTHESEUS_WITH_PLATO=ON',
                          '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON',
@@ -396,6 +403,11 @@ def suite_commands(run, manifest):
                                          '--no-tests=error'], run, label.capitalize() + ' CTest suite',
                         ('build-' + label, 'python-dependencies')),
             ])
+    if manifest.get('suite') == 'prepared':
+        for label, directory in manifest['builds'].items():
+            commands.append(Command('ctest-' + label,
+                ['ctest', '--test-dir', str(directory), '--output-on-failure', '--no-tests=error'],
+                run, label.capitalize() + ' CTest suite', ('python-dependencies',)))
     commands.extend(integrated_commands(run, manifest, builds))
     commands.extend(suite_recipe_commands(run, manifest, builds))
     return commands
@@ -404,10 +416,21 @@ def suite_commands(run, manifest):
 def prepared_builds(args):
     builds = {}
     evidence = {}
+    if getattr(args, 'build', None):
+        if args.build_standard or args.build_axisymmetric:
+            raise ValueError('--build cannot be combined with geometry-specific build options')
+        cache_text = (args.build / 'CMakeCache.txt').read_text()
+        axis = re.search(r'^AXISYMMETRIC:BOOL=(ON|YES|TRUE|1)$', cache_text, re.MULTILINE | re.IGNORECASE)
+        if axis:
+            args.build_axisymmetric = args.build
+        else:
+            args.build_standard = args.build
+    if not args.build_standard and not args.build_axisymmetric:
+        raise ValueError('Specify at least one prepared build directory.')
     for geometry, directory in [('standard', args.build_standard),
                                 ('axisymmetric', args.build_axisymmetric)]:
         if directory is None:
-            raise ValueError('Integrated mode requires both prepared build directories.')
+            continue
         directory = directory.resolve()
         cache = directory / 'CMakeCache.txt'
         values = {}
@@ -449,7 +472,9 @@ def prepare(args):
     if not prefix.is_dir():
         raise ValueError(f'Missing dependency prefix: {prefix}')
     suite = getattr(args, 'suite', 'full')
-    builds, build_files = prepared_builds(args) if suite == 'integrated' else ({}, {})
+    if getattr(args, 'kernel_stress', False) and suite != 'full':
+        raise ValueError('--kernel-stress requires --suite full so CTest executes the stress tests.')
+    builds, build_files = prepared_builds(args) if suite in ('integrated', 'prepared') else ({}, {})
     files = source_files(source)
     # Exclusive creation prevents overlapping runs from overwriting evidence.
     run.mkdir(parents=True, exist_ok=False)
@@ -480,6 +505,7 @@ def prepare(args):
                     'cxx': executable(os.environ.get('CXX', 'mpicxx')) if suite == 'full' else None,
                     'mpiexec': executable(args.mpiexec) if args.mpiexec else None, 'mpi_args': args.mpi_arg,
                     'jobs': args.jobs, 'timeout': args.timeout,
+                    'kernel_stress': getattr(args, 'kernel_stress', False),
                     'suite': suite, 'device': getattr(args, 'device', 'cpu'),
                     'builds': builds, 'build_files': build_files}
         write_json(run / 'manifest.json', manifest)
@@ -636,7 +662,10 @@ def main():
     parser.add_argument('--prefix', type=Path)
     parser.add_argument('--python', default=sys.executable)
     parser.add_argument('--mpiexec', help='Exceptional MPI executable override; normal users omit this so run_theseus selects the platform launcher')
-    parser.add_argument('--suite', choices=['full', 'integrated'], default='full')
+    parser.add_argument('--suite', choices=['full', 'integrated', 'prepared'], default='full')
+    parser.add_argument('--build', type=Path, help='Test all registered checks for this existing build; detect geometry from CMakeCache.txt; do not rebuild')
+    parser.add_argument('--kernel-stress', action='store_true',
+                        help='Opt in to building and running the numerical kernel stress tests (full suite only)')
     parser.add_argument('--build-standard', type=Path)
     parser.add_argument('--build-axisymmetric', type=Path)
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
@@ -682,6 +711,8 @@ def main():
             return worker(args.results.resolve())
         if args.prefix is None or args.jobs < 1 or args.timeout <= 0:
             parser.error('run/start require --prefix, positive --jobs and positive --timeout')
+        if args.build:
+            args.suite = 'prepared'
         if args.suite == 'full' and (args.device != 'cpu' or args.build_standard or args.build_axisymmetric):
             parser.error('Prepared builds and GPU selection require --suite integrated.')
         if args.mpi_arg and not args.mpiexec:

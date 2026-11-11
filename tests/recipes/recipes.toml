@@ -135,3 +135,13 @@ build = "standard"
 requires = ["python", "pyvista"]
 stages = ["prepare", "run", "compare"]
 order = 350
+
+[[test]]
+id = "golden-channel"
+title = "Unforced LTEEC Channel Flow"
+script = "tests/recipes/regression/golden-channel.sh"
+suites = ["cartesian", "regression", "full", "integrated"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 350

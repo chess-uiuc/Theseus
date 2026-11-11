@@ -163,8 +163,8 @@ use `rtol=1e-9, atol=1e-10`. The test uses the integrated runner’s `--device` 
 
 ## Helmholtz polynomial helper
 
-`HelmholtzInterpolation_CPU` independently checks all16 bicubic monomials over
-nonuniform cells, endpoints/shared edges, physical derivative orders0–2 in each
+`HelmholtzInterpolation_CPU` independently checks all 16 bicubic monomials over
+nonuniform cells, endpoints/shared edges, physical derivative orders 0–2 in each
 coordinate, unchanged input data, exact-rational arbitrary-corner references and
 kernel-produced values. CUDA builds also register `HelmholtzInterpolation_CUDA`,
 which requires the CUDA backend. These tests have no PLATO dependency and do not
@@ -187,34 +187,59 @@ API present, `HelmholtzGas_AIR5` builds a six-plane AIR5 table and compares 25
 interior/boundary states against independent PLATO queries: relative tolerances
 are `2e-5` for pressure/energy and `2e-3` for heat capacities/acoustics. These
 are table approximation checks; gas-interface round trips use `1e-10` and batch
-query consistency uses `1e-12`. No CPU/GPU evolution tolerance is changed.
+query consistency uses `1e-12`.
 
 
 `LTEECFlux_standard_CPU` and `LTEECFlux_sutherland_CPU` check independent analytic
 fluxes, the Tadmor entropy condition, normal orientation/scaling, guards, and
 survival of the inviscid result through production viscous interior-face assembly.
-Coverage is dimensions1–3, orders2/4/7, point/face execution patterns, equal/near
+Coverage is dimensions 1–3, orders 2/4/7, point/face execution patterns, equal/near
 states and cell boundaries. CUDA variants use the same real kernel fixtures.
-`HelmholtzFactorySelection` runs in Cartesian builds and checks two-rank ownership/selection, preservation of
-legacy LTE, and explicit rejection when the required entropy API is absent.
+`HelmholtzFactorySelection` runs in Cartesian builds and checks two-rank ownership/selection, nine-plane LTE selection, and explicit rejection when the required entropy API is absent.
 
 The central integrated suite registers **Helmholtz LTEEC 3D evolution and device
 parity** and **Helmholtz Pirozzoli 3D control and device parity**. They reuse the
-3D TGV checker with AIR5, each running20 RK3 steps with fixed DT and fixed CFL.
-Existing LTE TGV defaults and tolerances are unchanged. These new checks require
+3D TGV checker with AIR5, each running 20 RK3 steps with fixed DT and fixed CFL.
+These checks require
 PLATO's entropy API, finite evolving fields, explicit backend selection and
 rtol=atol=1e-10 comparisons at matching times. CPU-only runs establish repeatability,
 not CUDA agreement. See [Helmholtz EOS](helmholtz-eos.md) for configuration/API rules.
 
-Stable divided differences add19,200 analytic monomial checks to the interpolation
-test. The EOS fixture includes seven near-state cases with 80-digit power-basis
-reference means; existing thresholds/tolerances are retained. Four inputs come
-from saved trace coordinates, with three direction/threshold/boundary variants.
+The interpolation test includes 19,200 analytic divided-difference checks. The EOS fixture includes seven near-state cases with 80-digit power-basis
+reference means; Coverage includes close-state, direction, threshold and cell-boundary cases.
 The paired evolution checker uses full-precision logged cycle times; its contract
 tests reject differing times even when rounded PVD labels coincide.
 
 The LTEEC fixtures also exercise the shared gas/state-view Lax helper directly
 on the selected backend, checking every active component against the independent
 analytic dissipative-flux difference and preserving leading/trailing guards.
-The existing dimension/order/state/zero-normal and face/point execution coverage
+The dimension/order/state/zero-normal and face/point execution coverage
 applies to both the helper and production LTEEC caller.
+
+## Optional kernel stress coverage
+
+`THESEUS_BUILD_KERNEL_STRESS=ON` adds five CPU CTest entries (a reference-generator
+contract and four numerical stress fixtures). CUDA builds add four device entries.
+All carry the `kernel-stress` label. The default configuration adds no stress
+targets or tests. The central runner exposes the same opt-in as `--kernel-stress`
+for a full run. See [kernel stress testing](kernel-stress-testing.md) for exact
+commands, workloads, accuracy/agreement bounds and independent-reference provenance.
+
+The flux stress tests share the ordinary LTEEC analytic fixture with the same assertions and tolerances. The captured channel mean cases are
+independent mathematical references, not stored CPU answers.
+
+### Short unforced LTEEC channel
+
+The `golden-channel` central recipe runs the checked-in
+[ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlow/README.md) for 50
+fixed steps at order 2 on 64 hexahedra. It checks completion, finite positive
+thermodynamic fields, mass conservation, meaningful evolution, and three frames
+against current CPU behavioral goldens. Separate references cover Sutherland
+and tabulated viscosity; conductivity remains tabulated. Multi-rank comparisons
+use cell-local geometric identifiers. CUDA runs use the same CPU references.
+The case has no body force and checks a short transient, rather than a sustained
+turbulent channel.
+
+The recipe participates in normal Cartesian/full/integrated regression suites.
+The optional kernel stress tests remain controlled separately by
+`THESEUS_BUILD_KERNEL_STRESS`, default OFF.

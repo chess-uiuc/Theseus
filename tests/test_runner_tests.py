@@ -51,16 +51,103 @@ class TestRunnerTests(unittest.TestCase):
         self.prefix.mkdir()
         self.run = self.root / 'results'
 
-    def prepare(self):
+    def prepare(self, kernel_stress=False):
         return run_tests.prepare(argparse.Namespace(source=self.source, results=self.run,
             prefix=self.prefix, python=str(self.bin / 'python-stub'), mpiexec='mpiexec',
-            mpi_arg=[], jobs=1, timeout=5))
+            mpi_arg=[], jobs=1, timeout=5, kernel_stress=kernel_stress))
 
     def steps(self, run, manifest):
         return [run_tests.Command('first', [sys.executable, '-c', 'print("first")'], run,
                                  'Inviscid Isentropic Vortex — cyclic run'),
                 run_tests.Command('second', [sys.executable, '-c', 'print("second")'], run,
                                  'Inviscid Isentropic Vortex — cyclic comparison', ('first',))]
+
+    def test_single_build_geometry_and_evidence(self):
+        for axis in (False, True):
+            with self.subTest(axis=axis):
+                build = self.root / ('axis-build' if axis else 'cartesian-build')
+                (build / 'tests').mkdir(parents=True)
+                (build / 'CMakeCache.txt').write_text(
+                    f'AXISYMMETRIC:BOOL={"ON" if axis else "OFF"}\n'
+                    'THESEUS_WITH_PLATO:BOOL=ON\nENABLE_CUDA:BOOL=ON\n')
+                for name in ('theseus', 'tests/table_lookup_tests'):
+                    executable = build / name
+                    executable.write_text('#!/bin/sh\nexit 0\n')
+                    executable.chmod(0o755)
+                args = argparse.Namespace(build=build, build_standard=None,
+                    build_axisymmetric=None, device='cuda')
+                builds, evidence = run_tests.prepared_builds(args)
+                self.assertEqual(set(builds), {'axisymmetric' if axis else 'standard'})
+                self.assertIn(str(build / 'theseus'), evidence)
+                run_tests.verify_prepared_builds({'build_files': evidence})
+                (build / 'theseus').write_text('changed')
+                with self.assertRaisesRegex(ValueError, 'Prepared build changed'):
+                    run_tests.verify_prepared_builds({'build_files': evidence})
+
+    def test_single_build_selection_covers_all_and_only_its_geometry(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        run = self.root / 'selected-suite'
+        run.mkdir()
+        (run / 'source').symlink_to(repository, target_is_directory=True)
+        manifest = {'suite': 'integrated', 'python': sys.executable,
+                    'prefix': str(self.prefix), 'device': 'cuda', 'builds': {
+                        'standard': str(self.root / 'standard'),
+                        'axisymmetric': str(self.root / 'axisymmetric')}}
+        all_names = {c.name for c in run_tests.suite_commands(run, manifest)}
+        selected = []
+        for geometry in ('standard', 'axisymmetric'):
+            one = dict(manifest, suite='prepared', builds={geometry: manifest['builds'][geometry]})
+            commands = run_tests.suite_commands(run, one)
+            names = [c.name for c in commands]
+            self.assertEqual(len(names), len(set(names)))
+            self.assertIn('ctest-' + geometry, names)
+            ctest = next(c for c in commands if c.name == 'ctest-' + geometry)
+            self.assertIn('--no-tests=error', ctest.argv)
+            self.assertIn(manifest['builds'][geometry], ctest.argv)
+            self.assertFalse(any(n.startswith(('configure-', 'build-')) for n in names))
+            selected.append(set(names) - {'ctest-' + geometry})
+        self.assertEqual(selected[0] | selected[1], all_names)
+        self.assertEqual(selected[0] & selected[1], {'python-dependencies'})
+        self.assertIn('recipe-golden-channel-run', selected[0])
+        self.assertIn('integration-helmholtz-lteec', selected[0])
+        self.assertIn('integration-axis-restart', selected[1])
+
+    def test_single_build_rejects_ambiguous_or_incompatible_selection(self):
+        args = argparse.Namespace(build=self.root, build_standard=self.root,
+                                  build_axisymmetric=None, device='cpu')
+        with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+            run_tests.prepared_builds(args)
+        args.build = None
+        args.build_standard = None
+        with self.assertRaisesRegex(ValueError, 'at least one'):
+            run_tests.prepared_builds(args)
+
+    def test_kernel_stress_is_disabled_by_default(self):
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertFalse(manifest['kernel_stress'])
+        configure = [item for item in run_tests.suite_commands(self.run, manifest)
+                     if item.name.startswith('configure-')]
+        self.assertEqual(len(configure), 2)
+        for item in configure:
+            self.assertIn('-DTHESEUS_BUILD_KERNEL_STRESS=OFF', item.argv)
+
+    def test_kernel_stress_opt_in_is_recorded_for_both_builds(self):
+        self.prepare(kernel_stress=True)
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertTrue(manifest['kernel_stress'])
+        configure = [item for item in run_tests.suite_commands(self.run, manifest)
+                     if item.name.startswith('configure-')]
+        self.assertEqual(len(configure), 2)
+        for item in configure:
+            self.assertIn('-DTHESEUS_BUILD_KERNEL_STRESS=ON', item.argv)
+
+    def test_integrated_mode_cannot_silently_ignore_kernel_stress(self):
+        args = argparse.Namespace(source=self.source, results=self.run,
+                                  prefix=self.prefix, suite='integrated', kernel_stress=True)
+        with self.assertRaisesRegex(ValueError, '--kernel-stress requires --suite full'):
+            run_tests.prepare(args)
+        self.assertFalse(self.run.exists())
 
     def test_pass_requires_complete_unchanged_evidence(self):
         self.prepare()
@@ -80,6 +167,22 @@ class TestRunnerTests(unittest.TestCase):
             (self.run / 'logs/first.log').write_text('replaced')
             with self.assertRaisesRegex(ValueError, 'Log changed'):
                 run_tests.check(self.run, self.source)
+
+    def test_case_readmes_are_documentation_but_case_inputs_are_material(self):
+        self.prepare()
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            case = self.source / 'TestCases/GoldenData/Example'
+            case.mkdir(parents=True)
+            (case / 'README.md').write_text('Reference documentation')
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            for name in ('config.json', 'reference.npz', 'mesh.msh', 'expected.md'):
+                with self.subTest(name=name):
+                    candidate = case / name
+                    candidate.write_text('Changed test input')
+                    with self.assertRaisesRegex(ValueError, 'stale'):
+                        run_tests.check(self.run, self.source)
+                    candidate.unlink()
 
     def test_failure_blocks_dependents_but_independent_checks_finish(self):
         self.prepare()
@@ -295,6 +398,7 @@ class TestRunnerTests(unittest.TestCase):
             'golden-lte-vortex': ('run', 'prepare', 'compare'),
             'golden-cavity': ('run', 'prepare', 'compare'),
             'golden-tgv': ('run', 'prepare', 'compare'),
+            'golden-channel': ('prepare', 'run', 'compare'),
             'golden-step': ('run', 'prepare', 'compare'),
         }
         for recipe, stages in expected.items():

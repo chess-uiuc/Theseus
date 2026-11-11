@@ -7,7 +7,8 @@ that you have already built.
 | Task | Mode | What runs |
 | --- | --- | --- |
 | Run the same suite as Quick/Nightly CI | Default (`full`) | Fresh CPU builds, unit tests, integrated tests, smoke runs and regression comparisons |
-| Test prepared CPU or CUDA builds | `--suite integrated` | Integrated tests, smoke runs and regression comparisons |
+| Test one existing CPU or CUDA build | `--build /path/to/build` | CTest, integrated tests, smoke runs and regression comparisons for its geometry |
+| Run simulation checks on selected prepared builds | `--suite integrated` | Integrated tests, smoke runs and regression comparisons; CTest is excluded |
 | Check a completed full run against your checkout | `check` | Result, log and source checks; no simulations |
 
 For test coverage and tolerances, see the [test inventory](verification.md).
@@ -128,9 +129,44 @@ fails. For an unattended workstation run, replace `run` with `start`; it returns
 the worker PID and the summary path while testing continues in the background.
 The machine must remain running.
 
+## Test a single existing build
+
+Use `--build` to run all registered tests for an existing build without
+configuring or rebuilding it. The runner reads `AXISYMMETRIC` from its CMake
+cache and selects the applicable geometry. It runs CTest first, then all
+registered integrated simulations, smoke cases and numerical regressions for
+that geometry. Stress tests are included if enabled and built in that build.
+No separate CTest command is needed.
+
+Build all test targets before submitting. From a batch allocation:
+
+```bash
+"$PYTHON" "$THESEUS_SOURCE/scripts/run_tests.py" run \
+  --source "$THESEUS_SOURCE" --build "$THESEUS_BUILD" \
+  --prefix "$TPL_PATH" --python "$PYTHON" \
+  --device cuda --results "$TEST_RESULTS"
+```
+
+Use `--device cpu` for CPU simulations. CTest executes all registered entries,
+including CPU and CUDA variants in CUDA builds; those builds need a GPU
+allocation even when the simulation selection is CPU. The suite includes
+one- and two-rank simulations, so allocate at least two MPI ranks. Python needs
+`ci-resources/requirements-ci.txt`, and the build needs PLATO support and its
+database. Cartesian builds also need the `table_lookup_tests` target.
+
+`TEST_RESULTS` must name a new directory outside the source checkout. The command
+waits for completion and returns failure if any required check fails or is
+blocked. Independent checks continue after a failure. Read `summary.txt` and
+`logs/` in that directory. The same command accepts a Cartesian or axisymmetric
+build; no second build or geometry switch is required.
+
+Do not use `--kernel-stress` with a prepared build: that flag configures new
+full-suite builds. Enable `THESEUS_BUILD_KERNEL_STRESS` and build its targets
+before testing an existing build.
+
 ## Integrated tests with prepared builds (HPC or workstation)
 
-Prepare two builds of the revision you want to test:
+Supply one or both geometry-specific build options for simulation-only checks:
 
 | Build | Required settings and targets |
 | --- | --- |
@@ -154,7 +190,7 @@ python3 scripts/run_tests.py run --suite integrated \
   --results /path/to/scratch/test-run-001
 ```
 
-Use `--device cpu` for CPU execution. The suite includes one- and two-rank cases;
+Use `--device cpu` for CPU execution. The selected suite includes one- and two-rank cases;
 allocate resources for two MPI ranks and the requested devices. It uses the supplied
 executables without rebuilding them. Rebuild after source changes before submitting
 another development test.
@@ -175,10 +211,8 @@ batch output to persistent storage when the job finishes.
 | `tuo*` | `flux run` |
 | Other hosts | `mpiexec` from PATH |
 
-The device scripts select visibility from the local MPI rank. Tests and recipes
-pass only the device and rank count to `run_theseus.sh`; they never select a
-scheduler or MPI executable. Normal developers and HPC jobs do not configure a
-launcher through the test runner.
+The device scripts select visibility from the local MPI rank. Tests and recipes pass the device and rank count to `run_theseus.sh`.
+Launcher selection is automatic for the listed hostnames.
 
 An unusual execution environment may need to decorate the otherwise automatic
 launch. Configure that exception once on the top-level `run_tests.py` invocation
@@ -198,7 +232,7 @@ exceptional override, the runner leaves launcher selection entirely to
 
 For direct harness or recipe execution in an unusual environment, set
 `THESEUS_MPI_LAUNCHER` once to an executable wrapper that accepts normal
-`mpiexec`-style `-n N ...` arguments. Do not put launcher logic in a test recipe.
+`mpiexec`-style `-n N ...` arguments. See [Adding tests](adding-tests.md) for recipe integration.
 
 ## Read the results
 
@@ -253,9 +287,9 @@ outside the checkout or in ignored directories. Source symlinks and submodules a
 not supported by the snapshot mechanism.
 
 Prepared-build runs record executable and CMake-cache hashes and detect changes during
-execution. Their results apply to those binaries; the runner cannot establish which
+execution. Both `--build` and `--suite integrated` results apply to those binaries; the runner cannot establish which
 source produced an arbitrary supplied executable. `check` requires a full run and does
-not accept integrated-only results. Keep binaries, dependencies and tool environments
+not accept prepared-build results as a full-source commit gate. Keep binaries, dependencies and tool environments
 unchanged during testing; rerun after changing them.
 
 ## HLL and Roe field regressions
@@ -265,3 +299,12 @@ Taylor–Green vortex. Each runs 20 fixed-timestep steps and compares fields aga
 CPU reference data for that same flux. See
 [Numerical-flux regression tests](numerical-flux-regression.md) for the case
 inventory, build options, tolerances and reference-generation procedure.
+
+## Optional numerical kernel stress tests
+
+Add `--kernel-stress` to a full `run` or `start` command to build and execute the
+optional stress fixtures in both geometry builds. It is disabled by default and
+recorded in the run manifest. The flag is rejected in integrated-only mode, which
+does not execute CTest. For existing builds, enable `THESEUS_BUILD_KERNEL_STRESS`
+with CMake and select `ctest -L kernel-stress`. See
+[kernel stress testing](kernel-stress-testing.md) for complete commands and coverage.

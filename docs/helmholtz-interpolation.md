@@ -24,7 +24,7 @@ const auto H_TT = Evaluate<0, 2>(cell, xi, eta);
 
 `xi=(rho-rho_lower)/drho` and `eta=(T-T_lower)/dT` are normalized coordinates.
 The returned derivatives are with respect to physical rho and T; widths are
-applied internally. Derivative orders0,1,2 in each coordinate are compile-time
+applied internally. Derivative orders 0, 1, 2 in each coordinate are compile-time
 arguments. No lookup, allocation, synchronization or coordinate validation is
 performed here. Host/device callers must select a valid cell and rebind pointers
 to the correct memory space before using this view in a kernel.
@@ -34,10 +34,10 @@ same polynomial as an expanded coefficient-matrix formulation; summation order
 and rounding can differ. This is not a centered or shape-preserving interpolant,
 and no positivity/concavity guarantee follows from the interpolation alone.
 
-The helper is available independently of PLATO. It does not itself change the
-solver's gas model, table generation or flux selection.
+The helper has no PLATO dependency. Runtime model selection is documented in
+[Using Helmholtz LTE](helmholtz-eos.md).
 
-CTest `HelmholtzInterpolation_CPU` checks all16 bicubic monomials, nonuniform
+CTest `HelmholtzInterpolation_CPU` checks all 16 bicubic monomials, nonuniform
 cells, endpoints, nine derivative combinations, input immutability, arbitrary
 corner jets against an exact-rational reference, and actual forall evaluation.
 CUDA builds additionally register `HelmholtzInterpolation_CUDA`, requiring a

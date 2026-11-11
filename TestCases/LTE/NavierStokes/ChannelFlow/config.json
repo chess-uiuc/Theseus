@@ -1,0 +1,98 @@
+{
+  "runTime": {
+    "order": 2,
+    "dim": 3,
+    "num_equations": 5,
+    "ser_ref_levels": 0,
+    "precision": 15,
+    "gas_model": "lte_helmholtz",
+    "gas_mixture": "air5",
+    "N_rho": 31,
+    "N_T": 41,
+    "rho_min": 0.01,
+    "rho_max": 3.0,
+    "T_min": 100,
+    "T_max": 2000,
+    "rho_dist": "log",
+    "T_dist": "linear",
+    "visualize": true,
+    "visualization": {
+      "fields": [
+        "density",
+        "velocity",
+        "pressure",
+        "temperature",
+        "specific_total_energy",
+        "viscosity",
+        "thermal_conductivity"
+      ],
+      "mesh_mode": "gll_subcells"
+    },
+    "paraview": true,
+    "visit": false,
+    "vis_steps": 25,
+    "output_file_path": "ChannelFlow",
+    "print_interval": 1,
+    "checkpoints_folder": "Checkpoints",
+    "checkpoint_cycle": 1,
+    "checkpoint_save": false,
+    "checkpoint_load": false,
+    "nancheck": true,
+    "clock_simulation": false,
+    "variable_dt": false,
+    "dt": 2.5e-06,
+    "cfl": 1.0,
+    "final_time": 0.000125,
+    "flow_model": "cns",
+    "Pr": 0.72,
+    "mu0": 0.162668791274317,
+    "R_gas": 287.05,
+    "gamma": 1.4,
+    "mesh_ordering": "Hilbert",
+    "mesh_file": "channel_4x4x4.msh",
+    "conditions": {
+      "initial_conditions": {
+        "signature": 2,
+        "params": {
+          "x1": 293.15,
+          "x2": 1.5
+        },
+        "function": "ChannelFlowIC"
+      },
+      "boundary_conditions": {
+        "TopWall": {
+          "type": "no-slip-isothermal",
+          "velocity": {
+            "value": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "temperature": {
+            "value": 293.15
+          }
+        },
+        "BottomWall": {
+          "type": "no-slip-isothermal",
+          "velocity": {
+            "value": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "temperature": {
+            "value": 293.15
+          }
+        }
+      }
+    },
+    "lifting_scheme": "BR1",
+    "numerical_flux": "LTEECFlux",
+    "ode_solver": "RK3SSP",
+    "nsteps_max": 50,
+    "plato_solver": "LTE_table_rhoT_(air5)",
+    "alpha_max": 0.0
+  }
+}

@@ -1,274 +1,77 @@
-# Helmholtz table and thermodynamic queries
+# Using Helmholtz LTE and LTEEC
 
-`LTEHelmholtzTable.hpp` defines a six-plane table independent of the legacy
-nine-property LTE layout. `LTEHelmholtzEOS.hpp` evaluates its thermodynamics and
-the symmetric discrete gradients used by LTEEC. These are numerical interfaces;
-including them does not select a gas model or change solver configuration.
+Helmholtz LTE obtains equilibrium thermodynamic properties from a table of
+mass-specific Helmholtz free energy as a function of density and temperature.
+Use `gas_model: "lte_helmholtz"` to select it. `LTEECFlux` is a two-state flux
+for this EOS with Lax–Friedrichs face dissipation.
 
-## Storage and ownership
+## Build requirements
 
-`Theseus::HelmholtzTable::Data` reuses the LTE owner vectors. Its forward table
-has exactly six property-major planes: mass-specific Helmholtz free energy H,
-physical derivatives H_rho, H_T, H_rhoT, dynamic viscosity and thermal conductivity.
-The flat index is `property*nx*ny + temperature_index*nx + density_index`.
-Density is contiguous. Density and temperature grids must be finite, positive
-and strictly increasing; the inverse energy grid must be finite and strictly
-increasing. Derivatives refer to physical coordinates even on logarithmic grids.
+Build with `THESEUS_WITH_PLATO=ON`. PLATO must supply
+`plato_get_species_entropy` in both its header and library, and its database must
+contain the selected mixture. CMake reports support in
+`THESEUS_PLATO_HAS_ENTROPY` in the build cache. Selecting Helmholtz LTE without
+this API fails during setup.
 
-The inverse table has `nx*ny` entries: initial temperature guesses on the
-rho/energy grid. The energy grid has `ny` entries, matching the existing owner.
+Debug and Release builds are supported. Subcell blending may be compiled on or
+off. Neither the EOS nor LTEEC requires the optional kernel stress tests or array
+debugging instrumentation. For CUDA execution, Theseus and MFEM must be built
+with compatible CUDA support.
 
-Use `HostView(data, layout)` for host queries and `DeviceView(data, layout)`
-during host device-cache construction. Both validate dimensions and grids;
-`DeviceView` rebinds every pointer using MFEM's `Read()`. Retain the owner until
-all kernels finish and recreate views after resizing any owner vector. View
-construction and validation belong outside point kernels.
+## Configure a simulation
 
-## Querying a state
+Set these entries inside the configuration's `runTime` object. This example is
+a thermodynamic/flux configuration fragment, not a complete simulation input:
 
-```cpp
-namespace HT = Theseus::HelmholtzTable;
-namespace HE = Theseus::HelmholtzEOS;
-
-const auto tables = HT::HostView(data, HT::Layout{nx, ny});
-const auto state = HE::At(tables, density, temperature);
-if (!state.valid)
-  {
-    throw std::invalid_argument("State outside the Helmholtz table");
-  }
-const auto pressure = state.pressure();
-const auto energy = state.energy();
+```json
+{
+  "gas_model": "lte_helmholtz",
+  "numerical_flux": "LTEECFlux",
+  "gas_mixture": "air5",
+  "plato_solver": "LTE_table_rhoT_(air5)",
+  "N_rho": 31,
+  "N_T": 41,
+  "rho_min": 0.01,
+  "rho_max": 3.0,
+  "T_min": 100,
+  "T_max": 2000,
+  "rho_dist": "log",
+  "T_dist": "linear"
+}
 ```
 
-`At` selects one cell for all subsequent queries. Both grid endpoints are valid;
-nonfinite or out-of-domain coordinates return an invalid evaluation before any
-cell dereference. Check `valid` before querying properties. This lookup does not
-clamp or extrapolate. Table contents must represent the intended physical model;
-a valid coordinate alone does not establish thermodynamic stability.
+Choose the mixture, solver, table bounds and resolution for the physical problem.
+The example bounds are not suitable for every flow. Density and temperature
+bounds must be positive and increasing; each grid needs at least two nodes.
+States encountered during evolution and temperature recovery must be supported
+by the table. Table resolution controls interpolation accuracy as well as cost.
 
-The common Hermite interpolant supplies
+| Selection | EOS / flux behavior |
+| --- | --- |
+| `lte_helmholtz` + `LTEECFlux` (alias `LTEEC`) | Helmholtz EOS and LTEEC flux with Lax face dissipation |
+| `lte_helmholtz` + `Pirozzoli`, `HLL` or `LLF` | Helmholtz EOS with the selected flux |
+| `lte` + `LTEECFlux` or `LTEEC` | Helmholtz EOS |
+| `lte` + other supported LTE fluxes | Nine-plane LTE EOS |
 
-- p=rho^2 H_rho, e=H-T H_T, s=-H_T, g=H+rho H_rho;
-- cv=-T H_TT and cp=cv+T rho^2 H_rhoT^2/p_rho;
-- c^2=p_rho-rho^2 H_rhoT^2/H_TT, gamma=cp/cv and R=p/(rho T).
+## Transport and initialization
 
-Pressure and Gibbs coordinate derivatives are available directly. The queries
-read the four corner planes without materializing a coefficient tensor or
-calling pressure recursively from Gibbs. `transport<Layout::mu_idx>(tables)`
-and `transport<Layout::lambda_idx>(tables)` use bilinear interpolation of the
-two transport planes. They do not apply a Sutherland or Prandtl-number model.
+`SUTHERLAND=OFF` uses tabulated viscosity. `SUTHERLAND=ON` uses Sutherland
+viscosity. Thermal conductivity is tabulated in both builds; it is not computed
+from viscosity and a fixed Prandtl number.
 
-## Temperature recovery
+Use [physical-state inputs](physical-state-conversion.md) to prescribe temperature,
+pressure or density through the selected EOS. Conservative input must use the
+same internal-energy convention as the selected thermodynamic model.
 
-`TemperatureFromEnergy(tables, density, specific_internal_energy)` returns a
-`Recovery` containing temperature, iteration count and status. Check for
-`RecoveryStatus::converged` before using the temperature. Other statuses identify
-an out-of-domain coordinate/guess/step, invalid energy or nonpositive/nonfinite
-cv, or the 100-iteration limit.
+## Run an example and check a build
 
-A bilinear inverse-table guess starts Newton iteration on e=H-T H_T, with the
-same interpolant's cv as derivative. The step tolerance is
-`1e-9 + 1e-12*temperature`. Every forward evaluation is preceded by a domain
-check. Only a correction that already satisfies this tolerance may be projected
-to the nearest temperature endpoint if it leaves the domain. A larger departing
-step fails explicitly. This handles converged boundary states without evaluating
-an invalid cell. A rectangular inverse energy grid does not guarantee that every
-rho/energy combination has a forward root.
+The [short ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlow/README.md)
+provides a complete unforced three-dimensional configuration and mesh. It is a
+50-step regression rather than a sustained turbulent-channel calculation.
 
-## Discrete thermodynamic means
+[CPU/CUDA validation](lteec-hpc-validation.md) gives kernel and flow-comparison
+commands. [Kernel stress tests](kernel-stress-testing.md) describe optional large
+batch checks. The [test inventory](verification.md) lists assertions and tolerances.
 
-`DiscreteGradient<Quantity::pressure>` and `DiscreteGradient<Quantity::gibbs>`
-return the symmetric Itoh–Abe gradient of f/T in (rho,beta=1/T).
-`ThermodynamicMeans(tables, left, right)` combines them as
-`rho_bar=D_rho(p/T)/D_rho(g/T)` and
-`e_bar=D_beta(g/T)-D_beta(p/T)/rho_bar`.
-
-Both endpoint evaluations must be valid and come from the supplied table.
-Endpoint-averaged physical derivatives replace quotients when the density or
-beta difference is smaller than `2.22e-15 + 1.49e-8*max(coordinate1,coordinate2)`.
-Unneeded mixed-state evaluations are omitted when both coordinates use this
-limit. No callback, derivative output array, or temperature recovery is nested
-inside these routines: callers recover each endpoint temperature once.
-
-Endpoints are ordered by density, then temperature, before evaluating the
-symmetric gradient. This keeps subtraction order identical for reversed face
-orientations. It preserves the mathematical gradient. Same-cell finite differences use the
-stable evaluation described below; across-cell quotients retain their conditioning.
-CPU/GPU agreement through evolution is checked separately.
-
-## Tests
-
-`HelmholtzEOS_CPU` checks properties and derivatives against an independent power
-polynomial on multiple cells, endpoint recovery, inverse failures, invalid layout
-and grid rejection, transport-plane indexing, discrete-gradient limits and
-reversal symmetry. An MFEM `forall` fixture checks pressure, energy, acoustics,
-recovery and thermodynamic means through device-ready views. CUDA builds register
-`HelmholtzEOS_CUDA` using the same fixture. These tests require no PLATO database.
-The separate [interpolation tests](helmholtz-interpolation.md) cover every bicubic
-monomial and arbitrary corner data against exact rational references.
-
-## Gas interface and PLATO generation
-
-`LTEHelmholtzGas` in `LTEGasModel.hpp` binds the Helmholtz EOS, table view and
-existing LTE transport to the standard conservative-state gas interface. The
-legacy `LTEGas` alias keeps its original table and EOS types. Solver selection is host-only:
-
-- `gas_model: "lte"` with `numerical_flux: "LTEECFlux"` selects Helmholtz LTE.
-- `gas_model: "lte_helmholtz"` explicitly selects that EOS for LTEECFlux,
-  Pirozzoli, HLL or LLF.
-- Existing `gas_model: "lte"` configurations using existing fluxes retain the
-  legacy nine-plane EOS.
-
-`LTEEC` is also accepted as the LTEECFlux spelling. Other existing gas selections
-retain their existing flux restrictions.
-
-For host construction, initialize PLATO for the desired mixture and solver,
-provide density and temperature grids, and build the table:
-
-```cpp
-#include "LTEGasModel.hpp"
-#include "LTEHelmholtzTableBuilder.hpp"
-
-namespace HT = Theseus::HelmholtzTable;
-HT::Data data;
-Theseus::LTETable::uniform_grid(17, 0.8, 1.2, data.rho_grid);
-Theseus::LTETable::uniform_grid(41, 250, 350, data.T_grid);
-
-plato_initialize("LTE_table_rhoT_(air5)", "air5", "empty", "empty", database_path);
-const auto tables = HT::Build(data);
-plato_finalize();
-
-Theseus::LTEHelmholtzGas gas(physics, layout, tables);
-```
-
-CMake supplies `USE_PLATO` and `THESEUS_PLATO_HAS_ENTROPY`, the generated Theseus
-configuration header and PLATO linkage when its compile/link capability probe
-passes. PLATO must provide `plato_get_species_entropy` in both its
-header and library. CMake tests that capability before enabling the real-air test;
-analytic tests remain available without PLATO. The builder preserves the donor's
-H=e-Ts, H_rho=p/rho^2, H_T=-s and H_rhoT=alpha/(rho^2*beta_T) definitions, as well
-as its tabulated viscosity and conductivity calculation.
-
-`Build` allocates exactly six forward planes. Its inverse grid covers PLATO and
-represented forward nodal energies, with an additional allowance of
-`64*epsilon*max(|H|+|T H_T|)` for floating-point cancellation. Each inverse guess
-is solved against the forward interpolant and bounded to its temperature domain.
-Energy-grid entries outside an individual density column's forward energy range
-store the closest temperature endpoint as a guess. Runtime recovery still checks
-the actual forward domain and convergence; this construction does not create a
-forward state outside the supplied rho/T grid.
-
-Use `gas.ConservativeFromPhysical(input, output)` for all three physical input
-pairs. Density/temperature input directly queries the interpolant. Pressure input
-reconstructs each cell's pressure polynomial (quartic in density, cubic in
-temperature), isolates roots using derivative critical points, and requires one
-unique root over the table. It detects interior root pairs, tangencies and
-constant root intervals rather than relying on endpoint signs alone. Conservative
-packing is followed by a runtime energy-to-temperature round-trip check.
-
-Runtime queries and entropy/primitive-gradient conversion use concrete device
-pointers from `gas.to_device(host_data)`. The owner is
-`host_data.lteTableData`; preserve it throughout kernel execution. The inverse
-bilinear interpolation uses difference form, preserving constant guesses exactly.
-`EvaluateProperties` recovers temperature once for the requested properties.
-Sutherland mode changes viscosity; conductivity remains tabulated, matching the
-existing LTE transport convention.
-
-Bicubic Hermite interpolation is C1 across cells. Its second derivatives, and
-therefore cv/cp/acoustics, can have different one-sided values at a node. Gas-query
-consistency checks use the actual recovered coordinates; independent PLATO
-comparisons separately measure table approximation accuracy.
-
-`HelmholtzGas_standard_CPU` and `HelmholtzGas_sutherland_CPU` check physical input
-conversion, batch queries, transport, entropy normalization and a real `forall`
-fixture with device pointer rebinding. CUDA builds register corresponding CUDA
-tests. `HelmholtzGas_AIR5` constructs a real AIR5 table and checks 25 states,
-including table boundaries, against independent PLATO pressure, energy, heat
-capacity and acoustic queries. It also exercises all three input pairs and
-checks every inverse guess is bounded.
-
-
-## LTEEC volume and face flux
-
-`LTEECFlux.hpp` recovers temperature once at each conservative endpoint and shares
-its Hermite cell across pressure, sound speed and discrete thermodynamic means.
-It computes normal flux components directly, without a full inviscid flux tensor,
-Hermite coefficient block, dissipation array, derivative output array or nested
-thermodynamic callback. All thermodynamic work finishes before writing output.
-
-For mean velocity u_bar, the central mass flux is rho_bar*(u_bar dot n).
-Momentum adds mean(p)*n, and energy uses e_bar+0.5*(u1 dot u2), with cross pressure
-work 0.5*(p1*u2+p2*u1) dot n. The volume direction is the arithmetic mean of the
-two metric rows. The face flux additionally subtracts 0.5*lambda*(U2-U1), with
-lambda=max(|u1 dot n|+c1*|n|, |u2 dot n|+c2*|n|). Nonunit normal magnitude enters
-once, and a zero normal produces zero flux. The configured LTE state has no
-passive scalar equations.
-
-The entropy API is optional for legacy LTE builds, but required for generating
-Helmholtz tables. With PLATO disabled or an older library, the executable still
-builds for existing configurations. Selecting Helmholtz LTE reports the missing
-header/library API and fails before table construction; it never silently
-substitutes the legacy EOS. Construction exceptions on the root rank are
-broadcast as failure before other ranks enter the table-data broadcasts.
-
-`LTEECFlux_standard_CPU` and `LTEECFlux_sutherland_CPU` use an independent
-polynomial oracle for central and dissipative fluxes, the entropy condition,
-reversed normals, output guards, and the production viscous face-point kernel
-with later transport calls. They exercise dimensions 1–3, orders 2/4/7 and both
-point/face execution patterns. CUDA builds register the same fixtures on CUDA.
-
-The central suite also runs separate 20-step 3D LTEEC and Helmholtz/Pirozzoli
-controls with fixed timestep and fixed CFL. Each checks evolving positive finite
-fields, backend selection and matching initial/intermediate/final fields at
-rtol=atol=1e-10. CPU mode checks repeatability; CUDA mode requires real same-binary
-CPU/CUDA execution. Those integration checks require the entropy API.
-
-## Stable same-cell discrete gradients
-
-When both endpoint evaluations share one Hermite cell, finite quotients use
-analytic polynomial divided differences instead of subtracting completed
-pressure/Gibbs values. The identities are
-
-- D_rho(p)=mean(rho^2)*D_rho(H_rho)+(rho1+rho2)*mean(H_rho).
-- D_rho(g)=D_rho(H)+mean(rho)*D_rho(H_rho)+mean(H_rho).
-- D_beta(f/T)=mean(f)-mean(T)*D_T(f), for beta=1/T.
-
-These evaluate the same discrete gradient of the same interpolant. Existing
-near-equal thresholds and derivative fallbacks remain unchanged. Across-cell
-finite quotients retain their existing evaluation. Canonical endpoint ordering
-still gives reversed faces identical arithmetic ordering.
-
-The EOS tests include independent 80-digit power-basis references with AIR5
-corner data and saved near-state coordinates, plus opposite-direction,
-near-threshold and cell-boundary variants. Their existing roundoff tolerances
-are unchanged. Regenerate the checked-in fixture with
-
-```bash
-python3 tests/helmholtz_difference_reference.py \
-  --output tests/helmholtz_difference_cases.hpp
-```
-
-Interpolation tests additionally check analytic divided differences of all16
-bicubic monomials at equal, near and separated coordinates. The new EOS fixtures
-execute through `forall` in both CPU and CUDA test selections.
-
-For paired evolution checks, the solver's timestep log retains round-trip
-floating-point time precision. The checker associates these times with output
-cycles before comparing CPU/GPU times. This avoids relying on MFEM PVD labels
-that may contain only six significant digits. Field tolerances remain1e-10.
-
-### Shared Lax dissipation
-
-`DissipationOperator.hpp` provides `Lax_dissipation_coefficient(un_left,
-un_right, c_left, c_right, normal_magnitude)`, the half maximum normal wave
-speed. `un` is velocity dotted with the unnormalized normal, so the acoustic
-term includes its magnitude once. `Lax_dissipation(coefficient, left, right)`
-returns one conservative component of dissipation. LTEEC uses these scalar
-interfaces with its already recovered endpoint thermodynamics.
-
-The gas/state-view overload `Lax_dissipation(gas, left, right, normal, out)`
-writes the mass, active momentum and energy components into caller storage. It
-borrows the state views without constructing additional conservative arrays.
-The caller supplies output storage distinct from the input states. This interface
-allows other fluxes to select Lax dissipation without duplicating its formula;
-it does not change their existing dissipation choice.
+For table ownership, interpolation, temperature recovery and flux equations, see
+the [developer reference](helmholtz-development.md).

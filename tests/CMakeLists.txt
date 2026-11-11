@@ -417,3 +417,62 @@ if(NOT AXISYMMETRIC)
       --source ${PROJECT_SOURCE_DIR} --executable $<TARGET_FILE:theseus>
       --available ${_helmholtz_available} --plato ${_plato_available})
 endif()
+
+# Optional large-batch numerical/reference checks. No historical source required.
+if(THESEUS_BUILD_KERNEL_STRESS)
+  add_test(NAME KernelStressReference
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/helmholtz_stress_reference_tests.py)
+  set_tests_properties(KernelStressReference PROPERTIES LABELS "kernel-stress;reference")
+
+  foreach(kind IN ITEMS reference channel)
+    set(target helmholtz_mean_stress_tests_${kind})
+    add_executable(${target} helmholtz_mean_stress_tests.cpp)
+    target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(${target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+    if(kind STREQUAL "channel")
+      target_compile_definitions(${target} PRIVATE THESEUS_STRESS_CHANNEL_CASES)
+    endif()
+    if(ENABLE_CUDA)
+      set_source_files_properties(helmholtz_mean_stress_tests.cpp PROPERTIES LANGUAGE CUDA)
+      target_include_directories(${target} PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+      target_compile_options(${target} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+      add_test(NAME HelmholtzMeanStress_${kind}_CUDA COMMAND ${target} cuda full)
+      set_tests_properties(HelmholtzMeanStress_${kind}_CUDA PROPERTIES
+        LABELS "kernel-stress;cuda" TIMEOUT 1800)
+    endif()
+    add_test(NAME HelmholtzMeanStress_${kind}_CPU COMMAND ${target} cpu full)
+    set_tests_properties(HelmholtzMeanStress_${kind}_CPU PROPERTIES
+      LABELS "kernel-stress;cpu" TIMEOUT 1800)
+  endforeach()
+
+  foreach(variant IN ITEMS standard sutherland)
+    set(target lteec_flux_stress_tests_${variant})
+    add_executable(${target} lteec_flux_stress_tests.cpp)
+    target_include_directories(${target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(${target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+    if(variant STREQUAL "sutherland")
+      target_compile_definitions(${target} PRIVATE SUTHERLAND)
+    endif()
+    if(ENABLE_CUDA)
+      set_source_files_properties(lteec_flux_stress_tests.cpp PROPERTIES LANGUAGE CUDA)
+      target_include_directories(${target} PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+      target_compile_options(${target} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+      add_test(NAME LTEECFlux_stress_${variant}_CUDA COMMAND ${target} cuda full)
+      set_tests_properties(LTEECFlux_stress_${variant}_CUDA PROPERTIES
+        LABELS "kernel-stress;cuda" TIMEOUT 1800)
+    endif()
+    add_test(NAME LTEECFlux_stress_${variant}_CPU COMMAND ${target} cpu full)
+    set_tests_properties(LTEECFlux_stress_${variant}_CPU PROPERTIES
+      LABELS "kernel-stress;cpu" TIMEOUT 1800)
+  endforeach()
+endif()
+
+# Channel initialization and regression-checker contracts are cheap default checks.
+add_executable(channel_flow_case_tests channel_flow_case_tests.cpp)
+target_include_directories(channel_flow_case_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(channel_flow_case_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME ChannelFlowInitialCondition_CPU COMMAND channel_flow_case_tests)
+add_test(NAME ChannelFlowCheckerTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/channel_flow_checker_tests.py)

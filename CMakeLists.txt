@@ -17,6 +17,10 @@ set(EXTRA_LINK_LIBRARIES "" CACHE STRING "Extra libraries to append to final exe
 project(Theseus)
 
 option(BUILD_TESTING "Build unit tests" ON)
+option(THESEUS_BUILD_KERNEL_STRESS "Build optional numerical kernel stress tests" OFF)
+if(THESEUS_BUILD_KERNEL_STRESS AND NOT BUILD_TESTING)
+  message(FATAL_ERROR "THESEUS_BUILD_KERNEL_STRESS requires BUILD_TESTING=ON")
+endif()
 option(SUBCELL_FV_BLENDING "Enable subcell blending" ON)
 option(AXISYMMETRIC "Enable Axisymmetric domain solver" OFF)
 option(SUTHERLAND "Enable Sutherland transport model" OFF)
