@@ -103,6 +103,10 @@ namespace Theseus
     }
 
     // Inviscid / Euler Flux
+    // Adapted from MFEM's EulerFlux::ComputeFlux in fem/hyperbolic.cpp
+    // (https://mfem.org), including the numbered state/flux/speed outline below.
+    // MFEM copyright (c) 2010-2026, Lawrence Livermore National Security, LLC;
+    // distributed under the BSD-3-Clause license.
     template<typename GasT>
     MFEM_HOST_DEVICE inline static void
     ComputeInviscidFluxKernel(const GasT &gas,
@@ -283,6 +287,74 @@ namespace Theseus
             }
           visc_flux[eq_ener][dir] = eflux;
         }
+    }
+
+    // Contract stress and heat flux directly with a physical normal. Directional
+    // primitive gradients are borrowed; no stress or equation-by-direction tensor
+    // is retained across constitutive calls. Output must not alias the inputs.
+    template<typename GasT>
+    MFEM_HOST_DEVICE inline static void
+    ComputeViscousNormalFluxKernel(const GasT &gas, const mfem::real_t *state,
+      const mfem::real_t *dprim_x, const mfem::real_t *dprim_y,
+      const mfem::real_t *dprim_z, const mfem::real_t *normal,
+      mfem::real_t *flux, bool axisymmetric = false, mfem::real_t radius = 0.0)
+    {
+      const PointStateView view{state};
+      const int dim = gas.dim();
+      const int momentum = gas.L.eq_mom0;
+      const int energy = gas.L.eq_energy;
+      const auto mu = gas.viscosity(view);
+      const auto kappa = gas.thermal_conductivity(view);
+      const auto mu_bulk = gas.bulk_viscosity(view);
+      mfem::real_t grad_rho[MAXDIM] = {};
+      mfem::real_t grad_thermal[MAXDIM] = {};
+      mfem::real_t grad_temperature[MAXDIM] = {};
+      mfem::real_t divergence = 0.0;
+      for (int d = 0; d < dim; ++d)
+        {
+          const auto *gradient = d == 0 ? dprim_x : (d == 1 ? dprim_y : dprim_z);
+          grad_rho[d] = gradient[gas.L.eq_mass];
+          grad_thermal[d] = gradient[energy];
+          divergence += gradient[momentum + d];
+        }
+      gas.grad_temperature(view, grad_rho, grad_thermal, grad_temperature);
+      if (axisymmetric)
+        {
+          const int radial = AxisymmetricGeometry::radial_coordinate;
+          const auto *gradient = radial == 0 ? dprim_x : (radial == 1 ? dprim_y : dprim_z);
+          divergence += radius > AxisymmetricGeometry::radius_tolerance
+            ? gas.velocity(view, radial)/radius : gradient[momentum + radial];
+        }
+      for (int eq = 0; eq < gas.num_equations(); ++eq)
+        {
+          flux[eq] = 0.0;
+        }
+      mfem::real_t energy_flux = 0.0;
+      for (int component = 0; component < dim; ++component)
+        {
+          mfem::real_t traction = 0.0;
+          for (int direction = 0; direction < dim; ++direction)
+            {
+              const auto *direction_gradient = direction == 0 ? dprim_x
+                : (direction == 1 ? dprim_y : dprim_z);
+              const auto *component_gradient = component == 0 ? dprim_x
+                : (component == 1 ? dprim_y : dprim_z);
+              const auto stress = component == direction
+                ? mu*(2.0*direction_gradient[momentum + component] - mu_bulk*divergence)
+                : mu*(direction_gradient[momentum + component] + component_gradient[momentum + direction]);
+              traction += normal[direction]*stress;
+            }
+          flux[momentum + component] = traction;
+          const auto velocity = axisymmetric && component == AxisymmetricGeometry::radial_coordinate
+            && radius <= AxisymmetricGeometry::radius_tolerance
+            ? mfem::real_t(0) : gas.velocity(view, component);
+          energy_flux += velocity*traction;
+        }
+      for (int direction = 0; direction < dim; ++direction)
+        {
+          energy_flux += normal[direction]*kappa*grad_temperature[direction];
+        }
+      flux[energy] = energy_flux;
     }
 
     template<typename GasT>

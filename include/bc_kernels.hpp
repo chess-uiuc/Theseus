@@ -137,168 +137,82 @@ namespace Theseus {
 
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    void SlipWallInviscidFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
-                                      const mfem::real_t *nor, mfem::real_t *fluxN)
+    void SlipWallInviscidFluxKernel(const GasModelT &gas, const mfem::real_t *state,
+                                    const mfem::real_t *normal, mfem::real_t *flux)
     {
-      
-      mfem::real_t unit_nor[Theseus::MAXDIM];
-      mfem::real_t state2[Theseus::MAXEQ];
-      const int dim = gasModel.L.dim;
-      const int neq = gasModel.L.nequations();
-      for(int idim = 0;idim < dim;idim++)
-        unit_nor[idim] = nor[idim];
-      for(int ieq = 0;ieq < neq;ieq++){
-        state2[ieq] = state1[ieq];
-        fluxN[ieq] = 0.0;
-      }
-      Theseus::Kernels::Normalize(dim, unit_nor);
-      Theseus::PointStateViewRW S{state2};
-      Theseus::Flow::RotateState(gasModel.L, unit_nor, S);
-      const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(S, gasModel);
-      const int mom_eq = gasModel.L.eq_mom0;
-      for(int idim = 0;idim < dim;idim++)
-        fluxN[mom_eq+idim] = p_star * nor[idim];
-    }
-
-    template<typename GasModelT>
-    MFEM_HOST_DEVICE
-    void NoSlipAdiabWallFluxKernel(const GasModelT &gasModel, const mfem::real_t *state1,
-                                     const mfem::real_t *gradPrim_x, const mfem::real_t *gradPrim_y,
-                                     const mfem::real_t *gradPrim_z,
-                                     const mfem::real_t *nor, const mfem::real_t vWall[Theseus::MAXDIM],
-                                     const mfem::real_t qWall, bool axisymmetric,
-                                     mfem::real_t radius, mfem::real_t *fluxN)
-    {
-      mfem::real_t unit_nor[Theseus::MAXDIM];
-      mfem::real_t state2[Theseus::MAXEQ];
-      mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM];
-      const int dim = gasModel.L.dim;
-      const int neq = gasModel.L.nequations();
-      mfem::real_t normag = 0.0;
-      for(int idim = 0;idim < dim;idim++){
-        unit_nor[idim] = nor[idim];
-        normag += nor[idim]*nor[idim];
-      }
-      normag = Theseus::Kernels::rsqrt(normag);
-      
-      for(int ieq = 0;ieq < neq;ieq++){
-        state2[ieq] = state1[ieq];
-        fluxN[ieq] = 0.0;
-      }
-      // Inviscid part is just like slipwall
-      Theseus::Kernels::Normalize(dim, unit_nor);
-      Theseus::PointStateViewRW S{state2};
-      Theseus::Flow::RotateState(gasModel.L, unit_nor, S);
-      const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(S, gasModel);
-      const int mom_eq = gasModel.L.eq_mom0;
-      for(int idim = 0;idim < dim;idim++)
-        fluxN[mom_eq+idim] = p_star * nor[idim];
-
-      // Inviscid part is done, now for the viscous part
-      mfem::real_t qn = qWall * normag;
-      NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x, gradPrim_y,
-                                                 gradPrim_z, visc_flux, axisymmetric, radius);
-      mfem::real_t vflux_n[Theseus::MAXEQ];
-      for(int j = 0;j < neq;j++){
-        vflux_n[j] = 0.0;
-        for(int idim = 0;idim < dim;idim++){
-          vflux_n[j] += nor[idim]*visc_flux[j][idim];
+      const auto pressure = Flow::slipwall_pstar_normal(PointStateView{state}, gas, normal);
+      for (int eq = 0; eq < gas.num_equations(); ++eq)
+        {
+          flux[eq] = 0.0;
         }
-      }
-      const int ener_eq = gasModel.L.eq_energy;
-      vflux_n[ener_eq] = qn;
-      for(int idim = 0;idim < dim;idim++){
-        vflux_n[ener_eq] += vWall[idim]*vflux_n[mom_eq+idim];
-      }
-      for(int j = 0; j < neq;j++){
-        fluxN[j] -= vflux_n[j];
-      }
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          flux[gas.L.eq_mom0 + d] = pressure*normal[d];
+        }
     }
 
     template<typename GasModelT>
     MFEM_HOST_DEVICE
-    void NoSlipIsothWallFluxKernel(const GasModelT &gasModel,
-					   const mfem::real_t *state1,
-					   const mfem::real_t *gradPrim_x,
-					   const mfem::real_t *gradPrim_y,
-					   const mfem::real_t *gradPrim_z,
-					   const mfem::real_t *nor,
-					   const mfem::real_t vWall[Theseus::MAXDIM],
-					   const mfem::real_t tWall,
-					   bool axisymmetric, mfem::real_t radius,
-					   mfem::real_t *fluxN)
+    void NoSlipAdiabWallFluxKernel(const GasModelT &gas, const mfem::real_t *state,
+      const mfem::real_t *grad_x, const mfem::real_t *grad_y, const mfem::real_t *grad_z,
+      const mfem::real_t *normal, const mfem::real_t vWall[Theseus::MAXDIM],
+      mfem::real_t qWall, bool axisymmetric, mfem::real_t radius, mfem::real_t *flux)
     {
-      mfem::real_t unit_nor[Theseus::MAXDIM];
-      mfem::real_t state2[Theseus::MAXEQ];
-      mfem::real_t visc_flux[Theseus::MAXEQ][Theseus::MAXDIM];
+      // Finish wall thermodynamics before producing any viscous output.
+      const auto pressure = Flow::slipwall_pstar_normal(PointStateView{state}, gas, normal);
+      NavierStokesFlux::ComputeViscousNormalFluxKernel(
+        gas, state, grad_x, grad_y, grad_z, normal, flux, axisymmetric, radius);
+      mfem::real_t magnitude_squared = 0.0;
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          magnitude_squared += normal[d]*normal[d];
+        }
+      mfem::real_t energy_flux = qWall*Kernels::rsqrt(magnitude_squared);
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          energy_flux += vWall[d]*flux[gas.L.eq_mom0 + d];
+        }
+      flux[gas.L.eq_energy] = energy_flux;
+      for (int eq = 0; eq < gas.num_equations(); ++eq)
+        {
+          flux[eq] = -flux[eq];
+        }
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          flux[gas.L.eq_mom0 + d] += pressure*normal[d];
+        }
+    }
 
-      const int dim = gasModel.L.dim;
-      const int neq = gasModel.L.nequations();
-      const int mom_eq = gasModel.L.eq_mom0;
-      const int ener_eq = gasModel.L.eq_energy;
-
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  unit_nor[idim] = nor[idim];
-	}
-
-      for (int ieq = 0; ieq < neq; ++ieq)
-	{
-	  state2[ieq] = state1[ieq];
-	  fluxN[ieq] = 0.0;
-	}
-
-      // Inviscid part - same as slipwall
-      Theseus::Kernels::Normalize(dim, unit_nor);
-      Theseus::PointStateViewRW Srot{state2};
-      Theseus::Flow::RotateState(gasModel.L, unit_nor, Srot);
-
-      const mfem::real_t p_star = Theseus::Flow::slipwall_pstar(Srot, gasModel);
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  fluxN[mom_eq + idim] = p_star * nor[idim];
-	}
-
-      // Viscous part
-      Theseus::NavierStokesFlux::ComputeViscousFluxKernel(gasModel, state1, gradPrim_x,
-							  gradPrim_y, gradPrim_z, visc_flux,
-							  axisymmetric, radius);
-
-      mfem::real_t vflux_n[Theseus::MAXEQ];
-      for (int eq = 0; eq < neq; ++eq)
-	{
-	  vflux_n[eq] = 0.0;
-	  for (int idim = 0; idim < dim; ++idim)
-	    {
-	      vflux_n[eq] += nor[idim] * visc_flux[eq][idim];
-	    }
-	}
-
-      // Recover just the heat flux part so we can adjust
-      // the mechanical part
-      Theseus::PointStateView S{state1};
-      mfem::real_t conductive_n = vflux_n[ener_eq];
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  const mfem::real_t u_trace = gasModel.velocity(S, idim);
-	  conductive_n -= u_trace * vflux_n[mom_eq + idim];
-	}
-
-      // reinsert heat flux and adjust mechanical work for Vwall
-      vflux_n[ener_eq] = conductive_n;
-      for (int idim = 0; idim < dim; ++idim)
-	{
-	  vflux_n[ener_eq] += vWall[idim] * vflux_n[mom_eq + idim];
-	}
-
-      // Same sign convention as adiabatic kernel:
-      // Ultimately we want F_visc - F_inv, note
-      // that this result is negated at the top level (sigh)
-      for (int eq = 0; eq < neq; ++eq)
-	{
-	  fluxN[eq] -= vflux_n[eq];
-	}
-
+    template<typename GasModelT>
+    MFEM_HOST_DEVICE
+    void NoSlipIsothWallFluxKernel(const GasModelT &gas, const mfem::real_t *state,
+      const mfem::real_t *grad_x, const mfem::real_t *grad_y, const mfem::real_t *grad_z,
+      const mfem::real_t *normal, const mfem::real_t vWall[Theseus::MAXDIM],
+      mfem::real_t tWall, bool axisymmetric, mfem::real_t radius, mfem::real_t *flux)
+    {
+      // Finish wall thermodynamics before producing any viscous output.
+      const auto pressure = Flow::slipwall_pstar_normal(PointStateView{state}, gas, normal);
+      NavierStokesFlux::ComputeViscousNormalFluxKernel(
+        gas, state, grad_x, grad_y, grad_z, normal, flux, axisymmetric, radius);
+      const PointStateView view{state};
+      const int energy = gas.L.eq_energy;
+      // Keep the trace-conduction convention, including regularization at the axis.
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          flux[energy] -= gas.velocity(view, d)*flux[gas.L.eq_mom0 + d];
+        }
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          flux[energy] += vWall[d]*flux[gas.L.eq_mom0 + d];
+        }
+      for (int eq = 0; eq < gas.num_equations(); ++eq)
+        {
+          flux[eq] = -flux[eq];
+        }
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          flux[gas.L.eq_mom0 + d] += pressure*normal[d];
+        }
     }
 
 

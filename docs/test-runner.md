@@ -120,7 +120,7 @@ python3 scripts/run_tests.py run \
   --results ../test-runs/run-001 --jobs 4
 ```
 
-Choose a **new results directory outside the checkout**. The runner copies the
+Choose a **new results directory** inside or outside the checkout. The runner copies the
 source into that directory and builds Cartesian and axisymmetric Debug executables
 with PLATO, subcell blending and `NO_OPT`. `--jobs` controls build parallelism.
 
@@ -154,7 +154,8 @@ one- and two-rank simulations, so allocate at least two MPI ranks. Python needs
 `ci-resources/requirements-ci.txt`, and the build needs PLATO support and its
 database. Cartesian builds also need the `table_lookup_tests` target.
 
-`TEST_RESULTS` must name a new directory outside the source checkout. The command
+`TEST_RESULTS` must name a new directory. It may be inside or outside the source
+checkout; the selected results directory is excluded from the source snapshot. The command
 waits for completion and returns failure if any required check fails or is
 blocked. Independent checks continue after a failure. Read `summary.txt` and
 `logs/` in that directory. The same command accepts a Cartesian or axisymmetric
@@ -282,9 +283,10 @@ This verifies that every required check passed, saved logs and the source snapsh
 are intact, and the current implementation and tests match the tested source.
 Documentation-only differences are reported separately.
 
-The snapshot includes tracked and non-ignored untracked files. Keep generated output
-outside the checkout or in ignored directories. Source symlinks and submodules are
-not supported by the snapshot mechanism.
+The snapshot includes tracked and non-ignored untracked files. The selected results directory is excluded from source collection when it is
+inside the checkout. Keep other generated output in ignored directories. Untracked symbolic links, such as a local `Run/TestCases` convenience link, are
+omitted from the snapshot; repository inputs are copied using their source paths.
+Versioned source symlinks and submodules are not supported by the snapshot mechanism.
 
 Prepared-build runs record executable and CMake-cache hashes and detect changes during
 execution. Both `--build` and `--suite integrated` results apply to those binaries; the runner cannot establish which

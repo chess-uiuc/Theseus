@@ -15,8 +15,9 @@
 
 namespace
 {
-  // Exercise the source-selected Chandrashekar + Roe-dissipation composition
-  // without changing the production default in ChandrashekarFlux.hpp.
+  // Test-only Chandrashekar central flux + Roe dissipation composition.
+  // Implements the face-flux interface so the generic fixture can exercise this
+  // combination independently of the production Chandrashekar selection.
   struct ChandrashekarRoeDissipationFlux
   {
     template<typename Gas>
@@ -52,8 +53,8 @@ namespace
     }
   };
 
-  // Independent closed-form stress/heat-flux oracle. It deliberately does not
-  // call either physical viscous kernel or the temperature-gradient helper.
+  // Test-only closed-form reference calculation for stress and heat flux.
+  // Independent of the production viscous kernels and temperature-gradient helper.
   template<typename Gas>
   void Reference(const Gas &gas, bool lte, bool axisymmetric, mfem::real_t radius,
                  const mfem::real_t *state, const mfem::real_t *gx,
@@ -438,6 +439,116 @@ namespace
     return true;
   }
 
+  int wall_component_checks = 0;
+  mfem::real_t wall_component_max_scaled_difference = 0.0;
+
+  template<typename Gas>
+  bool CheckWallKernelComponents(int dim, bool axisymmetric, bool lte,
+                                 const Gas &host_gas, const Gas &device_gas)
+  {
+    const int points = 8;
+    const int equations = dim + 2;
+    const int stride = equations + 1;
+    const mfem::real_t guard = -987654.25;
+    mfem::Vector state(points*equations), gx(state.Size()), gy(state.Size()), gz(state.Size());
+    mfem::Vector normals(points*dim), actual(2 + points*stride), expected(points*stride);
+    for (auto *buffer : {&state, &gx, &gy, &gz, &normals, &actual})
+      {
+        buffer->UseDevice(true);
+      }
+    actual = guard;
+    for (int point = 0; point < points; ++point)
+      {
+        auto *q = state.HostReadWrite() + point*equations;
+        q[0] = 1.1 + 0.01*point;
+        mfem::real_t kinetic = 0.0;
+        for (int d = 0; d < dim; ++d)
+          {
+            const mfem::real_t speed = point % 3 == 0 ? -50.0 : (point % 3 == 1 ? 0.0 : 1500.0);
+            const auto velocity = speed + 5.0*d;
+            q[1 + d] = q[0]*velocity;
+            kinetic += 0.5*q[0]*velocity*velocity;
+            normals.HostReadWrite()[point*dim + d] = point == points - 1 ? 0.0
+              : (point % 2 ? -1.0 : 1.0)*(d % 2 ? -0.8 : 0.3)*(1.0 + 0.1*point);
+          }
+        q[dim + 1] = q[0]*287.05*(350.0 + 5*point)/0.4 + kinetic;
+        for (int eq = 0; eq < equations; ++eq)
+          {
+            const int index = point*equations + eq;
+            gx.HostReadWrite()[index] = lte && eq == 0 ? 0.0 : 0.11*(eq + 1);
+            gy.HostReadWrite()[index] = lte && eq == 0 ? 0.0 : -0.07*(eq + 1);
+            gz.HostReadWrite()[index] = lte && eq == 0 ? 0.0 : 0.09*(eq + 1);
+          }
+        const auto *normal = normals.HostRead() + point*dim;
+        const auto radius = point % 2 ? 0.0 : 0.19;
+        Reference(host_gas, lte, axisymmetric, radius, q,
+                  gx.HostRead() + point*equations, gy.HostRead() + point*equations,
+                  gz.HostRead() + point*equations, 1, 0, normal,
+                  expected.HostReadWrite() + point*stride);
+        mfem::real_t rotated[5] = {};
+        mfem::real_t unit[3] = {};
+        for (int eq = 0; eq < equations; ++eq) { rotated[eq] = q[eq]; }
+        for (int d = 0; d < dim; ++d) { unit[d] = normal[d]; }
+        mfem::real_t pressure = 0.0;
+        if (point != points - 1)
+          {
+            Theseus::Kernels::Normalize(dim, unit);
+            Theseus::PointStateViewRW view{rotated};
+            Theseus::Flow::RotateState(host_gas.L, unit, view);
+            pressure = Theseus::Flow::slipwall_pstar(view, host_gas);
+          }
+        expected.HostReadWrite()[point*stride + equations] = pressure;
+      }
+    const mfem::Vector saved_state(state);
+    const auto *u = state.Read();
+    const auto *x = gx.Read();
+    const auto *y = gy.Read();
+    const auto *z = gz.Read();
+    const auto *n = normals.Read();
+    auto *out = actual.ReadWrite() + 1;
+    mfem::forall(points, [=] MFEM_HOST_DEVICE (int point)
+    {
+      const int offset = point*equations;
+      const auto radius = point % 2 ? 0.0 : 0.19;
+      Theseus::NavierStokesFlux::ComputeViscousNormalFluxKernel(device_gas,
+        u + offset, x + offset, y + offset, z + offset, n + point*dim,
+        out + point*stride, axisymmetric, radius);
+      out[point*stride + equations] = Theseus::Flow::slipwall_pstar_normal(
+        Theseus::PointStateView{u + offset}, device_gas, n + point*dim);
+    });
+    const auto *output = actual.HostRead();
+    const mfem::real_t tolerance = 2e-12 + 128*std::numeric_limits<mfem::real_t>::epsilon();
+    for (int index = 0; index < expected.Size(); ++index)
+      {
+        ++wall_component_checks;
+        wall_component_max_scaled_difference = std::max(wall_component_max_scaled_difference,
+          std::abs(output[1 + index] - expected[index])/(1.0 + std::abs(expected[index])));
+        if (!std::isfinite(output[1 + index]) || std::abs(output[1 + index] - expected[index])
+              > tolerance*(1.0 + std::abs(expected[index])))
+          {
+            std::cerr << "Wall component mismatch dim=" << dim << " LTE=" << lte
+                      << " axis=" << axisymmetric << " index=" << index
+                      << " expected=" << expected[index] << " actual=" << output[1 + index] << '\n';
+            return false;
+          }
+      }
+    if (output[0] != guard || output[actual.Size() - 1] != guard)
+      {
+        std::cerr << "Normal wall helper overwrote output guards\n";
+        return false;
+      }
+    const auto *input = state.HostRead();
+    for (int index = 0; index < state.Size(); ++index)
+      {
+        if (input[index] != saved_state[index])
+          {
+            std::cerr << "Normal wall helper changed its conservative input\n";
+            return false;
+          }
+      }
+    return true;
+  }
+
   template<typename Gas, typename Flux>
   bool CheckFluxVariant(const char *name, int dim, int nfp, bool axisymmetric,
                         bool lte, const Gas &host_gas, const Gas &device_gas)
@@ -524,6 +635,12 @@ int main(int argc, char **argv)
                 {
                   continue;
                 }
+              if (order == 1 &&
+                  (!CheckWallKernelComponents(dim, axisymmetric, false, cpg, cpg) ||
+                   !CheckWallKernelComponents(dim, axisymmetric, true, lte, device_lte)))
+                {
+                  return 1;
+                }
               const bool cpg_passed = CheckFluxVariants<Theseus::IdealGasModel,
                 Theseus::LaxFriedrichsFlux::InviscidFlux,
                 Theseus::HLLFlux::InviscidFlux,
@@ -562,6 +679,8 @@ int main(int argc, char **argv)
             }
         }
     }
+  std::cout << wall_component_checks << " wall component reference checks; max scaled difference="
+            << wall_component_max_scaled_difference << '\n';
   std::cout << "Viscous face assembly matches independent stress/heat-flux formulas.\n";
   return 0;
 }

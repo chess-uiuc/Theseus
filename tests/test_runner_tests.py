@@ -2,6 +2,8 @@
 """Failure, freshness and background-execution contracts of the suite runner."""
 import argparse
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -121,6 +123,124 @@ class TestRunnerTests(unittest.TestCase):
         args.build_standard = None
         with self.assertRaisesRegex(ValueError, 'at least one'):
             run_tests.prepared_builds(args)
+
+    def test_results_inside_checkout_do_not_enter_snapshot_or_hide_source_changes(self):
+        self.run = self.source / 'Run' / 'test-results'
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertEqual(manifest['excluded_results'], 'Run/test-results')
+        self.assertFalse(any(name.startswith('Run/test-results/') for name in manifest['files']))
+        self.assertFalse((self.run / 'source/Run/test-results').exists())
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            (self.run / 'additional-output.txt').write_text('Output is not source')
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            other = self.source / 'Run/another-input.json'
+            other.write_text('Real input outside the exact results directory')
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                run_tests.check(self.run, self.source)
+
+    def test_run_directory_links_do_not_prevent_in_tree_testing(self):
+        case = self.source / 'TestCases/example'
+        case.mkdir(parents=True)
+        (case / 'config.json').write_text('{"input": 1}')
+        work = self.source / 'Run'
+        work.mkdir()
+        (work / 'TestCases').symlink_to('../TestCases', target_is_directory=True)
+        (work / 'external').symlink_to(self.root / 'external', target_is_directory=True)
+        (work / 'config-link.json').symlink_to('../TestCases/example/config.json')
+        self.run = work / 'Debug/results'
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertIn('TestCases/example/config.json', manifest['files'])
+        for name in ('Run/TestCases', 'Run/external', 'Run/config-link.json'):
+            self.assertNotIn(name, manifest['files'])
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            (case / 'config.json').write_text('{"input": 2}')
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                run_tests.check(self.run, self.source)
+
+    def test_versioned_symlinks_are_not_silently_omitted(self):
+        link = self.source / 'versioned-link'
+        link.symlink_to('code.cpp')
+        subprocess.run(['git', '-C', str(self.source), 'add', 'versioned-link'], check=True)
+        with self.assertRaisesRegex(ValueError, 'Source symlinks'):
+            self.prepare()
+
+    def test_results_cannot_replace_source_or_git_metadata(self):
+        for location in (self.source, self.source / '.git/new-results'):
+            with self.subTest(location=location):
+                self.run = location
+                with self.assertRaises(ValueError):
+                    self.prepare()
+
+    def test_prepared_cli_runs_ctest_despite_workspace_and_recipe_problems(self):
+        # Exercise the real CLI and worker with fixture commands, not CFD results.
+        shutil.rmtree(self.source / '.git')
+        work = self.source / 'Run'
+        work.mkdir()
+        (work / 'TestCases').symlink_to('../TestCases', target_is_directory=True)
+        (work / 'broken').symlink_to('/nonexistent/local-path')
+        build = self.root / 'prepared-build'
+        build.mkdir()
+        (build / 'CMakeCache.txt').write_text('AXISYMMETRIC:BOOL=OFF\nTHESEUS_WITH_PLATO:BOOL=OFF\nENABLE_CUDA:BOOL=ON\n')
+        (build / 'theseus').write_text('#!/bin/sh\nexit 0\n')
+        (build / 'theseus').chmod(0o755)
+        recipes = self.source / 'tests/recipes'
+        good = recipes / 'good.sh'
+        good.write_text('#!/bin/bash\necho good-recipe-ran\n')
+        good.chmod(0o644)  # Recipes are invoked by Bash, so +x is unnecessary.
+        (recipes / 'extra.sh').write_text('#!/bin/bash\n')
+        records = ['schema = 1']
+        for name, geometry in (('missing', 'standard'), ('good', 'standard'),
+                               ('unavailable-axis', 'axisymmetric')):
+            records.append(f"""
+[[test]]
+id = "{name}"
+title = "{name}"
+script = "tests/recipes/{name}.sh"
+suites = ["integrated", "full"]
+build = "{geometry}"
+requires = []
+""")
+        (recipes / 'recipes.toml').write_text('\n'.join(records))
+        results = work / 'results'
+        missing_python_package = self.root / 'missing-package'
+        missing_python_package.mkdir()
+        (missing_python_package / 'pyvista.py').write_text('raise ImportError("fixture missing PyVista")')
+        env = dict(os.environ, PYTHONPATH=str(missing_python_package))
+        process = subprocess.run([sys.executable, str(self.source / 'scripts/run_tests.py'),
+            'run', '--source', str(self.source), '--build', str(build),
+            '--prefix', str(self.prefix), '--results', str(results),
+            '--python', sys.executable, '--device', 'cuda'], text=True, capture_output=True, env=env)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        saved = json.loads((results / 'results.json').read_text())
+        steps = {step['name']: step for step in saved['steps']}
+        self.assertEqual(steps['python-dependencies']['state'], 'failed')
+        self.assertEqual(steps['ctest-standard']['state'], 'passed')
+        self.assertEqual(steps['recipe-good']['state'], 'passed')
+        self.assertEqual(steps['recipe-registration-0']['state'], 'failed')
+        self.assertFalse(any('unavailable-axis' in name for name in steps))
+        self.assertIn('WARNING: Unregistered', process.stderr)
+        self.assertFalse((results / 'source').exists())
+        self.assertTrue((work / 'TestCases').is_symlink())
+        # Missing table_lookup_tests and PLATO do not prevent unrelated tests.
+        self.assertIn('Missing build executable', process.stderr)
+
+    def test_invalid_recipe_manifest_reports_failure_but_schedules_other_checks(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        run = self.root / 'manifest-failure'
+        (run / 'source/tests/recipes').mkdir(parents=True)
+        (run / 'source/tests/recipes/recipes.toml').write_text('invalid = [')
+        manifest = {'suite': 'prepared', 'python': sys.executable,
+                    'prefix': str(self.prefix), 'builds': {'standard': str(self.root)}}
+        commands = run_tests.suite_commands(run, manifest)
+        names = {command.name for command in commands}
+        self.assertIn('ctest-standard', names)
+        self.assertIn('integration-helmholtz-lteec', names)
+        self.assertIn('recipe-registration-0', names)
 
     def test_kernel_stress_is_disabled_by_default(self):
         self.prepare()
@@ -482,15 +602,17 @@ class TestRunnerTests(unittest.TestCase):
         )
         self.assertEqual(checked.returncode, 0, checked.stderr)
 
-    def test_recipe_discovery_rejects_unregistered_shell_scripts(self):
+    def test_recipe_discovery_warns_without_rejecting_unregistered_shell_scripts(self):
         recipes = self.source / 'tests/recipes'
         recipes.mkdir(parents=True, exist_ok=True)
         (recipes / 'recipes.toml').write_text('schema = 1\n')
         orphan = recipes / 'orphan.sh'
         orphan.write_text('#!/usr/bin/env bash\n')
         orphan.chmod(0o755)
-        with self.assertRaisesRegex(ValueError, 'Unregistered test recipe'):
-            run_tests.load_recipes(self.source)
+        warnings = io.StringIO()
+        with contextlib.redirect_stderr(warnings):
+            self.assertEqual(run_tests.load_recipes(self.source), [])
+        self.assertIn('WARNING: Unregistered', warnings.getvalue())
 
     def test_incomplete_missing_and_overlapping_runs(self):
         self.prepare()
