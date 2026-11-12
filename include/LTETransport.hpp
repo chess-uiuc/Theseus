@@ -28,12 +28,12 @@ namespace Theseus
              std::sqrt(relative_temperature) / (temperature + phys.Ts);
     }
 
-    template<typename EOSType, typename StateViewType>
+    template<typename EOSType, typename StateViewType, typename TableType>
     MFEM_HOST_DEVICE
     inline mfem::real_t viscosity(const Theseus::PhysicsConstants &phys,
                                   const Theseus::StateLayout &L,
                                   const EOSType &eos, const StateViewType &S,
-                                  const LTETables &lteTables) const
+                                  const TableType &lteTables) const
     {
 #ifdef SUTHERLAND
       const auto temperature = eos.temperature(phys, L, S, lteTables);
@@ -43,26 +43,26 @@ namespace Theseus
 #endif
     }
 
-    template<typename EOSType, typename StateViewType>
+    template<typename EOSType, typename StateViewType, typename TableType>
     MFEM_HOST_DEVICE
     inline mfem::real_t bulk_viscosity(const Theseus::PhysicsConstants &phys,
                                        const Theseus::StateLayout &L,
                                        const EOSType &eos, const StateViewType &S,
-                                       const LTETables &lteTables) const
+                                       const TableType &lteTables) const
     {
       return phys.mu_bulk;
     }
 
-    // Thermal cond kappa = mu * cp / Pr
-    template<typename EOSType, typename StateViewType>
+    // Thermal conductivity remains tabulated, including with Sutherland viscosity.
+    template<typename EOSType, typename StateViewType, typename TableType>
     MFEM_HOST_DEVICE
     inline mfem::real_t thermal_conductivity(const Theseus::PhysicsConstants &phys,
                                              const Theseus::StateLayout &L,
                                              const EOSType &eos, const StateViewType &S,
-                                             const LTETables &lteTables) const
+                                             const TableType &lteTables) const
     {
-#ifdef SUTHERLAND
-      return viscosity(phys, L, eos, S, lteTables) * phys.cp * phys.PrInverse;
+#if defined(CHANNEL_RESEARCH_COMPATIBILITY) && defined(SUTHERLAND)
+      return viscosity(phys, L, eos, S, lteTables)*phys.cp*phys.PrInverse;
 #else
       return eos.property_lookup(lteTables.L.lambda_idx, phys, L, S, lteTables);
 #endif

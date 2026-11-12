@@ -15,9 +15,9 @@ using mfem::real_t;
 //   eq_mass   -> rho
 //   eq_mom[d] -> rho * u_d
 //   eq_energy -> rhoE = e_int_density + 0.5 * rho * |u|^2
-template <typename VectorT>
-static void fill_single_dof_state(Theseus::StateLayout &layout,
-                      VectorT &U,
+static void
+fill_single_dof_state(Theseus::StateLayout &layout,
+                      std::vector<real_t> &U,
                       int dim,
                       real_t rho,
                       const real_t u[3],

@@ -31,83 +31,36 @@ inline void ValidateGrid(const mfem::real_t *grid, int n)
       throw std::invalid_argument("LTE grid must be finite and strictly increasing");
 }
 
-// Solve for pressure using bracketed bisection with the nonlinear Hermite EOS.
-// Reject multiple roots and constant-pressure spans.
-// No evaluation outside the supplied table grid.
+// A bilinear table restricted to one coordinate is piecewise linear. Solve
+// each bracket exactly, rejecting multiple roots and constant-pressure spans.
+// No unconstrained iteration and no evaluation outside the supplied grid.
 template<class Evaluate>
 mfem::real_t SolveTablePressure(const mfem::real_t *grid, int n,
-                                mfem::real_t target, Evaluate evaluate)
+                               mfem::real_t target, Evaluate evaluate)
 {
-    bool found = false;
-    mfem::real_t root = 0.0;
-
-    auto add_root = [&](mfem::real_t value)
+  bool found = false;
+  mfem::real_t root = 0;
+  auto add_root = [&](mfem::real_t value) {
+    if (found && value != root)
+      throw std::invalid_argument("LTE pressure input has multiple table roots");
+    found = true; root = value;
+  };
+  auto left = evaluate(grid[0]);
+  for (int i = 0; i + 1 < n; ++i)
     {
-        if (found)
-        {
-            const mfem::real_t scale = std::max(mfem::real_t(1.0), std::abs(value));
-            if (std::abs(value - root) > 1e-12 * scale)
-                throw std::invalid_argument("LTE pressure input has multiple table roots");
-        }
-
-        found = true;
-        root = value;
-    };
-
-    mfem::real_t left = evaluate(grid[0]);
-
-    for (int i = 0; i + 1 < n; ++i)
-    {
-        const mfem::real_t right = evaluate(grid[i+1]);
-
-        if (!std::isfinite(left) || !std::isfinite(right))
-            throw std::invalid_argument("Nonfinite LTE pressure table value");
-
-        if (left == target && right == target)
-            throw std::invalid_argument("LTE pressure input has a nonunique constant interval");
-
-        if (left == target) add_root(grid[i]);
-        if (right == target) add_root(grid[i+1]);
-
-        if ((left < target && target < right) || (right < target && target < left))
-        {
-            mfem::real_t a = grid[i];
-            mfem::real_t b = grid[i+1];
-            mfem::real_t fa = left - target;
-
-            for (int iter = 0; iter < 100; ++iter)
-            {
-                const mfem::real_t mid = 0.5 * (a + b);
-                const mfem::real_t fm = evaluate(mid) - target;
-
-                if (!std::isfinite(fm))
-                    throw std::invalid_argument("Nonfinite LTE pressure during bisection");
-
-                if (fm == 0.0 || std::abs(b - a) <= 1e-13 * std::max(mfem::real_t(1.0), std::abs(mid)))
-                {
-                    a = b = mid;
-                    break;
-                }
-
-                if ((fa < 0.0 && fm > 0.0) || (fa > 0.0 && fm < 0.0))
-                    b = mid;
-                else
-                {
-                    a = mid;
-                    fa = fm;
-                }
-            }
-
-            add_root(0.5 * (a + b));
-        }
-
-        left = right;
+      const auto right = evaluate(grid[i+1]);
+      if (!std::isfinite(left) || !std::isfinite(right))
+        throw std::invalid_argument("Nonfinite LTE pressure table value");
+      if (left == target && right == target)
+        throw std::invalid_argument("LTE pressure input has a nonunique constant interval");
+      if (left == target) add_root(grid[i]);
+      if (right == target) add_root(grid[i+1]);
+      if ((left < target && target < right) || (right < target && target < left))
+        add_root(grid[i] + (grid[i+1] - grid[i]) * ((target-left)/(right-left)));
+      left = right;
     }
-
-    if (!found)
-        throw std::invalid_argument("LTE pressure input has no root inside the table");
-
-    return root;
+  if (!found) throw std::invalid_argument("LTE pressure input has no root inside the table");
+  return root;
 }
 }
 
@@ -127,12 +80,11 @@ ThermodynamicState LTEPhysicalThermodynamics(const EOS &eos,
     throw std::invalid_argument("Missing LTE forward or inverse table");
   mfem::real_t values[MAXEQ] = {};
   PointStateViewRW state(values);
-  auto property = [&](mfem::real_t rho, mfem::real_t temperature, bool is_pressure) {
+  auto property = [&](int index, mfem::real_t rho, mfem::real_t temperature) {
     detail::CheckTableCoordinate(rho, view.rho_grid, tl.nx, "density");
     detail::CheckTableCoordinate(temperature, view.T_grid, tl.ny, "temperature");
     state.set_mass(layout, rho);
-    const auto value = is_pressure ? eos.pressure(phys, layout, state, tables, &temperature)
-                                   : eos.internal_energy_from_helmholtz(phys, layout, state, tables, &temperature);
+    const auto value = eos.biinterp_lte_table(index, phys, layout, state, temperature, tables);
     if (!std::isfinite(value)) throw std::invalid_argument("Nonfinite LTE property");
     return value;
   };
@@ -143,17 +95,17 @@ ThermodynamicState LTEPhysicalThermodynamics(const EOS &eos,
       {
         temperature = pair.temperature;
         rho = detail::SolveTablePressure(view.rho_grid, tl.nx, pair.pressure,
-          [&](auto r) { return property(r, temperature, true); });
+          [&](auto r) { return property(tl.P_idx, r, temperature); });
       }
     else if constexpr (std::is_same_v<Pair, DensityPressure>)
       {
         rho = pair.density;
         temperature = detail::SolveTablePressure(view.T_grid, tl.ny, pair.pressure,
-          [&](auto t) { return property(rho, t, true); });
+          [&](auto t) { return property(tl.P_idx, rho, t); });
       }
     else { rho = pair.density; temperature = pair.temperature; }
   }, input);
-  const auto energy = property(rho, temperature, false);
+  const auto energy = property(tl.e_idx, rho, temperature);
   detail::CheckTableCoordinate(energy, view.e_grid, tl.ny, "specific internal energy");
   return {rho, temperature, energy};
 }
@@ -174,8 +126,8 @@ void ValidateLTERoundTrip(const EOS &eos, const PhysicsConstants &phys,
   while (recovery.NeedsIteration())
     {
       detail::CheckTableCoordinate(recovery.temperature, v.T_grid, l.ny, "inverse temperature");
-      const auto guess = eos.internal_energy_from_helmholtz(phys, layout, state, tables, &recovery.temperature);
-      const auto cv = eos.cv_from_helmholtz(phys, layout, state, tables, &recovery.temperature);
+      const auto guess = eos.biinterp_lte_table(l.e_idx, phys, layout, state, recovery.temperature, tables);
+      const auto cv = eos.biinterp_lte_table(l.cv_idx, phys, layout, state, recovery.temperature, tables);
       RequirePositiveFinite(cv, "LTE heat capacity");
       recovery.Update(energy, guess, cv);
       detail::CheckTableCoordinate(recovery.temperature, v.T_grid, l.ny, "Newton temperature");

@@ -22,8 +22,8 @@ namespace Theseus
         const int neq = dc.num_equations;
         const int estride = ndof*neq;
         const mfem::real_t *qWts_d = dc.elQWgts_d;
-        auto gas = dc.gas;
-        const int dim = gas.dim();
+        const int dim = dc.dim;
+        const int mass = dc.gas.L.eq_mass, momentum = dc.gas.L.eq_mom0, energy = dc.gas.L.eq_energy;
 
         mfem::Vector elMass_integral(ne);
         mfem::Vector elMom_x_integral(ne);
@@ -48,14 +48,15 @@ namespace Theseus
           mfem::real_t en_int = 0.0;
 
           for(int ep = 0;ep < ndof;ep++){
-              mfem::real_t elstate[Theseus::MAXEQ];
-              Theseus::Kernels::el_gather_state(u_el, ndof, neq, ep, elstate);
-              Theseus::PointStateView S{elstate};
-
-              mfem::real_t rho = gas.density(S);
-              mfem::real_t mom_x = gas.momentum(S, 0);
-              mfem::real_t ke = gas.kinetic_energy_density(S);
-              mfem::real_t rhoe = gas.energy(S) - ke;
+              const auto rho = u_el[mass*ndof + ep];
+              const auto mom_x = u_el[momentum*ndof + ep];
+              mfem::real_t momentum_squared = 0.0;
+              for (int d = 0; d < dim; ++d)
+                {
+                  const auto m = u_el[(momentum + d)*ndof + ep];
+                  momentum_squared += m*m;
+                }
+              const auto rhoe = u_el[energy*ndof + ep] - 0.5*momentum_squared/rho;
 
               mass_int += rho * qWgt[ep];
               mom_x_int += mom_x * qWgt[ep];

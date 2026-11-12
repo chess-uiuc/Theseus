@@ -104,19 +104,13 @@ namespace Theseus
       const mfem::real_t rho_ln = Kernels::ComputeLogMean(rho1, rho2, 1e-4);
 
       mfem::real_t mom[3] = {0.0, 0.0, 0.0};
-      mfem::real_t mom1[3] = {0.0, 0.0, 0.0};
-      mfem::real_t mom2[3] = {0.0, 0.0, 0.0};
       mfem::real_t hhat = 0.0;
       mfem::real_t vn = 0.0;
       mfem::real_t diss[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
 
       for(int idim = 0;idim < dim;idim++){
-        // const mfem::real_t v1 = gasModel.velocity(S1, idim);
-        // const mfem::real_t v2 = gasModel.velocity(S2, idim);
-        mom1[idim] = gasModel.momentum(S1, idim);
-        mom2[idim] = gasModel.momentum(S2, idim);
-        const mfem::real_t v1 = mom1[idim]/rho1;
-        const mfem::real_t v2 = mom2[idim]/rho2;
+        const mfem::real_t v1 = gasModel.velocity(S1, idim);
+        const mfem::real_t v2 = gasModel.velocity(S2, idim);
         const mfem::real_t vbar = 0.5 * (v1 + v2);
 
         vn += vbar * nor[idim];
@@ -150,8 +144,7 @@ namespace Theseus
       // But Roe dissipation makes test simulations unstable with current testing
       // configurations. For now, we keep scalar default, and add the following todo...
       // TODO: Add runtime selection for dissipation operator
-      // Scalar_dissipation(gasModel, S1, S2, nor, diss);
-      Roe_dissipation(gasModel, S1, S2, nor, diss);
+      Scalar_dissipation(gasModel, S1, S2, nor, diss);
 
       flux[mass_eq] = rho_ln * vn - diss[mass_eq];
       for (int d = 0; d < dim; d++)

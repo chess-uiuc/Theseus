@@ -74,6 +74,101 @@ namespace Theseus {
       return 0.0;
     }
 
+    // Read-only rotation using the same basis as RotateState. The conservative
+    // values remain in caller storage; no packed local state is reconstructed.
+    template<typename StateView>
+    struct RotatedWallStateView
+    {
+      StateView source;
+      const mfem::real_t *normal;
+      mfem::real_t inverse_magnitude;
+
+      MFEM_HOST_DEVICE mfem::real_t mass(const StateLayout &layout) const
+      {
+        return source.mass(layout);
+      }
+
+      MFEM_HOST_DEVICE mfem::real_t energy(const StateLayout &layout) const
+      {
+        return source.energy(layout);
+      }
+
+      MFEM_HOST_DEVICE mfem::real_t velocity(const StateLayout &layout, int component) const
+      {
+        return momentum(layout, component)/mass(layout);
+      }
+
+      MFEM_HOST_DEVICE mfem::real_t scalar(const StateLayout &layout, int index) const
+      {
+        return source.scalar(layout, index);
+      }
+
+      MFEM_HOST_DEVICE mfem::real_t momentum(const StateLayout &layout, int component) const
+      {
+        if (layout.dim == 1)
+          {
+            return source.momentum(layout, 0)*(normal[0]*inverse_magnitude);
+          }
+        const auto nx = normal[0]*inverse_magnitude;
+        const auto ny = normal[1]*inverse_magnitude;
+        const auto nz = layout.dim > 2 ? normal[2]*inverse_magnitude : mfem::real_t(0);
+        mfem::real_t x = nx, y = ny, z = nz;
+        if (component > 0)
+          {
+            mfem::real_t tx, ty, tz;
+            if (layout.dim == 2)
+              {
+                tx = -ny; ty = nx; tz = 0.0;
+              }
+            else if (Kernels::rabs(nx) <= Kernels::rabs(ny) &&
+                     Kernels::rabs(nx) <= Kernels::rabs(nz))
+              {
+                tx = 0.0; ty = nz; tz = -ny;
+              }
+            else if (Kernels::rabs(ny) <= Kernels::rabs(nx) &&
+                     Kernels::rabs(ny) <= Kernels::rabs(nz))
+              {
+                tx = -nz; ty = 0.0; tz = nx;
+              }
+            else
+              {
+                tx = ny; ty = -nx; tz = 0.0;
+              }
+            if (component == 1)
+              {
+                x = tx; y = ty; z = tz;
+              }
+            else
+              {
+                x = ny*tz - nz*ty;
+                y = nz*tx - nx*tz;
+                z = nx*ty - ny*tx;
+              }
+          }
+        mfem::real_t result = 0.0;
+        result += source.momentum(layout, 0)*x;
+        result += source.momentum(layout, 1)*y;
+        if (layout.dim == 3) { result += source.momentum(layout, 2)*z; }
+        return result;
+      }
+    };
+
+    template<typename StateView, typename GasModelT>
+    MFEM_HOST_DEVICE
+    inline mfem::real_t slipwall_pstar_normal(const StateView &state,
+      const GasModelT &gas, const mfem::real_t *normal)
+    {
+      mfem::real_t magnitude_squared = 0.0;
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          magnitude_squared += normal[d]*normal[d];
+        }
+      if (magnitude_squared == 0.0) { return 0.0; }
+      const RotatedWallStateView<StateView> rotated{
+        state, normal, 1.0/Kernels::rsqrt(magnitude_squared)};
+      return slipwall_pstar(rotated, gas);
+    }
+
     struct TotalConditions {
       mfem::real_t p0;
       mfem::real_t T0;
@@ -177,11 +272,15 @@ namespace Theseus {
       S2.set_energy(gasModel.L, p_b * gm1i + 0.5 * rho_b * vb2);
     }
 
+    // Convert density, velocity and pressure to conservative variables using
+    // the constant-gamma ideal-gas energy relation. Requires a single-component
+    // calorically perfect gas; this helper does not validate the gas-model type.
+    // LTE gamma queries expect conservative state and cannot use this primitive view.
     template<typename PrimStateView, typename ConsStateView, typename GasModelT>
     MFEM_HOST_DEVICE inline void PrimitiveToConserved(const PrimStateView &prim, ConsStateView &cons, const GasModelT &gasModel){
       const mfem::real_t rho = prim.mass(gasModel.L);
       const int dim = gasModel.dim();
-      // NOTE: This call *should* fail for gas models other than ideal single component
+      // gamma is state-independent for the supported calorically perfect gas.
       const mfem::real_t gamma = gasModel.gamma(prim);
       mfem::real_t v2 = prim.velocity(gasModel.L, 0)*prim.velocity(gasModel.L, 0);
       cons.set_mass(gasModel.L, rho);

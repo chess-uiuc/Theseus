@@ -41,6 +41,21 @@ def require_matching_times(a, b):
         raise AssertionError(f"Different output times: {a} versus {b}")
 
 
+def logged_output_times(log, frames):
+    # MFEM PVD labels may have only six significant digits. Match the output
+    # cycles to full-precision solver times instead of trusting rounded labels.
+    times = {0: 0.0}
+    for step, value in re.findall(r"time step:\s*(\d+), time:\s*([^,\s]+)", log):
+        times[int(step)] = float(value)
+    result = []
+    for _, path in frames:
+        cycle = re.fullmatch(r"Cycle(\d+)", path.parent.name)
+        if cycle is None or int(cycle[1]) not in times:
+            raise AssertionError(f"Missing logged time for output: {path}")
+        result.append(times[int(cycle[1])])
+    return result
+
+
 def validate_evolution(output):
     frames = collection(output)
     fields = {"Density", "Pressure", "Temperature", "Velocity"}
@@ -76,6 +91,9 @@ def main():
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--database", required=True)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--gas-model", choices=("lte", "lte_helmholtz"), default="lte")
+    parser.add_argument("--numerical-flux", choices=("LLF", "LTEECFlux", "Pirozzoli"), default="LLF")
+    parser.add_argument("--mixture", choices=("air11", "air5"), default="air11")
     args = parser.parse_args()
     case = args.source / "TestCases/NavierStokes/3D/TaylorGreenVortex"
     spec = importlib.util.spec_from_file_location("tgv_mesh", case / "make_periodic_box.py")
@@ -89,11 +107,11 @@ def main():
         runtime = base["runTime"]
         runtime.update(
             order=2, dim=3, num_equations=5, ser_ref_levels=0,
-            mesh_file=str(mesh), gas_model="lte", gas_mixture="air11",
-            plato_solver="LTE_table_rhoT_(air11)", database_path=args.database,
+            mesh_file=str(mesh), gas_model=args.gas_model, gas_mixture=args.mixture,
+            plato_solver=f"LTE_table_rhoT_({args.mixture})", database_path=args.database,
             N_rho=31, N_T=41, rho_min=0.5, rho_max=2.0,
             T_min=200.0, T_max=2000.0, rho_dist="log", T_dist="log",
-            flow_model="cns", numerical_flux="LLF", nsteps_max=20, final_time=1.0,
+            flow_model="cns", numerical_flux=args.numerical_flux, nsteps_max=20, final_time=1.0,
             visualize=True, paraview=True, visit=False, vis_steps=10,
             print_interval=1, check_cfl=True, nancheck=True, clock_simulation=False,
         )
@@ -108,6 +126,7 @@ def main():
             config["runTime"].update(variable_dt=mode == "fixed-cfl", dt=1e-5, cfl=0.3)
             frames = []
             outputs = []
+            exact_times = []
             # CPU-only environments verify evolution and repeatability. CUDA
             # environments must execute a real same-binary CPU/CUDA comparison.
             for label, device in (("cpu", "cpu"), ("candidate", args.device)):
@@ -124,8 +143,9 @@ def main():
                 if not steps or int(steps[-1]) != 20:
                     raise AssertionError(f"Expected 20 steps, got {steps}")
                 frames.append(validate_evolution(output))
+                exact_times.append(logged_output_times(result.stdout, frames[-1]))
                 outputs.append(output)
-            require_matching_times([time for time, _ in frames[0]], [time for time, _ in frames[1]])
+            require_matching_times(exact_times[0], exact_times[1])
             command = [sys.executable, str(args.source / "scripts/compare_viz.py"),
                        str(outputs[0] / "ParaView/ParaView.pvd"),
                        str(outputs[1] / "ParaView/ParaView.pvd"),

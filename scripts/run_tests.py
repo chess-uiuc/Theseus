@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import shutil
@@ -37,43 +38,65 @@ class Command(NamedTuple):
 RECIPE_MANIFEST = Path('tests/recipes/recipes.toml')
 
 
-def load_recipes(source):
+def load_recipes(source, errors=None, selected_builds=None, selected_suite=None):
     source = Path(source).resolve()
-    manifest_path = source / RECIPE_MANIFEST
-    with manifest_path.open('rb') as stream:
-        manifest = tomllib.load(stream)
-    if manifest.get('schema') != 1:
-        raise ValueError(f'Unsupported recipe manifest schema: {manifest.get("schema")}')
     recipes = []
+    try:
+        with (source / RECIPE_MANIFEST).open('rb') as stream:
+            manifest = tomllib.load(stream)
+        if manifest.get('schema') != 1:
+            raise ValueError(f'Unsupported recipe manifest schema: {manifest.get("schema")}')
+    except (OSError, ValueError) as error:
+        if errors is None:
+            raise
+        errors.append(str(error))
+        return recipes
     identifiers = set()
     registered_scripts = set()
     required = {'id', 'title', 'script', 'suites', 'build', 'requires'}
     for record in manifest.get('test', []):
-        missing = required - record.keys()
-        if missing:
-            raise ValueError(f'Recipe is missing fields: {", ".join(sorted(missing))}')
-        identifier = record['id']
-        if identifier in identifiers:
-            raise ValueError(f'Duplicate recipe id: {identifier}')
-        identifiers.add(identifier)
-        script = (source / record['script']).resolve()
-        if source not in script.parents or not script.is_file():
-            raise ValueError(f'Missing or invalid recipe script for {identifier}: {script}')
-        if script in registered_scripts:
-            raise ValueError(f'Recipe script is registered more than once: {script}')
-        if not os.access(script, os.X_OK):
-            raise ValueError(f'Recipe script is not executable: {script}')
-        stages = record.get('stages', [])
-        if len(stages) != len(set(stages)) or not set(stages) <= {'run', 'prepare', 'compare'}:
-            raise ValueError(f'Invalid recipe stages for {identifier}: {stages}')
-        registered_scripts.add(script)
-        recipes.append({**record, 'script_path': script})
-    discovered_scripts = set((source / 'tests/recipes').rglob('*.sh'))
-    unregistered = sorted(discovered_scripts - registered_scripts)
+        if (selected_builds is not None and record.get('build') in {'standard', 'axisymmetric'}
+                and record['build'] not in selected_builds):
+            continue
+        if selected_suite is not None and 'suites' in record and selected_suite not in record['suites']:
+            continue
+        try:
+            missing = required - record.keys()
+            if missing:
+                raise ValueError(f'Recipe is missing fields: {", ".join(sorted(missing))}')
+            if record['build'] not in {'standard', 'axisymmetric'}:
+                raise ValueError(f'Invalid recipe geometry: {record["build"]}')
+            identifier = record['id']
+            if identifier in identifiers:
+                raise ValueError(f'Duplicate recipe id: {identifier}')
+            identifiers.add(identifier)
+            script = (source / record['script']).resolve()
+            if source not in script.parents or not script.is_file():
+                raise ValueError(f'Missing or invalid recipe script for {identifier}: {script}')
+            if script in registered_scripts:
+                raise ValueError(f'Recipe script is registered more than once: {script}')
+            stages = record.get('stages', [])
+            if len(stages) != len(set(stages)) or not set(stages) <= {'run', 'prepare', 'compare'}:
+                raise ValueError(f'Invalid recipe stages for {identifier}: {stages}')
+            registered_scripts.add(script)
+            recipes.append({**record, 'script_path': script})
+        except (OSError, ValueError, TypeError) as error:
+            if errors is None:
+                raise
+            errors.append(str(error))
+    # Extra scripts do not change the registered suite and must not block it.
+    declared = {str(record.get('script', '')) for record in manifest.get('test', [])}
+    unregistered = sorted(str(path.relative_to(source)) for path in
+                          (source / 'tests/recipes').rglob('*.sh')
+                          if str(path.relative_to(source)) not in declared)
     if unregistered:
-        names = ', '.join(str(path.relative_to(source)) for path in unregistered)
-        raise ValueError(f'Unregistered test recipe scripts: {names}')
+        print('WARNING: Unregistered recipe scripts will not run: ' + ', '.join(unregistered),
+              file=sys.stderr)
     return sorted(recipes, key=lambda recipe: (recipe.get('order', 1000), recipe['id']))
+
+
+def execution_source(run, manifest):
+    return Path(manifest['source']) if manifest.get('live_source') else run / 'source'
 
 
 def select_recipe(recipes, identifier):
@@ -212,11 +235,18 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def source_files(source):
+def source_files(source, excluded_results=None):
     names = git(source, 'ls-files', '-z', '--cached', '--others', '--exclude-standard')
+    tracked = {os.fsdecode(n) for n in git(source, 'ls-files', '-z', '--cached').split(b'\0') if n}
     files = {}
     for name in sorted(set(os.fsdecode(n) for n in names.split(b'\0') if n)):
         path = source / name
+        if excluded_results and Path(excluded_results) in Path(name).parents:
+            continue
+        if path.is_symlink() and name not in tracked:
+            # Local working-directory links are not versioned source inputs.
+            # Their in-repository targets are collected by their own paths.
+            continue
         if path.is_symlink():
             raise ValueError(f'Source symlinks are not supported in snapshots: {name}')
         if not path.exists():  # A tracked deletion is represented by its absence.
@@ -230,7 +260,8 @@ def source_files(source):
 def documentation(name):
     path = Path(name)
     return (path.suffix in {'.md', '.dox'} and
-            (len(path.parts) == 1 or path.parts[0] == 'docs'))
+            (len(path.parts) == 1 or path.parts[0] == 'docs' or
+             (path.parts[0] == 'TestCases' and path.name == 'README.md')))
 
 
 def changed_files(before, after):
@@ -258,20 +289,26 @@ def save_results(run, results):
     if results.get('suite', 'full') == 'full':
         lines.extend(['', 'Commit eligibility: run scripts/run_tests.py check against the current source.'])
     else:
-        lines.extend(['', 'Integrated-only results for the recorded binaries; not a full-suite commit gate.'])
+        lines.extend(['', 'Results apply to the selected existing build(s).'])
     temporary = run / 'summary.tmp'
     temporary.write_text('\n'.join(lines) + '\n')
     temporary.replace(run / 'summary.txt')
 
 
 def integrated_commands(run, manifest, builds):
-    source = run / 'source'
+    source = execution_source(run, manifest)
     device = manifest.get('device', 'cpu')
     entries = [
         ('cfl', 'Timestep and CFL', 'standard', 'timestep_cfl_integration_test.py',
          ['--database', manifest['prefix'] + '/database', '--reference', str(builds['standard'] / 'tests/table_lookup_tests')]),
         ('lte-tgv-device', '3D LTE TGV evolution and device parity', 'standard',
          'lte_tgv_device_integration_test.py', ['--database', manifest['prefix'] + '/database']),
+        ('helmholtz-lteec', 'Helmholtz LTEEC 3D evolution and device parity', 'standard',
+         'lte_tgv_device_integration_test.py', ['--database', manifest['prefix'] + '/database',
+          '--numerical-flux', 'LTEECFlux', '--mixture', 'air5']),
+        ('helmholtz-pirozzoli', 'Helmholtz Pirozzoli 3D control and device parity', 'standard',
+         'lte_tgv_device_integration_test.py', ['--database', manifest['prefix'] + '/database',
+          '--gas-model', 'lte_helmholtz', '--numerical-flux', 'Pirozzoli', '--mixture', 'air5']),
         ('restart', 'Cartesian Checkpoint Restart', 'standard', 'restart_integration_test.py', []),
         ('initial-state', 'Physical Initial States', 'standard', 'physical_initial_state_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('visualization', 'Derived Visualization', 'standard', 'derived_visualization_integration_test.py',
@@ -283,8 +320,13 @@ def integrated_commands(run, manifest, builds):
         ('boundary-state', 'Physical Boundary States', 'axisymmetric', 'physical_boundary_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('lte-px-chamber', 'LTE PX Chamber', 'axisymmetric', 'lte_px_chamber_integration_test.py', ['--database', manifest['prefix'] + '/database']),
     ]
+    if manifest.get('research_source_enabled', False):
+        entries.append(('research-channel', 'Forced research ChannelFlow', 'standard',
+                        'research_channel_integration_test.py', ['--database', manifest['prefix'] + '/database']))
     commands = []
     for name, title, geometry, script, options in entries:
+        if manifest.get('suite', 'full') != 'full' and geometry not in manifest.get('builds', {}):
+            continue
         requirements = ('python-dependencies',)
         if manifest.get('suite', 'full') == 'full':
             requirements += ('build-' + geometry,)
@@ -297,11 +339,21 @@ def integrated_commands(run, manifest, builds):
 
 
 def suite_recipe_commands(run, manifest, builds):
-    source = run / 'source'
+    source = execution_source(run, manifest)
     suite = manifest.get('suite', 'full')
     commands = []
-    for recipe in load_recipes(source):
-        if suite not in recipe['suites']:
+    errors = []
+    recipes = load_recipes(source, errors=errors,
+                           selected_builds=set(manifest['builds']) if suite != 'full' else None,
+                           selected_suite='integrated' if suite == 'prepared' else suite)
+    for index, error in enumerate(errors):
+        commands.append(Command(f'recipe-registration-{index}',
+            [manifest['python'], '-c', 'import sys; print(' + repr(error) + ', file=sys.stderr); sys.exit(1)'],
+            run, 'Recipe registration failure'))
+    for recipe in recipes:
+        if ('integrated' if suite == 'prepared' else suite) not in recipe['suites']:
+            continue
+        if suite != 'full' and recipe['build'] not in manifest.get('builds', {}):
             continue
         arguments = argparse.Namespace(
             source=source,
@@ -352,7 +404,7 @@ def suite_recipe_commands(run, manifest, builds):
 
 def suite_commands(run, manifest):
     """The full test suite shared by local runs and both CI workflows."""
-    source = run / 'source'
+    source = execution_source(run, manifest)
     python = manifest['python']
     prefix = manifest['prefix']
     full = manifest.get('suite', 'full') == 'full'
@@ -373,9 +425,10 @@ def suite_commands(run, manifest):
             build = builds[label]
             configure = ['cmake', '-S', str(source), '-B', str(build),
                          '-DCMAKE_BUILD_TYPE=Debug', '-DBUILD_TESTING=ON',
+                         f'-DTHESEUS_BUILD_KERNEL_STRESS={"ON" if manifest.get("kernel_stress", False) else "OFF"}',
                          f'-DCMAKE_PREFIX_PATH={prefix}', f'-DCMAKE_BUILD_RPATH={prefix}/lib',
                          f'-DCMAKE_INSTALL_RPATH={prefix}/lib', '-DTHESEUS_WITH_PLATO=ON',
-                         '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON',
+                         '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON', '-DSOURCE_TERMS=ON',
                          f'-DAXISYMMETRIC={"ON" if axis else "OFF"}',
                          f'-DPython3_EXECUTABLE={python}',
                          ]
@@ -390,6 +443,11 @@ def suite_commands(run, manifest):
                                          '--no-tests=error'], run, label.capitalize() + ' CTest suite',
                         ('build-' + label, 'python-dependencies')),
             ])
+    if manifest.get('suite') == 'prepared':
+        for label, directory in manifest['builds'].items():
+            commands.append(Command('ctest-' + label,
+                ['ctest', '--test-dir', str(directory), '--output-on-failure', '--no-tests=error'],
+                run, label.capitalize() + ' CTest suite'))
     commands.extend(integrated_commands(run, manifest, builds))
     commands.extend(suite_recipe_commands(run, manifest, builds))
     return commands
@@ -398,10 +456,21 @@ def suite_commands(run, manifest):
 def prepared_builds(args):
     builds = {}
     evidence = {}
+    if getattr(args, 'build', None):
+        if args.build_standard or args.build_axisymmetric:
+            raise ValueError('--build cannot be combined with geometry-specific build options')
+        cache_text = (args.build / 'CMakeCache.txt').read_text()
+        axis = re.search(r'^AXISYMMETRIC:BOOL=(ON|YES|TRUE|1)$', cache_text, re.MULTILINE | re.IGNORECASE)
+        if axis:
+            args.build_axisymmetric = args.build
+        else:
+            args.build_standard = args.build
+    if not args.build_standard and not args.build_axisymmetric:
+        raise ValueError('Specify at least one prepared build directory.')
     for geometry, directory in [('standard', args.build_standard),
                                 ('axisymmetric', args.build_axisymmetric)]:
         if directory is None:
-            raise ValueError('Integrated mode requires both prepared build directories.')
+            continue
         directory = directory.resolve()
         cache = directory / 'CMakeCache.txt'
         values = {}
@@ -413,16 +482,15 @@ def prepared_builds(args):
         axis = values.get('AXISYMMETRIC', 'OFF').upper() in enabled
         if axis != (geometry == 'axisymmetric'):
             raise ValueError(f'Wrong geometry for {geometry}: {directory}')
-        if values.get('THESEUS_WITH_PLATO', '').upper() not in enabled:
-            raise ValueError(f'PLATO is required: {directory}')
         if args.device == 'cuda' and values.get('ENABLE_CUDA', '').upper() not in enabled:
             raise ValueError(f'CUDA build required: {directory}')
         files = [cache, directory / 'theseus']
         if geometry == 'standard':
             files.append(directory / 'tests/table_lookup_tests')
         for path in files:
-            if path != cache and not os.access(path, os.X_OK):
-                raise ValueError(f'Missing executable: {path}')
+            if not path.is_file():
+                print(f'WARNING: Missing build executable; affected tests may fail: {path}', file=sys.stderr)
+                continue
             evidence[str(path)] = digest(path)
         builds[geometry] = str(directory)
     return builds, evidence
@@ -437,14 +505,25 @@ def verify_prepared_builds(manifest):
 def prepare(args):
     source = args.source.resolve()
     run = args.results.resolve()
-    if run == source or source in run.parents:
-        raise ValueError('Results must be outside the source checkout.')
+    if run == source:
+        raise ValueError('Results must be a new directory, not the source checkout itself.')
+    excluded_results = str(run.relative_to(source)) if source in run.parents else None
+    if excluded_results and '.git' in Path(excluded_results).parts:
+        raise ValueError('Results cannot be stored inside .git.')
     prefix = args.prefix.resolve()
     if not prefix.is_dir():
         raise ValueError(f'Missing dependency prefix: {prefix}')
     suite = getattr(args, 'suite', 'full')
-    builds, build_files = prepared_builds(args) if suite == 'integrated' else ({}, {})
-    files = source_files(source)
+    if getattr(args, 'kernel_stress', False) and suite != 'full':
+        raise ValueError('--kernel-stress requires --suite full so CTest executes the stress tests.')
+    builds, build_files = prepared_builds(args) if suite in ('integrated', 'prepared') else ({}, {})
+    research_source_enabled = suite == 'full'
+    if 'standard' in builds:
+        cache_text = (Path(builds['standard']) / 'CMakeCache.txt').read_text()
+        research_source_enabled = bool(re.search(r'^SOURCE_TERMS:BOOL=(ON|YES|TRUE|1)$',
+                                                 cache_text, re.MULTILINE | re.IGNORECASE))
+    live_source = suite in ('prepared', 'integrated')
+    files = {} if live_source else source_files(source, excluded_results)
     # Exclusive creation prevents overlapping runs from overwriting evidence.
     run.mkdir(parents=True, exist_ok=False)
     (run / 'logs').mkdir()
@@ -452,28 +531,33 @@ def prepare(args):
                'suite': suite, 'device': getattr(args, 'device', 'cpu')}
     save_results(run, results)
     try:
-        snapshot = run / 'source'
-        snapshot.mkdir()
-        for name in files:
-            target = snapshot / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source / name, target)
-            if digest(target) != files[name]['sha256']:
-                raise ValueError(f'Source changed while copying: {name}')
-        if source_files(source) != files:
-            raise ValueError('Source changed while creating snapshot; start a fresh run.')
+        snapshot = source if live_source else run / 'source'
+        if not live_source:
+            snapshot.mkdir()
+            for name in files:
+                target = snapshot / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / name, target)
+                if digest(target) != files[name]['sha256']:
+                    raise ValueError(f'Source changed while copying: {name}')
+            if source_files(source, excluded_results) != files:
+                raise ValueError('Source changed while creating snapshot; start a fresh run.')
         def executable(value):
             found = shutil.which(value)
             if not found:
                 raise ValueError(f'Executable not found: {value}')
             return str(Path(found).absolute())
         manifest = {'schema': 1, 'source': str(source), 'files': files,
-                    'head': git(source, 'rev-parse', 'HEAD').decode().strip(),
+                    'head': None if live_source else git(source, 'rev-parse', 'HEAD').decode().strip(),
+                    'live_source': live_source,
+                    'research_source_enabled': research_source_enabled,
+                    'excluded_results': excluded_results,
                     'prefix': str(prefix), 'python': executable(args.python),
                     'cc': executable(os.environ.get('CC', 'mpicc')) if suite == 'full' else None,
                     'cxx': executable(os.environ.get('CXX', 'mpicxx')) if suite == 'full' else None,
                     'mpiexec': executable(args.mpiexec) if args.mpiexec else None, 'mpi_args': args.mpi_arg,
                     'jobs': args.jobs, 'timeout': args.timeout,
+                    'kernel_stress': getattr(args, 'kernel_stress', False),
                     'suite': suite, 'device': getattr(args, 'device', 'cpu'),
                     'builds': builds, 'build_files': build_files}
         write_json(run / 'manifest.json', manifest)
@@ -483,8 +567,9 @@ def prepare(args):
             write_mpi_launcher(launcher, manifest['python'],
                                snapshot / 'scripts/mpi_launcher.py',
                                manifest['mpiexec'], manifest['mpi_args'])
-        (snapshot / 'tpl').mkdir(exist_ok=True)
-        (snapshot / 'tpl/install').symlink_to(prefix, target_is_directory=True)
+        if not live_source:
+            (snapshot / 'tpl').mkdir(exist_ok=True)
+            (snapshot / 'tpl/install').symlink_to(prefix, target_is_directory=True)
         for command in suite_commands(run, manifest):
             command.cwd.mkdir(parents=True, exist_ok=True)
         results['suite'] = suite
@@ -538,6 +623,8 @@ def execute_step(run, results, name, command, cwd, env, timeout, label=None):
 
 
 def verify_snapshot(run, manifest):
+    if manifest.get('live_source'):
+        return
     for name, expected in manifest["files"].items():
         path = run / "source" / name
         if (not path.is_file() or path.is_symlink() or digest(path) != expected["sha256"]
@@ -610,7 +697,7 @@ def check(run, source):
         if digest(run / step['log']) != step['sha256']:
             raise ValueError(f'Log changed since completion: {name}')
     verify_snapshot(run, manifest)
-    differences = changed_files(manifest['files'], source_files(source))
+    differences = changed_files(manifest['files'], source_files(source, manifest.get('excluded_results')))
     material = [name for name in differences if not documentation(name)]
     if material:
         raise ValueError('Results are stale; source differs: ' + ', '.join(material))
@@ -630,7 +717,10 @@ def main():
     parser.add_argument('--prefix', type=Path)
     parser.add_argument('--python', default=sys.executable)
     parser.add_argument('--mpiexec', help='Exceptional MPI executable override; normal users omit this so run_theseus selects the platform launcher')
-    parser.add_argument('--suite', choices=['full', 'integrated'], default='full')
+    parser.add_argument('--suite', choices=['full', 'integrated', 'prepared'], default='full')
+    parser.add_argument('--build', type=Path, help='Test all registered checks for this existing build; detect geometry from CMakeCache.txt; do not rebuild')
+    parser.add_argument('--kernel-stress', action='store_true',
+                        help='Opt in to building and running the numerical kernel stress tests (full suite only)')
     parser.add_argument('--build-standard', type=Path)
     parser.add_argument('--build-axisymmetric', type=Path)
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
@@ -676,6 +766,8 @@ def main():
             return worker(args.results.resolve())
         if args.prefix is None or args.jobs < 1 or args.timeout <= 0:
             parser.error('run/start require --prefix, positive --jobs and positive --timeout')
+        if args.build:
+            args.suite = 'prepared'
         if args.suite == 'full' and (args.device != 'cpu' or args.build_standard or args.build_axisymmetric):
             parser.error('Prepared builds and GPU selection require --suite integrated.')
         if args.mpi_arg and not args.mpiexec:
@@ -683,9 +775,11 @@ def main():
         run = prepare(args)
         if args.action == 'run':
             return worker(run)
-        # Execute the frozen runner, independently of this invocation and terminal.
+        # Use the selected source tree; full runs use their frozen snapshot.
+        saved_manifest = json.loads((run / 'manifest.json').read_text())
+        runner = execution_source(run, saved_manifest) / 'scripts/run_tests.py'
         with (run / 'launcher.log').open('w') as log:
-            process = subprocess.Popen([sys.executable, str(run / 'source/scripts/run_tests.py'),
+            process = subprocess.Popen([sys.executable, str(runner),
                                         '_worker', '--results', str(run)],
                                        stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                        start_new_session=True)

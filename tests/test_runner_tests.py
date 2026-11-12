@@ -2,6 +2,8 @@
 """Failure, freshness and background-execution contracts of the suite runner."""
 import argparse
 import importlib.util
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -51,16 +53,234 @@ class TestRunnerTests(unittest.TestCase):
         self.prefix.mkdir()
         self.run = self.root / 'results'
 
-    def prepare(self):
+    def prepare(self, kernel_stress=False):
         return run_tests.prepare(argparse.Namespace(source=self.source, results=self.run,
             prefix=self.prefix, python=str(self.bin / 'python-stub'), mpiexec='mpiexec',
-            mpi_arg=[], jobs=1, timeout=5))
+            mpi_arg=[], jobs=1, timeout=5, kernel_stress=kernel_stress))
 
     def steps(self, run, manifest):
         return [run_tests.Command('first', [sys.executable, '-c', 'print("first")'], run,
                                  'Inviscid Isentropic Vortex — cyclic run'),
                 run_tests.Command('second', [sys.executable, '-c', 'print("second")'], run,
                                  'Inviscid Isentropic Vortex — cyclic comparison', ('first',))]
+
+    def test_single_build_geometry_and_evidence(self):
+        for axis in (False, True):
+            with self.subTest(axis=axis):
+                build = self.root / ('axis-build' if axis else 'cartesian-build')
+                (build / 'tests').mkdir(parents=True)
+                (build / 'CMakeCache.txt').write_text(
+                    f'AXISYMMETRIC:BOOL={"ON" if axis else "OFF"}\n'
+                    'THESEUS_WITH_PLATO:BOOL=ON\nENABLE_CUDA:BOOL=ON\n')
+                for name in ('theseus', 'tests/table_lookup_tests'):
+                    executable = build / name
+                    executable.write_text('#!/bin/sh\nexit 0\n')
+                    executable.chmod(0o755)
+                args = argparse.Namespace(build=build, build_standard=None,
+                    build_axisymmetric=None, device='cuda')
+                builds, evidence = run_tests.prepared_builds(args)
+                self.assertEqual(set(builds), {'axisymmetric' if axis else 'standard'})
+                self.assertIn(str(build / 'theseus'), evidence)
+                run_tests.verify_prepared_builds({'build_files': evidence})
+                (build / 'theseus').write_text('changed')
+                with self.assertRaisesRegex(ValueError, 'Prepared build changed'):
+                    run_tests.verify_prepared_builds({'build_files': evidence})
+
+    def test_single_build_selection_covers_all_and_only_its_geometry(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        run = self.root / 'selected-suite'
+        run.mkdir()
+        (run / 'source').symlink_to(repository, target_is_directory=True)
+        manifest = {'suite': 'integrated', 'python': sys.executable,
+                    'prefix': str(self.prefix), 'device': 'cuda', 'builds': {
+                        'standard': str(self.root / 'standard'),
+                        'axisymmetric': str(self.root / 'axisymmetric')}}
+        all_names = {c.name for c in run_tests.suite_commands(run, manifest)}
+        selected = []
+        for geometry in ('standard', 'axisymmetric'):
+            one = dict(manifest, suite='prepared', builds={geometry: manifest['builds'][geometry]})
+            commands = run_tests.suite_commands(run, one)
+            names = [c.name for c in commands]
+            self.assertEqual(len(names), len(set(names)))
+            self.assertIn('ctest-' + geometry, names)
+            ctest = next(c for c in commands if c.name == 'ctest-' + geometry)
+            self.assertIn('--no-tests=error', ctest.argv)
+            self.assertIn(manifest['builds'][geometry], ctest.argv)
+            self.assertFalse(any(n.startswith(('configure-', 'build-')) for n in names))
+            selected.append(set(names) - {'ctest-' + geometry})
+        self.assertEqual(selected[0] | selected[1], all_names)
+        self.assertEqual(selected[0] & selected[1], {'python-dependencies'})
+        self.assertIn('recipe-golden-channel-run', selected[0])
+        self.assertIn('integration-helmholtz-lteec', selected[0])
+        self.assertIn('integration-axis-restart', selected[1])
+
+    def test_single_build_rejects_ambiguous_or_incompatible_selection(self):
+        args = argparse.Namespace(build=self.root, build_standard=self.root,
+                                  build_axisymmetric=None, device='cpu')
+        with self.assertRaisesRegex(ValueError, 'cannot be combined'):
+            run_tests.prepared_builds(args)
+        args.build = None
+        args.build_standard = None
+        with self.assertRaisesRegex(ValueError, 'at least one'):
+            run_tests.prepared_builds(args)
+
+    def test_results_inside_checkout_do_not_enter_snapshot_or_hide_source_changes(self):
+        self.run = self.source / 'Run' / 'test-results'
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertEqual(manifest['excluded_results'], 'Run/test-results')
+        self.assertFalse(any(name.startswith('Run/test-results/') for name in manifest['files']))
+        self.assertFalse((self.run / 'source/Run/test-results').exists())
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            (self.run / 'additional-output.txt').write_text('Output is not source')
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            other = self.source / 'Run/another-input.json'
+            other.write_text('Real input outside the exact results directory')
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                run_tests.check(self.run, self.source)
+
+    def test_run_directory_links_do_not_prevent_in_tree_testing(self):
+        case = self.source / 'TestCases/example'
+        case.mkdir(parents=True)
+        (case / 'config.json').write_text('{"input": 1}')
+        work = self.source / 'Run'
+        work.mkdir()
+        (work / 'TestCases').symlink_to('../TestCases', target_is_directory=True)
+        (work / 'external').symlink_to(self.root / 'external', target_is_directory=True)
+        (work / 'config-link.json').symlink_to('../TestCases/example/config.json')
+        self.run = work / 'Debug/results'
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertIn('TestCases/example/config.json', manifest['files'])
+        for name in ('Run/TestCases', 'Run/external', 'Run/config-link.json'):
+            self.assertNotIn(name, manifest['files'])
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            (case / 'config.json').write_text('{"input": 2}')
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                run_tests.check(self.run, self.source)
+
+    def test_versioned_symlinks_are_not_silently_omitted(self):
+        link = self.source / 'versioned-link'
+        link.symlink_to('code.cpp')
+        subprocess.run(['git', '-C', str(self.source), 'add', 'versioned-link'], check=True)
+        with self.assertRaisesRegex(ValueError, 'Source symlinks'):
+            self.prepare()
+
+    def test_results_cannot_replace_source_or_git_metadata(self):
+        for location in (self.source, self.source / '.git/new-results'):
+            with self.subTest(location=location):
+                self.run = location
+                with self.assertRaises(ValueError):
+                    self.prepare()
+
+    def test_prepared_cli_runs_ctest_despite_workspace_and_recipe_problems(self):
+        # Exercise the real CLI and worker with fixture commands, not CFD results.
+        shutil.rmtree(self.source / '.git')
+        work = self.source / 'Run'
+        work.mkdir()
+        (work / 'TestCases').symlink_to('../TestCases', target_is_directory=True)
+        (work / 'broken').symlink_to('/nonexistent/local-path')
+        build = self.root / 'prepared-build'
+        build.mkdir()
+        (build / 'CMakeCache.txt').write_text('AXISYMMETRIC:BOOL=OFF\nTHESEUS_WITH_PLATO:BOOL=OFF\nENABLE_CUDA:BOOL=ON\n')
+        (build / 'theseus').write_text('#!/bin/sh\nexit 0\n')
+        (build / 'theseus').chmod(0o755)
+        recipes = self.source / 'tests/recipes'
+        good = recipes / 'good.sh'
+        good.write_text('#!/bin/bash\necho good-recipe-ran\n')
+        good.chmod(0o644)  # Recipes are invoked by Bash, so +x is unnecessary.
+        (recipes / 'extra.sh').write_text('#!/bin/bash\n')
+        records = ['schema = 1']
+        for name, geometry in (('missing', 'standard'), ('good', 'standard'),
+                               ('unavailable-axis', 'axisymmetric')):
+            records.append(f"""
+[[test]]
+id = "{name}"
+title = "{name}"
+script = "tests/recipes/{name}.sh"
+suites = ["integrated", "full"]
+build = "{geometry}"
+requires = []
+""")
+        (recipes / 'recipes.toml').write_text('\n'.join(records))
+        results = work / 'results'
+        missing_python_package = self.root / 'missing-package'
+        missing_python_package.mkdir()
+        (missing_python_package / 'pyvista.py').write_text('raise ImportError("fixture missing PyVista")')
+        env = dict(os.environ, PYTHONPATH=str(missing_python_package))
+        process = subprocess.run([sys.executable, str(self.source / 'scripts/run_tests.py'),
+            'run', '--source', str(self.source), '--build', str(build),
+            '--prefix', str(self.prefix), '--results', str(results),
+            '--python', sys.executable, '--device', 'cuda'], text=True, capture_output=True, env=env)
+        self.assertEqual(process.returncode, 1, process.stdout + process.stderr)
+        saved = json.loads((results / 'results.json').read_text())
+        steps = {step['name']: step for step in saved['steps']}
+        self.assertEqual(steps['python-dependencies']['state'], 'failed')
+        self.assertEqual(steps['ctest-standard']['state'], 'passed')
+        self.assertEqual(steps['recipe-good']['state'], 'passed')
+        self.assertEqual(steps['recipe-registration-0']['state'], 'failed')
+        self.assertFalse(any('unavailable-axis' in name for name in steps))
+        self.assertIn('WARNING: Unregistered', process.stderr)
+        self.assertFalse((results / 'source').exists())
+        self.assertTrue((work / 'TestCases').is_symlink())
+        # Missing table_lookup_tests and PLATO do not prevent unrelated tests.
+        self.assertIn('Missing build executable', process.stderr)
+
+    def test_invalid_recipe_manifest_reports_failure_but_schedules_other_checks(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        run = self.root / 'manifest-failure'
+        (run / 'source/tests/recipes').mkdir(parents=True)
+        (run / 'source/tests/recipes/recipes.toml').write_text('invalid = [')
+        manifest = {'suite': 'prepared', 'python': sys.executable,
+                    'prefix': str(self.prefix), 'builds': {'standard': str(self.root)}}
+        commands = run_tests.suite_commands(run, manifest)
+        names = {command.name for command in commands}
+        self.assertIn('ctest-standard', names)
+        self.assertIn('integration-helmholtz-lteec', names)
+        self.assertIn('recipe-registration-0', names)
+
+    def test_forced_research_channel_is_selected_once_only_when_enabled(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        manifest = {'suite': 'prepared', 'live_source': True, 'source': str(repository),
+                    'python': sys.executable, 'prefix': str(self.prefix),
+                    'builds': {'standard': str(self.root)}, 'research_source_enabled': True}
+        commands = run_tests.suite_commands(self.root, manifest)
+        self.assertEqual([c.name for c in commands].count('integration-research-channel'), 1)
+        manifest['research_source_enabled'] = False
+        self.assertNotIn('integration-research-channel', [c.name for c in run_tests.suite_commands(self.root, manifest)])
+        manifest['research_source_enabled'] = True
+        manifest['builds'] = {'axisymmetric': str(self.root)}
+        self.assertNotIn('integration-research-channel', [c.name for c in run_tests.suite_commands(self.root, manifest)])
+
+    def test_kernel_stress_is_disabled_by_default(self):
+        self.prepare()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertFalse(manifest['kernel_stress'])
+        configure = [item for item in run_tests.suite_commands(self.run, manifest)
+                     if item.name.startswith('configure-')]
+        self.assertEqual(len(configure), 2)
+        for item in configure:
+            self.assertIn('-DTHESEUS_BUILD_KERNEL_STRESS=OFF', item.argv)
+
+    def test_kernel_stress_opt_in_is_recorded_for_both_builds(self):
+        self.prepare(kernel_stress=True)
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        self.assertTrue(manifest['kernel_stress'])
+        configure = [item for item in run_tests.suite_commands(self.run, manifest)
+                     if item.name.startswith('configure-')]
+        self.assertEqual(len(configure), 2)
+        for item in configure:
+            self.assertIn('-DTHESEUS_BUILD_KERNEL_STRESS=ON', item.argv)
+
+    def test_integrated_mode_cannot_silently_ignore_kernel_stress(self):
+        args = argparse.Namespace(source=self.source, results=self.run,
+                                  prefix=self.prefix, suite='integrated', kernel_stress=True)
+        with self.assertRaisesRegex(ValueError, '--kernel-stress requires --suite full'):
+            run_tests.prepare(args)
+        self.assertFalse(self.run.exists())
 
     def test_pass_requires_complete_unchanged_evidence(self):
         self.prepare()
@@ -80,6 +300,22 @@ class TestRunnerTests(unittest.TestCase):
             (self.run / 'logs/first.log').write_text('replaced')
             with self.assertRaisesRegex(ValueError, 'Log changed'):
                 run_tests.check(self.run, self.source)
+
+    def test_case_readmes_are_documentation_but_case_inputs_are_material(self):
+        self.prepare()
+        with patch.object(run_tests, 'suite_commands', self.steps):
+            self.assertEqual(run_tests.worker(self.run), 0)
+            case = self.source / 'TestCases/GoldenData/Example'
+            case.mkdir(parents=True)
+            (case / 'README.md').write_text('Reference documentation')
+            self.assertEqual(run_tests.check(self.run, self.source), 0)
+            for name in ('config.json', 'reference.npz', 'mesh.msh', 'expected.md'):
+                with self.subTest(name=name):
+                    candidate = case / name
+                    candidate.write_text('Changed test input')
+                    with self.assertRaisesRegex(ValueError, 'stale'):
+                        run_tests.check(self.run, self.source)
+                    candidate.unlink()
 
     def test_failure_blocks_dependents_but_independent_checks_finish(self):
         self.prepare()
@@ -295,6 +531,7 @@ class TestRunnerTests(unittest.TestCase):
             'golden-lte-vortex': ('run', 'prepare', 'compare'),
             'golden-cavity': ('run', 'prepare', 'compare'),
             'golden-tgv': ('run', 'prepare', 'compare'),
+            'golden-channel': ('prepare', 'run', 'compare'),
             'golden-step': ('run', 'prepare', 'compare'),
         }
         for recipe, stages in expected.items():
@@ -378,15 +615,17 @@ class TestRunnerTests(unittest.TestCase):
         )
         self.assertEqual(checked.returncode, 0, checked.stderr)
 
-    def test_recipe_discovery_rejects_unregistered_shell_scripts(self):
+    def test_recipe_discovery_warns_without_rejecting_unregistered_shell_scripts(self):
         recipes = self.source / 'tests/recipes'
         recipes.mkdir(parents=True, exist_ok=True)
         (recipes / 'recipes.toml').write_text('schema = 1\n')
         orphan = recipes / 'orphan.sh'
         orphan.write_text('#!/usr/bin/env bash\n')
         orphan.chmod(0o755)
-        with self.assertRaisesRegex(ValueError, 'Unregistered test recipe'):
-            run_tests.load_recipes(self.source)
+        warnings = io.StringIO()
+        with contextlib.redirect_stderr(warnings):
+            self.assertEqual(run_tests.load_recipes(self.source), [])
+        self.assertIn('WARNING: Unregistered', warnings.getvalue())
 
     def test_incomplete_missing_and_overlapping_runs(self):
         self.prepare()

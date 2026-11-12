@@ -11,14 +11,13 @@ namespace Theseus
   {
     bool pressure = false;
     bool temperature = false;
-    bool entropy = false;
     bool sound_speed = false;
     bool viscosity = false;
     bool thermal_conductivity = false;
 
     bool Empty() const
     {
-      return !pressure && !temperature && !entropy && !sound_speed &&
+      return !pressure && !temperature && !sound_speed &&
              !viscosity && !thermal_conductivity;
     }
   };
@@ -28,7 +27,6 @@ namespace Theseus
   {
     mfem::real_t pressure = 0;
     mfem::real_t temperature = 0;
-    mfem::real_t entropy = 0;
     mfem::real_t sound_speed = 0;
     mfem::real_t viscosity = 0;
     mfem::real_t thermal_conductivity = 0;

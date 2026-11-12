@@ -4,9 +4,10 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
+#include <cstdlib>
 
 #include "ConditionFactory.hpp"
-#include "../tests/plato_helpers.hpp"
+#include "ChannelFlowInitialCondition.hpp"
 
 namespace Prandtl
 {
@@ -212,129 +213,7 @@ namespace Prandtl
   // Global static instance to ensure registration happens at startup.
   static RegisterCompressibleTaylorGreenVortex regCompressibleTaylorGreenVortex;
 
-  // Compressible Taylor Green Vortex initial condition for LTE
-  std::function<void(const mfem::Vector&, mfem::Vector&)> CompressibleTGV_LTEIC(mfem::real_t Ma, mfem::real_t rho0, mfem::real_t T0)
-  {
-    // const mfem::real_t rho0 = 1.0e-3;
-    // const mfem::real_t T0 = 4500.0;
 
-    // Initialize PLATO for LTE mixture calculations
-    const std::string solver("LTE_table_rhoT_(air5)");
-    const std::string mixture("air5");
-    const std::string path("/work/nvme/bdyp/clavisetty/Theseus-Cherith/tpl/install/database");
-    std::string empty_str("empty");
-    plato_initialize(solver.c_str(), mixture.c_str(), empty_str.c_str(), empty_str.c_str(), path.c_str());
-
-    PlatoMixture mix0;
-    plato_set_state(rho0, T0, mix0);
-    const mfem::real_t p0 = mix0.P;
-    const mfem::real_t U0 = Ma * mix0.c;
-
-    return [rho0, T0, p0, U0](const mfem::Vector &x, mfem::Vector &y)
-    {
-      MFEM_ASSERT(x.Size() == 3, "");
-
-      const mfem::real_t velX =  U0 * std::sin(x(0)) * std::cos(x(1)) * std::cos(x(2));
-      const mfem::real_t velY = -U0 * std::cos(x(0)) * std::sin(x(1)) * std::cos(x(2));
-      const mfem::real_t velZ = 0.0;
-
-      const mfem::real_t p = p0 + (rho0 * U0 * U0 / 16.0) * (std::cos(2.0 * x(0)) + std::cos(2.0 * x(1))) * (std::cos(2.0 * x(2)) + 2.0);
-      MFEM_VERIFY(p > 0.0, "LTE TGV initial pressure must be positive.");
-
-      PlatoMixture mix;
-      mfem::real_t rho = plato_find_density_given_P_T(p, T0, rho0, mix);
-      plato_set_state(rho, T0, mix);
-
-      const mfem::real_t energy = rho * mix.e + 0.5 * rho * (velX * velX + velY * velY + velZ * velZ);
-
-      y(0) = rho;
-      y(1) = rho * velX;
-      y(2) = rho * velY;
-      y(3) = rho * velZ;
-      y(4) = energy;
-    };
-  }
-
-  // Registration helper that automatically registers these functions
-  struct RegisterCompressibleTGV_LTE
-  {
-    RegisterCompressibleTGV_LTE()
-    {
-      // Register initial condition
-      Prandtl::ConditionFactory::Instance().RegisterInitialCondition3("CompressibleTGV_LTEIC", CompressibleTGV_LTEIC);
-    }
-  };
-  // Global static instance to ensure registration happens at startup.
-  static RegisterCompressibleTGV_LTE regCompressibleTGV_LTE;
-
-  // Streamwise Parabolic initial condition
-  std::function<void(const mfem::Vector&, mfem::Vector&)> StreamwiseParabolicIC(mfem::real_t Tw, mfem::real_t Ma) // CL ALERT : Decide on parameters
-  {
-    return [Tw, Ma] (const mfem::Vector &x, mfem::Vector &y)
-    {
-      mfem::real_t rho = 1.0;
-// #ifdef USE_PLATO
-//       PlatoMixture mix;
-//       plato_set_state(rho, Tw, mix);
-//       mfem::real_t Uref = Ma * mix.c;
-// #else
-      mfem::real_t gamma = 1.4;
-      mfem::real_t R = 287.05; // Tw = 293.15;
-      mfem::real_t Uref = Ma*std::sqrt(gamma*R*Tw);
-      mfem::real_t p = rho*R*Tw;
-// #endif
-
-      mfem::real_t parabolic_fac = 1.0 - x(1)*x(1);
-
-      mfem::real_t u = 1.5*Uref*parabolic_fac;
-      mfem::real_t v = 0.0;
-      mfem::real_t w = 0.0;
-
-      // Add random perturbation to the velocity components
-      const mfem::real_t ru = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
-      const mfem::real_t rv = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
-      const mfem::real_t rw = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
-
-      mfem::real_t Amp = 0.1*u;
-      u += Amp*ru;
-      v += Amp*rv;
-      w += Amp*rw;
-
-      // Add coherent streamwise-vortex / streak perturbation
-      const mfem::real_t X = x(0), Y = x(1), Z = x(2);
-      const mfem::real_t kx = 2.0*M_PI/4.0, kz = 2.0*M_PI/2.0;
-      const mfem::real_t f = 1.0 - Y*Y, f2 = f*f, df2 = -4.0*Y*f;
-      const mfem::real_t Au = 0.05, Avw = 0.05;
-
-      u += Au*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
-      v += Avw*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
-      w -= Avw*Uref/kz*df2*std::cos(kx*X)*std::sin(kz*Z);
-
-// #ifdef USE_PLATO
-//       mfem::real_t energy = rho * mix.e + 0.5 * rho * (u * u + v * v + w * w);
-// #else
-      mfem::real_t energy = p / (gamma - 1.0) + 0.5 * rho * (u * u + v * v + w * w);
-// #endif
-
-      y(0) = rho;
-      y(1) = rho*u;
-      y(2) = rho*v;
-      y(3) = rho*w;
-      y(4) = energy;
-    };
-  }
-
-  // Registration helper that automatically registers these functions
-  struct RegisterChannelFlow
-  {
-    RegisterChannelFlow()
-    {
-      // Register initial condition
-      Prandtl::ConditionFactory::Instance().RegisterInitialCondition2("StreamwiseParabolicIC", StreamwiseParabolicIC);
-    }
-  };
-  // Global static instance to ensure registration happens at startup.
-  static RegisterChannelFlow regChannelFlow;
 
   // Taylor Green Vortex initial condition
   std::function<void(const mfem::Vector&, mfem::Vector&)> TaylorGreenVortex2DIC(mfem::real_t gamma, mfem::real_t Ma)
@@ -1544,4 +1423,68 @@ namespace Prandtl
   // Global static instance to ensure registration happens at startup.
   static RegisterLeBlancShockTube regLeBlancShockTube;
 
+  std::function<void(const mfem::Vector&, mfem::Vector&)> StreamwiseParabolicIC(mfem::real_t Tw, mfem::real_t Ma) // CL ALERT : Decide on parameters
+  {
+    return [Tw, Ma] (const mfem::Vector &x, mfem::Vector &y)
+    {
+      mfem::real_t rho = 1.0;
+// #ifdef USE_PLATO
+//       PlatoMixture mix;
+//       plato_set_state(rho, Tw, mix);
+//       mfem::real_t Uref = Ma * mix.c;
+// #else
+      mfem::real_t gamma = 1.4;
+      mfem::real_t R = 287.05; // Tw = 293.15;
+      mfem::real_t Uref = Ma*std::sqrt(gamma*R*Tw);
+      mfem::real_t p = rho*R*Tw;
+// #endif
+
+      mfem::real_t parabolic_fac = 1.0 - x(1)*x(1);
+
+      mfem::real_t u = 1.5*Uref*parabolic_fac;
+      mfem::real_t v = 0.0;
+      mfem::real_t w = 0.0;
+
+      // Add random perturbation to the velocity components
+      const mfem::real_t ru = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+      const mfem::real_t rv = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+      const mfem::real_t rw = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+
+      mfem::real_t Amp = 0.1*u;
+      u += Amp*ru;
+      v += Amp*rv;
+      w += Amp*rw;
+
+      // Add coherent streamwise-vortex / streak perturbation
+      const mfem::real_t X = x(0), Y = x(1), Z = x(2);
+      const mfem::real_t kx = 2.0*M_PI/4.0, kz = 2.0*M_PI/2.0;
+      const mfem::real_t f = 1.0 - Y*Y, f2 = f*f, df2 = -4.0*Y*f;
+      const mfem::real_t Au = 0.05, Avw = 0.05;
+
+      u += Au*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
+      v += Avw*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
+      w -= Avw*Uref/kz*df2*std::cos(kx*X)*std::sin(kz*Z);
+
+// #ifdef USE_PLATO
+//       mfem::real_t energy = rho * mix.e + 0.5 * rho * (u * u + v * v + w * w);
+// #else
+      mfem::real_t energy = p / (gamma - 1.0) + 0.5 * rho * (u * u + v * v + w * w);
+// #endif
+
+      y(0) = rho;
+      y(1) = rho*u;
+      y(2) = rho*v;
+      y(3) = rho*w;
+      y(4) = energy;
+    };
+  }
+
+  struct RegisterResearchChannelFlow
+  {
+    RegisterResearchChannelFlow()
+    {
+      ConditionFactory::Instance().RegisterInitialCondition2("StreamwiseParabolicIC", StreamwiseParabolicIC);
+    }
+  };
+  inline RegisterResearchChannelFlow research_channel_registration;
 }

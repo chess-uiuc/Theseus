@@ -23,7 +23,6 @@ namespace Theseus
     pressure,
     blending_coefficient,
     temperature,
-    entropy,
     sound_speed,
     mach_number,
     specific_internal_energy,
@@ -44,7 +43,6 @@ namespace Theseus
     none,
     pressure,
     temperature,
-    entropy,
     sound_speed,
     viscosity,
     thermal_conductivity
@@ -65,7 +63,7 @@ namespace Theseus
     std::vector<VisualizationField> fields_;
     VisualizationMeshMode mesh_mode_ = VisualizationMeshMode::gll_subcells;
 
-    static constexpr std::array<VisualizationFieldSpec, 13> field_registry_
+    static constexpr std::array<VisualizationFieldSpec, 12> field_registry_
     {{
       {VisualizationField::density, "density", "Density", 1, VisualizationProperty::none},
       {VisualizationField::velocity, "velocity", "Velocity", 0, VisualizationProperty::none},
@@ -74,8 +72,6 @@ namespace Theseus
        VisualizationProperty::none},
       {VisualizationField::temperature, "temperature", "Temperature", 1,
        VisualizationProperty::temperature},
-      {VisualizationField::entropy, "entropy", "Entropy", 1,
-       VisualizationProperty::entropy},
       {VisualizationField::sound_speed, "sound_speed", "Sound Speed", 1,
        VisualizationProperty::sound_speed},
       {VisualizationField::mach_number, "mach_number", "Mach Number", 1,

@@ -8,13 +8,13 @@
 #include "AxisymmetryConfig.hpp"
 #include "SimFactory.hpp"
 #include "StateInit.hpp"
-#include "../tests/plato_helpers.hpp"
 #include "RadialProfile.hpp"
 #include "InitialCondition.hpp"
 #include "BoundaryStateConfig.hpp"
 #include "json.hpp"
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <mpi.h>
 
 namespace
@@ -1001,16 +1001,6 @@ namespace Theseus
         return 1;
       }
 
-#ifdef SOURCE_TERMS
-    // PlatoMixture mix;
-    // plato_set_state(1.0, 293.15, mix); // CL NOTE : Wall Temperature set to 293.15
-    // mfem::real_t u_target = 1.5 * mix.c;
-    mfem::real_t u_target = 5.1568342221905391e+02; // CL NOTE : rho=1.0; Mach = 1.5, Tw = 293.15
-    mfem::real_t e_target = 2.1127562962253299e+05; // CL NOTE : rho=1.0; Mach = 1.5, Tw = 293.15
-    mfem::real_t target_state[Theseus::MAXEQ] = {1.0, u_target, 0.0, 0.0, e_target};
-    rhsOp->SetTargetState(target_state, dim);
-#endif
-
     if(myRank == 0 && debug_simulation){
       std::cout << "Theseus RHS Operator finalized." << std::endl;
     }
@@ -1030,6 +1020,24 @@ namespace Theseus
                   << "  Total DOFs (all eqns):  " << num_dofs_system << std::endl;
       }
 
+    const auto research_initial = runtime.value("conditions", nlohmann::json::object())
+      .value("initial_conditions", nlohmann::json::object());
+    const bool force_channel = runtime.value("channel_forcing",
+      research_initial.value("function", std::string{}) == "StreamwiseParabolicIC");
+#ifndef SOURCE_TERMS
+    MFEM_VERIFY(!force_channel,
+      "Channel forcing requested: rebuild with SOURCE_TERMS=ON, or explicitly set channel_forcing=false");
+#else
+    if (force_channel)
+      {
+        MFEM_VERIFY(dim == 3, "Research channel forcing expects three dimensions");
+        const mfem::real_t target[Theseus::MAXEQ] = {
+          1.0, 515.68342221905391, 0.0, 0.0, 211275.62962253299};
+        rhsOp->SetTargetState(target, dim);
+        if (mfem::Mpi::Root())
+          std::cout << "Research channel forcing: enabled (tau=0.7*step_dt)" << std::endl;
+      }
+#endif
     ode_solver->Init(*rhsOp);
 
     rho.MakeRef(fes.get(), *sol, offset_mass(stateLayout));
@@ -1255,9 +1263,6 @@ namespace Theseus
             ? next_checkpoint_t : mfem::infinity();
           dt_real = LimitTimeStepToEvents(dt, t,
                                           {t_final, next_visualization, next_checkpoint});
-#ifdef SOURCE_TERMS
-          rhsOp->SetCurrentTime(dt_real);
-#endif
 
           // Perform the time step
           if(ti > 1){
@@ -1265,6 +1270,9 @@ namespace Theseus
           }
           {
             Theseus::ScopedTimer timer("Timestep");
+#ifdef SOURCE_TERMS
+            rhsOp->SetCurrentTime(dt_real);
+#endif
             ode_solver->Step(*sol, t, dt_real);
           }
           if(ti > 1){
@@ -1360,10 +1368,13 @@ namespace Theseus
               if (mfem::Mpi::Root())
                 {
                   std::ostringstream Ostr;
+                  const auto diagnostic_precision = Ostr.precision();
+                  Ostr.precision(std::numeric_limits<mfem::real_t>::max_digits10);
                   Ostr << "time step: " << ti << ", time: " << t;
                   if(variable_dt){
                     Ostr << ", dt: " << dt;
                   }
+                  Ostr.precision(diagnostic_precision);
                   Ostr << std::endl
                        << "rho(" << diag.min_dens << "," << diag.max_dens << "), "
                        << "p(" << diag.min_press << "," << diag.max_press << "), "

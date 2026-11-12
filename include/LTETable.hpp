@@ -22,15 +22,18 @@ namespace Theseus
     {
       // LTE table specific quantities
       int nx, ny;                // dimensions of LTE table
-      int num_properties = 6;    // CL NOTE : change the num_properties if more are being stored
+      int num_properties = 9;    // CL NOTE : change the num_properties if more are being stored
 
       // Property indices in the LTE table
-      int H_idx        = 0;  // H = e - T*s (Helmholtz free energy per unit mass)
-      int H_r_idx      = 1;  // dH / d(rho) = P / rho^2
-      int H_T_idx      = 2;  // dH / d(T) = -S
-      int H_r_T_idx    = 3;  // d^H / d(rho dT) = P_T / rho^2
-      int mu_idx       = 4;  // dynamic viscosity
-      int lambda_idx   = 5;  // thermal conductivity
+      int P_idx        = 0;  // pressure
+      int e_idx        = 1;  // internal energy
+      int cv_idx       = 2;  // specific heat at constant volume
+      int cp_idx       = 3;  // specific heat at constant pressure
+      int R_eq_idx     = 4;  // Mixture gas constant
+      int gamma_eq_idx = 5;  // gamma-eq
+      int c_idx        = 6;  // equilibrium sound-speed
+      int mu_idx       = 7;  // shear viscosity
+      int lambda_idx   = 8;  // thermal conductivity
 
       void setup(int nx_, int ny_)
       {
@@ -112,11 +115,11 @@ namespace Theseus
 
       mfem::Vector yc(nb_comp), Xc(nb_comp);
       mfem::Vector Xi(nb_spec), Xitol(nb_spec), Xip(nb_spec), Xim(nb_spec), yi(nb_spec),
-        Ri(nb_spec), ei(nb_spec), hi(nb_spec), Ji(nb_spec), si(nb_spec), Hi(nb_spec),
+        Ri(nb_spec), ei(nb_spec), hi(nb_spec), Ji(nb_spec),
         Di(nb_spec),Dij(nb_spec*(nb_spec + 1)/2), di(nb_spec);
       mfem::Vector temp(nb_temp), lambda_int(nb_temp);
 
-      mfem::real_t R, P, nb, e, betaT, alpha, s, H,
+      mfem::real_t R, P, nb, e, betaT, alpha, cv, gam, cp, c,
         mu, sigma, lambda_trh, lambda_tre, lambda_reactive;
 
       plato_get_Ri(Ri.GetData());
@@ -142,20 +145,19 @@ namespace Theseus
               P  = rho * R * T;
               nb = P / (UKB*T);
 
-              // Energies and Enntropies per unit-mass
+              // Energies and enthalpy per unit-mass
               plato_get_species_energy(temp.GetData(), ei.GetData());
-              plato_get_species_entropy(temp.GetData(), &P, si.GetData());
               for(int sp=0; sp < nb_spec; sp++) hi[sp] = ei[sp] + Ri[sp]*T;
-              for(int sp=0; sp < nb_spec; sp++) Hi[sp] = ei[sp] - T*si[sp];
               e = Theseus::Kernels::Dot(nb_spec, yi.GetData(), ei.GetData());
-              s = Theseus::Kernels::Dot(nb_spec, yi.GetData(), si.GetData());
-              H = Theseus::Kernels::Dot(nb_spec, yi.GetData(), Hi.GetData());
 
               // Derived thermodynamic properties
-              // isothermal compressibility, coeff of thermal expansion
+              // isothermal compressibility, coeff of thermal expansion, cv, cp, gamma, sound_speed at equilibrium
               betaT = plato_get_eq_isoth_comp(&P, &T, Xi.GetData());
               alpha = plato_get_eq_coeff_th_exp(&P, &T, Xi.GetData());
-              // cv    = plato_get_eq_cv(&rho, &T, yi.GetData()); // CL NOTE : Maybe use cv from Bilinear interpolation coz it is only used for the Newton iteration?
+              cv    = plato_get_eq_cv(&rho, &T, yi.GetData());
+              gam   = 1.0 + alpha*alpha*T/(rho*betaT*cv);
+              cp    = gam*cv;
+              c     = std::sqrt(gam*P/rho);
 
               // Transport properties
               // dynamic viscosity, thermal conductivity, components of thermal conductivity
@@ -186,11 +188,14 @@ namespace Theseus
               plato_get_species_diff_flux(&T, &T, &nb, Xitol.GetData(), Dij.GetData(), di.GetData(), Ji.GetData());
               lambda_reactive = Theseus::Kernels::Dot(nb_spec, Ji.GetData(), hi.GetData());
 
-              lte_table[L.property_index(L.H_idx, i, j)]      = H;
-              lte_table[L.property_index(L.H_r_idx, i, j)]    = P/(rho*rho);
-              lte_table[L.property_index(L.H_T_idx, i, j)]    = -s;
-              lte_table[L.property_index(L.H_r_T_idx, i, j)]  = alpha/(rho*rho*betaT); // CL NOTE : alpha and beta are formed using FD maybe just create H_r_T using P_T FD
-              lte_table[L.property_index(L.mu_idx, i, j)]     = mu;
+              lte_table[L.property_index(L.P_idx, i, j)] = P;
+              lte_table[L.property_index(L.e_idx, i, j)] = e;
+              lte_table[L.property_index(L.cv_idx, i, j)] = cv;
+              lte_table[L.property_index(L.cp_idx, i, j)] = cp;
+              lte_table[L.property_index(L.R_eq_idx, i, j)] = R;
+              lte_table[L.property_index(L.gamma_eq_idx, i, j)] = gam;
+              lte_table[L.property_index(L.c_idx, i, j)] = c;
+              lte_table[L.property_index(L.mu_idx, i, j)] = mu;
               lte_table[L.property_index(L.lambda_idx, i, j)] = lambda_trh + lambda_tre + lambda_int[0] + lambda_reactive;
 
               if(i+j == 0)

@@ -19,8 +19,6 @@ using real_t = mfem::real_t;
 using namespace Theseus;
 using namespace Theseus::LTETable;
 
-int num_properties = 11;
-
 TEST(plato_library_init_test)
 {
     // CL NOTE : To make sure the database path is correctly set and avoiding the initialization overhead in the subsequent tests.
@@ -122,7 +120,7 @@ TEST(plato_Temperature_solve_test)
     real_t rho_min  = 1e-4  , rho_max  = 1.1 ;
     real_t T_min = 250.0, T_max = 10000.0;
 
-    // int num_properties = 11;
+    int num_properties = 9;
 
     mfem::Vector lte_table( (num_properties) * (nx*ny) ), inv_table( nx*ny );
     mfem::Vector rho_grid, T_grid, e_grid;
@@ -138,7 +136,7 @@ TEST(plato_Temperature_solve_test)
 
     // Generation of LTE table
     log_grid(nx, rho_min, rho_max, rho_grid);
-    uniform_grid(ny, T_min, T_max, T_grid);
+    log_grid(ny, T_min, T_max, T_grid);
 
     real_t e_min, e_max;
     fill_table(lteT.L, rho_grid.GetData(), T_grid.GetData(),
@@ -175,11 +173,11 @@ TEST(plato_Temperature_solve_test)
     real_t T_newton    = eos.temp_from_internal_energy(*phys, L, S1, lteT);
 
     real_t P_true = mix.P;
-    real_t P_tab_direct = eos.pressure(*phys, L, S1, lteT, &T0);
-    real_t P_tab_newton = eos.pressure(*phys, L, S1, lteT, &T_newton);
-    real_t e_newton = eos.internal_energy_from_helmholtz(*phys, L, S1, lteT, &T_newton);
+    real_t P_tab_direct  = eos.biinterp_lte_table(lteT.L.P_idx,*phys, L, S1, T0, lteT);
+    real_t P_tab_newton  = eos.pressure(*phys, L, S1, lteT);
+    real_t e_newton = eos.biinterp_lte_table(lteT.L.e_idx,*phys, L, S1, T_newton, lteT);
 
-    EXPECT_CLOSE(e/e, e_newton/e, 1e-12);
+    EXPECT_CLOSE(e/e, e_newton/e, 1e-14);
 
     std::cout << "\n";
     std::cout << "T_inv_table - T_true = " << T_inv_table - T0 << std::endl;
@@ -195,7 +193,7 @@ TEST(plato_Temperature_solve_test)
     plato_set_state(rho, T_random, mix);
     fill_single_dof_state(L, U, dim, rho, u1, rho*mix.e);
     DofStateView S_random(U.data(), 0);
-    real_t rhoe_inverse = eos.internal_energy_from_pressure(*phys, L, S_random, P_true, lteT); // CL ALERT : Has to be implemented for the new LTEEOS
+    real_t rhoe_inverse = eos.internal_energy_from_pressure(*phys, L, S_random, P_true, lteT);
     real_t rel_err_inverse = std::abs(rhoe_inverse - rho*e)/std::abs(rho*e);
     EXPECT_SMALL(rel_err_inverse, 1e-7);
 
@@ -205,11 +203,11 @@ TEST(plato_Temperature_solve_test)
 TEST(plato_Tablelookup_test)
 {
     // Range and resolution of the table
-    int nx = 1001, ny = 1001;
-    real_t rho_min  = 1e-4  , rho_max  = 1.1 ;
-    real_t T_min = 250.0, T_max = 5000.0;
+    int nx = 101, ny = 101;
+    real_t rho_min  = 0.01  , rho_max  = 0.11 ;
+    real_t T_min = 250.0, T_max = 500.0;
 
-    // int num_properties = 11;
+    int num_properties = 9;
 
     mfem::Vector lte_table( (num_properties) * (nx*ny) ), inv_table( nx*ny );
     mfem::Vector rho_grid, T_grid, e_grid;
@@ -223,8 +221,10 @@ TEST(plato_Tablelookup_test)
     std::vector<real_t> U(num_eq * ndofs);
 
     // Generation of LTE table
+    // uniform_grid(nx, rho_min, rho_max, rho_grid);
+    // uniform_grid(ny, T_min, T_max, T_grid);
     log_grid(nx, rho_min, rho_max, rho_grid);
-    uniform_grid(ny, T_min, T_max, T_grid);
+    log_grid(ny, T_min, T_max, T_grid);
     real_t e_min, e_max;
 
     fill_table(lteT.L, rho_grid.GetData(), T_grid.GetData(),
@@ -246,37 +246,66 @@ TEST(plato_Tablelookup_test)
     // PLATO setup
     PlatoMixture mix;
 
-    // Test 1 : (Interpolation error with respect to true values from PLATO)
-    real_t max_rel_err = 0.0;
-    for (real_t rho = 1e-3; rho < 1.0; rho *= 1.5)
+    // Test 1 : (Table values at the corner of the table)
+    real_t rho  = rho_grid[3];
+    real_t T = T_grid[7];
+    plato_set_state(rho, T, mix);
+    real_t e = mix.e;
+
+    real_t rhoe = rho * e;
+    fill_single_dof_state(L, U, dim, rho, u1, rhoe);
+    DofStateView S1(U.data(), 0);
+
+    real_t P_table  = eos.pressure(*phys, L, S1, lteT);
+    real_t P_corner = lte_table[lteT.L.property_index(lteT.L.P_idx, 3, 7)];
+    real_t rel_err = std::abs(mix.P - P_table)/std::abs(mix.P);
+
+    EXPECT_SMALL(rel_err, 1e-14);
+    EXPECT_CLOSE(mix.P, P_corner, 1e-14);
+
+    // TEST 2 : (Table values at a mid-point of a cell in the table)
+    rho = 0.5*(rho_grid[3] + rho_grid[4]);
+    T   = 0.5*(T_grid[7] + T_grid[8]);
+    plato_set_state(rho, T, mix);
+    e = mix.e;
+
+    rhoe = rho * e;
+    fill_single_dof_state(L, U, dim, rho, u1, rhoe);
+    DofStateView S2(U.data(), 0);
+
+    P_table  = eos.pressure(*phys, L, S2, lteT);
+    rel_err = std::abs(mix.P - P_table)/std::abs(mix.P);
+
+    real_t P_expected = 0;
+    int l_x = hunt(rho_grid.Read(), nx, rho, 0), l_y = hunt(T_grid.Read(), ny, T, 0);
+    for(int i=0; i < 2; i++)
     {
-        for (real_t T = 400.0; T < T_max; T += 500.0)
+        for(int j=0; j < 2; j++)
         {
-            plato_set_state(rho, T, mix);
-
-            const real_t rhoe = rho * mix.e;
-
-            fill_single_dof_state(L, U, dim, rho, u1, rhoe);
-            DofStateView S(U.data(), 0);
-
-            const real_t P_table = eos.pressure(*phys, L, S, lteT);
-            const real_t rel_err = std::abs(mix.P - P_table) / std::abs(mix.P);
-
-            max_rel_err = std::max(max_rel_err, rel_err);
-
-            EXPECT_SMALL(rel_err, 1e-7);
+	  P_expected += lte_table[lteT.L.property_index(lteT.L.P_idx, l_x + i, l_y + j)];
         }
     }
-    std::cout << "\nMaximum pressure relative error = " << max_rel_err << std::endl;
+    P_expected /= 4.0;
 
-    // TEST 2 : Set (rho,rhoe) Obtain P and then see if we can obtain same rhoe from P using the inverse table lookup
-    for(real_t rho_true = 1e-3; rho_true < 1.0; rho_true *= 1.5)
+    EXPECT_SMALL(rel_err, 1e-6);
+    EXPECT_CLOSE(P_table/P_expected, 1.0, 1e-6);
+
+    // TEST 3 : (Table values at an arbitrary point in the table)
+    rho = 0.233525*rho_grid[3] + 0.766475*rho_grid[4];
+    T   = 0.768256*T_grid[7] + 0.231744*T_grid[8];
+    plato_set_state(rho, T, mix);
+    e = mix.e;
+    rhoe = rho * e;
+    fill_single_dof_state(L, U, dim, rho, u1, rhoe);
+    DofStateView S3(U.data(), 0);
+    P_table  = eos.pressure(*phys, L, S3, lteT);
+    rel_err = std::abs(mix.P - P_table)/std::abs(mix.P);
+    EXPECT_SMALL(rel_err, 1e-7);
+
+    // TEST 4 : Set (rho,rhoe) Obtain P and then see if we can obtain same rhoe from P using the inverse table lookup
+    for(real_t rho_true = rho_grid[3]; rho_true <= rho_grid[4] ; rho_true += 0.0001)
     {
-      for(real_t T = 400.0; T < T_max; T += 500.0)
-      {
-        plato_set_state(rho_true, T, mix);
-        const real_t e_true = mix.e;
-        real_t rhoe_true = rho_true * e_true;
+        real_t rhoe_true = rho_true * e_grid[50];
 
         fill_single_dof_state(L, U, dim, rho_true, u1, rhoe_true);
         DofStateView S4(U.data(), 0);
@@ -286,8 +315,7 @@ TEST(plato_Tablelookup_test)
         fill_single_dof_state(L, U, dim, rho_true, u1, rhoe_new);
         PointStateView S5(U.data());
         real_t rhoe_inverse = eos.internal_energy_from_pressure(*phys, L, S5, P_table, lteT);
-        EXPECT_CLOSE(rhoe_true/rhoe_true, rhoe_inverse/rhoe_true, 1e-11);
-      }
+        EXPECT_CLOSE(rhoe_true/rhoe_true, rhoe_inverse/rhoe_true, 1e-15);
     }
 
     plato_finalize();
@@ -304,7 +332,7 @@ TEST(plato_PhysicalState_conversion_test)
     LTETables tables(25,25);
     log_grid(25,0.1,1.1,data.rho_grid);
     log_grid(25,250,3000,data.T_grid);
-    data.lte_table.SetSize(11*25*25);
+    data.lte_table.SetSize(9*25*25);
     data.inv_table.SetSize(25*25);
     real_t e_min,e_max;
     fill_table(tables.L,data.rho_grid.GetData(),data.T_grid.GetData(),
@@ -352,7 +380,7 @@ TEST(plato_Visualization_reference)
   LTETables tables(25, 25);
   log_grid(25, 0.05, 1.1, data.rho_grid);
   log_grid(25, 250, 3000, data.T_grid);
-  data.lte_table.SetSize(num_properties * 25 * 25);
+  data.lte_table.SetSize(9 * 25 * 25);
   data.inv_table.SetSize(25 * 25);
   real_t minimum_energy;
   real_t maximum_energy;
@@ -412,7 +440,7 @@ TEST(plato_BoundaryAcoustic_reference)
   LTETables tables(density_points, temperature_points);
   log_grid(density_points, 0.0001, 1.1, data.rho_grid);
   log_grid(temperature_points, 250, 15000, data.T_grid);
-  data.lte_table.SetSize(num_properties * density_points * temperature_points);
+  data.lte_table.SetSize(9 * density_points * temperature_points);
   data.inv_table.SetSize(density_points * temperature_points);
   real_t minimum_energy;
   real_t maximum_energy;

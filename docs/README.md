@@ -1,7 +1,5 @@
 # Theseus Documentation
 
-Documentation is a work in progress.
-
 ## Using Theseus
 
 The top-level [README](../README.md) covers dependency installation, building,
@@ -16,13 +14,13 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
   conditions and exterior/profile boundary inputs
 - [Migrating physical inputs](physical-state-migration.md): CPG/LTE compatibility,
   table coverage and a runnable LTE chamber example
+- [Helmholtz LTE and LTEEC](helmholtz-eos.md): build requirements, configuration,
+  table bounds and transport choices
 - General input-file reference (coming soon)
 - [Checkpoints and restarts](checkpoints.md): save solution state, validate
   restart compatibility, and resume a run through the standard helper
 - [Axisymmetric formulation](axisymmetry.md): configure swirl-free cylindrical
   Euler/CNS runs and understand their verification status
-- [Verification and CI matrix](verification.md): integration assertions, smoke
-  cases, golden-data tolerances, and local reproduction commands
 - [Performance comparison](performance-comparison.md): compare timestep and
   construct-level timings across two or more compatible builds
 
@@ -35,17 +33,27 @@ and quick smoke runs. Simulation behavior is controlled by each test case's
 
 ## Developer guide
 
+- [Helmholtz LTE interfaces](helmholtz-development.md): table ownership, thermodynamic
+  queries, temperature recovery, discrete means and flux formulas
+- [Bicubic interpolation](helmholtz-interpolation.md): cell views, derivatives and
+  stable divided differences
+
 - [Adding tests](adding-tests.md): choose a test type, register it, and write an integrated checker
-- Runtime configuration
 - [Shared gas-property evaluation](gas-properties.md): request several properties
   while reusing LTE temperature recovery
-- Physics models
-- Adding new components
 
 ## Verification
 
 [Running tests](test-runner.md): framework diagram, local and HPC commands,
-results and failure diagnosis.
+single-build testing, results and failure diagnosis.
+
+- [Helmholtz LTEEC CPU/CUDA checks](lteec-hpc-validation.md): one build, kernel
+  oracles and automatic same-binary evolution comparisons
+- [Optional kernel stress tests](kernel-stress-testing.md): independent references,
+  large batches, guards and explicit host/backend agreement
+- [Verification and CI matrix](verification.md): integration assertions, smoke
+  cases, golden-data tolerances, and local reproduction commands
+
 
 See the [verification and CI matrix](verification.md) for the maintained test
 inventory and exact regression tolerances.

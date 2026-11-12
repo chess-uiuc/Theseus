@@ -36,9 +36,6 @@ namespace Theseus
         case VisualizationProperty::temperature:
           properties_needed.temperature = true;
           break;
-        case VisualizationProperty::entropy:
-          properties_needed.entropy = true;
-          break;
         case VisualizationProperty::sound_speed:
           properties_needed.sound_speed = true;
           break;
@@ -63,8 +60,6 @@ namespace Theseus
           return properties.pressure;
         case VisualizationField::temperature:
           return properties.temperature;
-        case VisualizationField::entropy:
-          return properties.entropy;
         case VisualizationField::sound_speed:
           return properties.sound_speed;
         case VisualizationField::mach_number:

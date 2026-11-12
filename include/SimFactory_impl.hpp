@@ -15,11 +15,12 @@
 #include "ChandrashekarFlux.hpp"
 #include "RanochaFlux.hpp"
 #include "PirozzoliFlux.hpp"
-#include "LTEECFlux.hpp"
 #include "HLLFlux.hpp"
 #include "RoeFlux.hpp"
 #include "LTETable.hpp"
 #include "TheseusConfig.hpp"
+#include "LTEECFlux.hpp"
+#include "LTEHelmholtzTableBuilder.hpp"
 
 namespace Theseus {
 
@@ -86,6 +87,17 @@ namespace Theseus {
       gas_model_string == "ideal" ||
       gas_model_string == "ideal_gas";
 
+    bool research_channel = false;
+#ifdef CHANNEL_RESEARCH_COMPATIBILITY
+    research_channel = runtime.value("channel_forcing", false) ||
+      runtime.value("conditions", nlohmann::json::object())
+        .value("initial_conditions", nlohmann::json::object())
+        .value("function", std::string{}) == "StreamwiseParabolicIC";
+#endif
+    const bool use_lteec = inv_flux_string == "lteec" || inv_flux_string == "lteecflux";
+    const bool use_helmholtz = gas_model_string == "lte_helmholtz" ||
+                               (gas_model_string == "lte" && (use_lteec || research_channel));
+
     const bool use_lte =
       gas_model_string == "lte";
 
@@ -115,10 +127,6 @@ namespace Theseus {
       inv_flux_string == "lax_friedrichs" ||
       starts_with(inv_flux_string, "lax");
 
-    const bool use_lteec =
-      inv_flux_string == "lteecflux" ||
-      starts_with(inv_flux_string, "lteec");
-
     const bool viscous =
       starts_with(flow_model_string, "visc") ||
       starts_with(flow_model_string, "nav")  ||
@@ -135,6 +143,119 @@ namespace Theseus {
                                                 runtime.value("mu", 0.02),
                                                 runtime.value("mu0", 1.716e-5));
     Theseus::StateLayout layout(dim, num_dofs_scalar);
+
+    if (use_helmholtz)
+      {
+#if defined(USE_PLATO) && defined(THESEUS_PLATO_HAS_ENTROPY)
+        if (!use_lteec && !use_piflux && !use_hll && !use_llf)
+          {
+            std::cerr << "Helmholtz LTE supports LTEECFlux, Pirozzoli, HLL and LLF" << std::endl;
+            return nullptr;
+          }
+        const int nx = runtime.value("N_rho", 101);
+        const int ny = runtime.value("N_T", 101);
+        const mfem::real_t rho_min = runtime.value("rho_min", 0.01);
+        const mfem::real_t rho_max = runtime.value("rho_max", 3.0);
+        const mfem::real_t t_min = runtime.value("T_min", 100.0);
+        const mfem::real_t t_max = runtime.value("T_max", 2000.0);
+        if (nx < 2 || ny < 2 || !std::isfinite(rho_min) || !std::isfinite(rho_max) ||
+            !std::isfinite(t_min) || !std::isfinite(t_max) ||
+            rho_min <= 0 || rho_max <= rho_min || t_min <= 0 || t_max <= t_min)
+          {
+            std::cerr << "Invalid Helmholtz table grid dimensions or bounds" << std::endl;
+            return nullptr;
+          }
+        const std::string mixture = runtime.value("gas_mixture", "air5");
+        const std::string solver = runtime.value("plato_solver", runtime.value("solver", std::string("LTE_table_rhoT_(air5)")));
+        const std::string path = runtime.value("database_path", std::string(BuildConfig::PlatoDBPath));
+        auto data = std::make_unique<HelmholtzTable::Data>();
+        if (runtime.value("rho_dist", "log") == "log")
+          {
+            LTETable::log_grid(nx, rho_min, rho_max, data->rho_grid);
+          }
+        else
+          {
+            LTETable::uniform_grid(nx, rho_min, rho_max, data->rho_grid);
+          }
+        if (runtime.value("T_dist", "linear") == "log")
+          {
+            LTETable::log_grid(ny, t_min, t_max, data->T_grid);
+          }
+        else
+          {
+            LTETable::uniform_grid(ny, t_min, t_max, data->T_grid);
+          }
+        data->lte_table.SetSize(HelmholtzTable::Layout::num_properties*nx*ny);
+        data->inv_table.SetSize(nx*ny);
+        data->e_grid.SetSize(ny);
+        int rank;
+        MPI_Comm_rank(pmesh->GetComm(), &rank);
+        int constructed = 1;
+        if (rank == 0)
+          {
+            bool initialized = false;
+            try
+              {
+                if (LTETable::check_plato_database_path(path))
+                  {
+                    throw std::invalid_argument("PLATO database is unavailable");
+                  }
+                std::cout << "Constructing Helmholtz LTE table for " << mixture << std::endl;
+                plato_initialize(solver.c_str(), mixture.c_str(), "empty", "empty", path.c_str());
+                initialized = true;
+                HelmholtzTable::Build(*data);
+              }
+            catch (const std::exception &error)
+              {
+                constructed = 0;
+                std::cerr << "Helmholtz table construction failed: " << error.what() << std::endl;
+              }
+            if (initialized)
+              {
+                plato_finalize();
+              }
+          }
+        MPI_Bcast(&constructed, 1, MPI_INT, 0, pmesh->GetComm());
+        if (!constructed)
+          {
+            return nullptr;
+          }
+        MPI_Bcast(data->lte_table.HostWrite(), data->lte_table.Size(), MPI_DOUBLE, 0, pmesh->GetComm());
+        MPI_Bcast(data->inv_table.HostWrite(), nx*ny, MPI_DOUBLE, 0, pmesh->GetComm());
+        MPI_Bcast(data->e_grid.HostWrite(), ny, MPI_DOUBLE, 0, pmesh->GetComm());
+        const auto tables = HelmholtzTable::HostView(*data, HelmholtzTable::Layout{nx, ny});
+        const auto gas = std::make_shared<LTEHelmholtzGas>(physics_constants, layout, tables);
+        auto make = [&](auto flux, const char *name)
+          {
+            using Flux = decltype(flux);
+            using Physics = PhysicsTraits<LTEHelmholtzGas, Flux>;
+            auto op = MakeTypedRHSOperator<Physics, LTEHelmholtzGas>(inviscid, runtime,
+              vfes, fes0, pmesh, eta, alpha, grad_u, indicator, alpha_max, gas,
+              "LTE-Helmholtz:" + mixture, name);
+            auto *typed = dynamic_cast<RHSOperator<Physics> *>(op.get());
+            typed->GetOperatorCacheReference().lteTableData = std::move(data);
+            return op;
+          };
+        if (use_lteec)
+          {
+            return make(LTEECFlux::InviscidFlux{}, "LTEECFlux");
+          }
+        if (use_piflux)
+          {
+            return make(PirozzoliFlux::InviscidFlux{}, "Pirozzoli");
+          }
+        if (use_hll)
+          {
+            return make(HLLFlux::InviscidFlux{}, "HLL");
+          }
+        return make(LaxFriedrichsFlux::InviscidFlux{}, "LLF");
+#else
+        std::cerr << "Helmholtz LTE requires PLATO with plato_get_species_entropy in its header and library; "
+                  << "configure with THESEUS_WITH_PLATO=ON and a compatible TPL prefix. "
+                  << "Legacy gas_model=lte with existing fluxes remains available." << std::endl;
+        return nullptr;
+#endif
+      }
 
     if (use_cpg)
       {
@@ -230,7 +351,7 @@ namespace Theseus {
       mfem::real_t rho_max  = runtime.value("rho_max", 1.1);
       mfem::real_t T_min    = runtime.value("T_min", 250.0);
       mfem::real_t T_max    = runtime.value("T_max", 35.0);
-      int num_properties = 11; // CL NOTE : Check LTE EOS
+      int num_properties = 9; // CL NOTE : Check LTE EOS
       auto lteData = std::make_unique<Theseus::LTETable::Data>();
       auto &lteTableData = *lteData;
       Theseus::LTETable::LTETables    lteTables;
@@ -293,28 +414,25 @@ namespace Theseus {
       };
       auto gas_model = std::make_shared<Theseus::LTEGas>(physics_constants, layout, lteTables);
       std::string gasModelName("LTE:"+mixture);
-      if (use_piflux)
+      if (use_chan)
+        {
+          std::string numFluxName("Chandrashekar");
+          using Physics =
+            Theseus::PhysicsTraits<Theseus::LTEGas,
+                                   Theseus::ChandrashekarFlux::InviscidFlux>;
+          // return MakeTypedRHSOperator<Physics>(inviscid, runtime,
+          //                                   vfes, fes0, pmesh, eta, alpha, grad_u,
+          //                                     indicator, alpha_max, gas_model,
+          //                                     gasModelName, numFluxName);
+          std::cerr << "Error: Cannot use Chandrashekar flux with LTE" << std::endl;
+          return nullptr;
+        }
+      else if (use_piflux)
         {
           std::string numFluxName("Pirozzoli");
           using Physics =
             Theseus::PhysicsTraits<Theseus::LTEGas,
                                    Theseus::PirozzoliFlux::InviscidFlux>;
-
-          auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>(inviscid, runtime,
-                                                                      vfes, fes0, pmesh, eta, alpha, grad_u,
-                                                                      indicator, alpha_max, gas_model,
-                                                                      gasModelName, numFluxName);
-          RHSOperator<Physics> *lteRHSOp = dynamic_cast<RHSOperator<Physics> *>(rhsOp.get());
-          auto &operator_cache = lteRHSOp->GetOperatorCacheReference();
-          operator_cache.lteTableData = std::move(lteData);
-          return rhsOp;
-        }
-      else if (use_lteec)
-        {
-          std::string numFluxName("LTEEC");
-          using Physics =
-            Theseus::PhysicsTraits<Theseus::LTEGas,
-                                   Theseus::LTEECFlux::InviscidFlux>;
 
           auto rhsOp = MakeTypedRHSOperator<Physics, Theseus::LTEGas>(inviscid, runtime,
                                                                       vfes, fes0, pmesh, eta, alpha, grad_u,
@@ -361,7 +479,7 @@ namespace Theseus {
       else {
         std::cerr << "Error: Invalid Numerical Flux Type specified: "
                   << inv_flux_string << "\n"
-                  << "Supported: Pirozzoli, LTEECFlux, LLF/LFR, HLL"
+                  << "Supported: Pirozzoli, LLF/LFR, HLL"
                   << std::endl;
         return nullptr;
       }
@@ -369,7 +487,7 @@ namespace Theseus {
     } else {
       std::cerr << "Error: Invalid Gas Model specified: "
                 << gas_model_string << "\n"
-                << "Supported: CPG, LTE"
+                << "Supported: CPG, LTE, LTE_Helmholtz"
                 << std::endl;
       return nullptr;
     }

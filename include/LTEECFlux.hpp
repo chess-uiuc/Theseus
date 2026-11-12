@@ -1,146 +1,119 @@
-// Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
-//
-// This file is part of Theseus.
-//
+// Copyright (c) 2026 Board of Trustees of the University of Illinois
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
-
-#include "mfem.hpp"
-#include "NavierStokesFlux.hpp"
-#include "theseus_kernels.hpp"
+#include "LTEHelmholtzGasEOS.hpp"
 #include "DissipationOperator.hpp"
 
 namespace Theseus
 {
-
   namespace LTEECFlux
   {
-    // Two-point entropy-conservative numerical flux for the volume discretization.
-    // Will be ctx.iflux.ComputeVolumeFlux
-    template<typename GasModelT>
-    MFEM_HOST_DEVICE
-    inline static void ComputeVolumeFluxKernel(const GasModelT &gasModel,
-                                                 const mfem::real_t* q1,
-                                                 const mfem::real_t* q2,
-                                                 const mfem::real_t* met1,
-                                                 const mfem::real_t* met2,
-                                                 mfem::real_t* F_tilde)
+    template<bool Face, class Gas>
+    MFEM_HOST_DEVICE inline void Compute(const Gas &gas, const mfem::real_t *q1,
+        const mfem::real_t *q2, const mfem::real_t *direction1,
+        const mfem::real_t *direction2, mfem::real_t *flux)
     {
-      const int dim = gasModel.dim();
-      const int neq = gasModel.num_equations();
-      
-      // mean metric row
-      mfem::real_t met[3] = {0,0,0};
-      Kernels::ComputeMeanVec(met1, met2, met, dim);
-      Theseus::PointStateView S1{q1};
-      Theseus::PointStateView S2{q2};
-
-      mfem::real_t rho_avg;
-      mfem::real_t e_avg;
-
-      gasModel.eos.rho_ie_avg_discrete_gradient(gasModel.phys, gasModel.L, S1, S2, rho_avg, e_avg, gasModel.T);
-      
-      mfem::real_t vbar[3] = {0,0,0};
-      mfem::real_t p_prod_mean[3] = {0,0,0};
-      mfem::real_t ke_flux = 0;
-      mfem::real_t vn = 0;
-      
-      const mfem::real_t p1 = gasModel.pressure(S1);
-      const mfem::real_t p2 = gasModel.pressure(S2);
-      const mfem::real_t pbar = mfem::real_t(0.5) * (p1 + p2);
-      
-      for (int d=0; d<dim; ++d)
-        {
-          const mfem::real_t v1 = gasModel.velocity(S1, d);
-          const mfem::real_t v2 = gasModel.velocity(S2, d);
-          vbar[d] = mfem::real_t(0.5)*(v1+v2);
-          vn   += vbar[d] * met[d];
-
-          ke_flux += mfem::real_t(0.5) * (v1*v2);
-          p_prod_mean[d] = mfem::real_t(0.5) * (p1*v2 + p2*v1);
-        }
-
-      // F_tilde layout: [rho, rhoV, rhoE]
-      const int mass_eq = gasModel.L.eq_mass;
-      const int mom0_eq = gasModel.L.eq_mom0;
-      const int ener_eq = gasModel.L.eq_energy;
-      F_tilde[mass_eq] = rho_avg * vn;
-      F_tilde[ener_eq] = 0.0;
-      for (int d=0; d<dim; ++d)
+      const PointStateView left(q1);
+      const PointStateView right(q2);
+      mfem::real_t density_mean;
+      mfem::real_t energy_mean;
+      mfem::real_t pressure1;
+      mfem::real_t pressure2;
+      mfem::real_t sound1 = 0;
+      mfem::real_t sound2 = 0;
       {
-        F_tilde[mom0_eq + d] = rho_avg * vn * vbar[d] + pbar * met[d];
-        F_tilde[ener_eq] += p_prod_mean[d] * met[d];
+        // Recover once per endpoint and share its selected cell. Consume all
+        // thermodynamics before writing output; no coefficient/derivative or
+        // dissipation buffers survive into the equation loop.
+        const auto state1 = gas.eos.evaluate(gas.phys, gas.L, left, gas.T);
+        const auto state2 = gas.eos.evaluate(gas.phys, gas.L, right, gas.T);
+        const auto means = HelmholtzEOS::ThermodynamicMeans(gas.T, state1, state2);
+        density_mean = means.density;
+        energy_mean = means.energy;
+        pressure1 = state1.pressure();
+        pressure2 = state2.pressure();
+        if constexpr (Face)
+          {
+            sound1 = std::sqrt(state1.sound_speed_squared());
+            sound2 = std::sqrt(state2.sound_speed_squared());
+          }
       }
-      F_tilde[ener_eq] += rho_avg * (e_avg + ke_flux) * vn;
-    }
-
-    template<typename GasModelT>
-    MFEM_HOST_DEVICE inline static void ComputeFaceFluxKernel(const GasModelT &gasModel,const mfem::real_t *state1,
-                                                                const mfem::real_t *state2, const mfem::real_t *nor,
-                                                                mfem::real_t *flux)
-    {
-      const int dim = gasModel.dim();
-      const int neq = gasModel.num_equations();
-      
-      Theseus::PointStateView S1{state1};
-      Theseus::PointStateView S2{state2};
-
-      mfem::real_t rho_avg;
-      mfem::real_t e_avg;
-      gasModel.eos.rho_ie_avg_discrete_gradient(gasModel.phys, gasModel.L, S1, S2, rho_avg, e_avg, gasModel.T);
-
-      mfem::real_t vbar[3] = {0.0, 0.0, 0.0};
-      mfem::real_t p_prod_mean[3] = {0.0, 0.0, 0.0};
-      mfem::real_t diss[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
-      mfem::real_t ke_flux = 0.0;
-      mfem::real_t vn = 0.0;
-
-      const mfem::real_t p1 = gasModel.pressure(S1);
-      const mfem::real_t p2 = gasModel.pressure(S2);
-      const mfem::real_t pbar = 0.5 * (p1 + p2);
-
-      for(int idim = 0; idim < dim; idim++){
-        const mfem::real_t v1 = gasModel.velocity(S1, idim);
-        const mfem::real_t v2 = gasModel.velocity(S2, idim);
-        vbar[idim] = 0.5 * (v1 + v2);
-        vn += vbar[idim] * nor[idim];
-        ke_flux += 0.5 * (v1*v2);
-        p_prod_mean[idim] = 0.5 * (p1*v2 + p2*v1);
-      }
-
-      const int mass_eq = gasModel.L.eq_mass;
-      const int mom0_eq = gasModel.L.eq_mom0;
-      const int ener_eq = gasModel.L.eq_energy;
-
-      // Dissipative part of the flux based on Roe's approximate Riemann solver
-      // Roe_dissipation(gasModel, S1, S2, nor, diss);
-      Lax_dissipation(gasModel, S1, S2, nor, diss);
-
-      flux[mass_eq] = rho_avg * vn - diss[mass_eq];
-      flux[ener_eq] = 0.0;
-      for (int d = 0; d < dim; d++)
+      const auto pressure_mean = 0.5*(pressure1 + pressure2);
+      mfem::real_t normal_velocity = 0;
+      mfem::real_t cross_kinetic = 0;
+      mfem::real_t pressure_work = 0;
+      mfem::real_t velocity1_normal = 0;
+      mfem::real_t velocity2_normal = 0;
+      mfem::real_t norm_squared = 0;
+      for (int d = 0; d < gas.dim(); ++d)
         {
-          flux[mom0_eq + d] = rho_avg * vn * vbar[d] + pbar * nor[d] - diss[mom0_eq + d];
-          flux[ener_eq] += p_prod_mean[d] * nor[d];
+          const auto direction = Face ? direction1[d] : 0.5*(direction1[d] + direction2[d]);
+          const auto u1 = gas.velocity(left, d);
+          const auto u2 = gas.velocity(right, d);
+          normal_velocity += 0.5*(u1 + u2)*direction;
+          cross_kinetic += 0.5*u1*u2;
+          pressure_work += 0.5*(pressure1*u2 + pressure2*u1)*direction;
+          if constexpr (Face)
+            {
+              velocity1_normal += u1*direction;
+              velocity2_normal += u2*direction;
+              norm_squared += direction*direction;
+            }
         }
-      flux[ener_eq] += rho_avg * (e_avg + ke_flux) * vn - diss[ener_eq];
+      mfem::real_t dissipation = 0;
+      if constexpr (Face)
+        {
+          // Same convention as MaximumNormalWaveSpeed: nonunit normal
+          // magnitude enters the acoustic contribution exactly once.
+          const auto norm = std::sqrt(norm_squared);
+          dissipation = Lax_dissipation_coefficient(velocity1_normal,
+            velocity2_normal, sound1, sound2, norm);
+        }
+      const auto mass_flux = density_mean*normal_velocity;
+      flux[gas.L.eq_mass] = mass_flux - Lax_dissipation(dissipation, q1[gas.L.eq_mass], q2[gas.L.eq_mass]);
+      for (int d = 0; d < gas.dim(); ++d)
+        {
+          const auto direction = Face ? direction1[d] : 0.5*(direction1[d] + direction2[d]);
+          const auto velocity = 0.5*(gas.velocity(left, d) + gas.velocity(right, d));
+          const int equation = gas.L.eq_mom0 + d;
+          flux[equation] = mass_flux*velocity + pressure_mean*direction
+                           - Lax_dissipation(dissipation, q1[equation], q2[equation]);
+        }
+      flux[gas.L.eq_energy] = mass_flux*(energy_mean + cross_kinetic) + pressure_work
+                             - Lax_dissipation(dissipation, q1[gas.L.eq_energy], q2[gas.L.eq_energy]);
     }
-    struct InviscidFlux {
- 
-      template<typename GasModelT>
-      MFEM_HOST_DEVICE inline void ComputeVolumeFlux(const GasModelT &gasModel,
-                                                       const mfem::real_t *q1, const mfem::real_t *q2,
-                                                       const mfem::real_t *met1, const mfem::real_t *met2,
-                                                       mfem::real_t *F_tilde) const{
-        ComputeVolumeFluxKernel(gasModel, q1, q2, met1, met2, F_tilde);
+
+    template<class Gas>
+    MFEM_HOST_DEVICE inline void ComputeFaceFluxKernel(const Gas &gas, const mfem::real_t *left,
+        const mfem::real_t *right, const mfem::real_t *normal, mfem::real_t *flux)
+    {
+      Compute<true>(gas, left, right, normal, normal, flux);
+    }
+
+    template<class Gas>
+    MFEM_HOST_DEVICE inline void ComputeVolumeFluxKernel(const Gas &gas, const mfem::real_t *left,
+        const mfem::real_t *right, const mfem::real_t *metric1, const mfem::real_t *metric2,
+        mfem::real_t *flux)
+    {
+      Compute<false>(gas, left, right, metric1, metric2, flux);
+    }
+
+    struct InviscidFlux
+    {
+      template<class Gas>
+      MFEM_HOST_DEVICE void ComputeFaceFlux(const Gas &gas, const mfem::real_t *left,
+          const mfem::real_t *right, const mfem::real_t *normal, mfem::real_t *flux) const
+      {
+        ComputeFaceFluxKernel(gas, left, right, normal, flux);
       }
 
-      template<typename GasModelT>
-      MFEM_HOST_DEVICE inline void ComputeFaceFlux(const GasModelT &gasModel,const mfem::real_t *qminus,
-                                                     const mfem::real_t *qplus, const mfem::real_t *nor,
-                                                     mfem::real_t *flux) const {
-        ComputeFaceFluxKernel(gasModel, qminus, qplus, nor, flux);
+      template<class Gas>
+      MFEM_HOST_DEVICE void ComputeVolumeFlux(const Gas &gas, const mfem::real_t *left,
+          const mfem::real_t *right, const mfem::real_t *metric1, const mfem::real_t *metric2,
+          mfem::real_t *flux) const
+      {
+        ComputeVolumeFluxKernel(gas, left, right, metric1, metric2, flux);
       }
     };
-  };
+  }
 }

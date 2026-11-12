@@ -4,6 +4,10 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
+#ifdef SOURCE_TERMS
+#include "Source.hpp"
+#endif
+
 namespace Theseus
 {
 
@@ -888,6 +892,10 @@ namespace Theseus
 
     // Set up the read-only pointers for restr inputs
     const mfem::real_t *Ue_d = vol_u.Read();
+#ifdef SOURCE_TERMS
+    Source::PreProcessSourceTerms(dc, operator_cache, Ue_d, this->pmesh->GetComm());
+#endif
+
     const mfem::real_t *gradPrim_d[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
     for(int idim = 0;idim < dim;idim++){
       gradPrim_d[idim] = vol_grad_prim[idim].Read();
@@ -954,10 +962,6 @@ namespace Theseus
     });
 #endif
 
-#ifdef SOURCE_TERMS
-    Source::PreProcessSourceTerms(dc, operator_cache, Ue_d, this->pmesh->GetComm());
-#endif
-
     // Inside the FORALL below, executed on device
     mfem::forall(ne, [=] MFEM_HOST_DEVICE (int e)
     {
@@ -1006,6 +1010,7 @@ namespace Theseus
 #ifdef SOURCE_TERMS
       Source::AddSourceTerms(dc, u_el, du_el);
 #endif
+
 #ifndef POINT_PARALLEL_VOLUME
       const mfem::real_t *grad_prim_el[Theseus::MAXDIM] = {nullptr, nullptr, nullptr};
       for(int idim = 0;idim < dim;idim++){

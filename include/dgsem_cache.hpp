@@ -134,12 +134,12 @@ namespace Theseus
     OperatorGasModel gas;
     InviscidFlux iflux;
     std::unique_ptr<Theseus::LTETable::Data> lteTableData;
-
-    // Target state source term data
-    bool use_target_state_source = true; // CL ALERT : Find a way to enable this currently setting it to true
+    bool use_target_state_source = false;
+    bool source_buffers_initialized = false;
     mfem::Vector target_state = mfem::Vector(Theseus::MAXEQ);
     mfem::Vector volume_avg_state = mfem::Vector(Theseus::MAXEQ);
     mfem::real_t current_dt = 0.0;
+
 
 #ifdef SUBCELL_FV_BLENDING
     mfem::Vector subcellMetricXi;
@@ -195,10 +195,14 @@ namespace Theseus
     int Np = 0;
     int num_attr = 0;
     int num_bcs = 0;
-    mfem::real_t total_volume = 0.0;
     bool axisymmetric = AxisymmetricGeometry::enabled;
 
     // Volume elements
+    mfem::real_t total_volume = 0.0;
+    bool use_target_state_source = false;
+    const mfem::real_t *target_state_d = nullptr;
+    const mfem::real_t *volume_avg_state_d = nullptr;
+    mfem::real_t tau_inv = 0.0;
     const int *elem_attr_d = nullptr;    // size ne, values are 1-based attributes
     const int *attr_marker_d = nullptr;  // size nattr, 0/1
     const mfem::real_t *elJac_d = nullptr;
@@ -230,12 +234,6 @@ namespace Theseus
     // Physics parts
     Gas gas;
     InviscidFlux iflux;
-
-    // Target state source term data
-    bool use_target_state_source = true; // CL ALERT : Find a way to enable this currently setting it to true
-    const mfem::real_t *target_state_d = nullptr;
-    const mfem::real_t *volume_avg_state_d = nullptr;
-    mfem::real_t tau_inv = 0.0;
 
 #ifdef SUBCELL_FV_BLENDING
     const mfem::real_t *subcell_metric_xi_d = nullptr;

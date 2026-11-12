@@ -17,8 +17,14 @@ set(EXTRA_LINK_LIBRARIES "" CACHE STRING "Extra libraries to append to final exe
 project(Theseus)
 
 option(BUILD_TESTING "Build unit tests" ON)
+option(THESEUS_BUILD_KERNEL_STRESS "Build optional numerical kernel stress tests" OFF)
+if(THESEUS_BUILD_KERNEL_STRESS AND NOT BUILD_TESTING)
+  message(FATAL_ERROR "THESEUS_BUILD_KERNEL_STRESS requires BUILD_TESTING=ON")
+endif()
 option(SUBCELL_FV_BLENDING "Enable subcell blending" ON)
 option(AXISYMMETRIC "Enable Axisymmetric domain solver" OFF)
+option(SOURCE_TERMS "Enable research channel target-state forcing" OFF)
+option(CHANNEL_RESEARCH_COMPATIBILITY "Use the research channel conductivity and Pirozzoli dissipation" ON)
 option(SUTHERLAND "Enable Sutherland transport model" OFF)
 option(ENABLE_TIMERS "Enable performance timers." OFF)
 option(ENABLE_TIMER_BARRIER "MPI_BARRIER in performance timers." OFF)
@@ -28,7 +34,6 @@ option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
 set(ENABLE_POINT_PARALLEL_INTERIOR_FACES ON)
 set(ENABLE_POINT_PARALLEL_VOLUME ON)
-option(SOURCE_TERMS "Enable Source terms" OFF)
 ## NOTE: PLATO_DB_PATH can be specified at build-time to customize
 ##       the location of the database used by PLATO. Tries to default
 ##       to a reasonable location.
@@ -78,6 +83,26 @@ if (THESEUS_WITH_PLATO)
    )
 endif()
 
+# Compile and link the entropy API before enabling Helmholtz table construction.
+if(THESEUS_WITH_PLATO)
+  include(CheckCXXSourceCompiles)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+  set(CMAKE_REQUIRED_INCLUDES ${PLATO_INCLUDE_DIR})
+  set(CMAKE_REQUIRED_LIBRARIES Plato::Plato ${CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES})
+  foreach(directory IN LISTS CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES)
+    list(APPEND CMAKE_REQUIRED_LINK_OPTIONS "-L${directory}")
+  endforeach()
+  check_cxx_source_compiles("#include <plato_Cpp_library_interface.h>
+    int main() { double t=300, p=100000, s[64]; plato_get_species_entropy(&t,&p,s); }"
+    THESEUS_PLATO_HAS_ENTROPY)
+  cmake_pop_check_state()
+  if(NOT THESEUS_PLATO_HAS_ENTROPY)
+    message(STATUS "PLATO entropy API unavailable: legacy LTE remains enabled; Helmholtz table construction requires a newer PLATO")
+  endif()
+endif()
+
+
 find_package(MPI REQUIRED COMPONENTS CXX)
 
 add_executable(theseus src/main.cpp)
@@ -104,6 +129,9 @@ endif()
 
 if(THESEUS_WITH_PLATO)
   target_compile_definitions(theseus PRIVATE USE_PLATO)
+  if(THESEUS_PLATO_HAS_ENTROPY)
+    target_compile_definitions(theseus PRIVATE THESEUS_PLATO_HAS_ENTROPY)
+  endif()
   target_link_libraries(theseus PRIVATE Plato::Plato)
 
   # This bit is needed because PLATO does not properly
@@ -184,6 +212,13 @@ else()
   message(STATUS "Building ${PROJECT_NAME} with: Subcell FV Blending OFF")
 endif()
 
+if(SOURCE_TERMS)
+  target_compile_definitions(theseus PRIVATE SOURCE_TERMS)
+endif()
+if(CHANNEL_RESEARCH_COMPATIBILITY)
+  target_compile_definitions(theseus PRIVATE CHANNEL_RESEARCH_COMPATIBILITY)
+endif()
+
 if(SUTHERLAND)
   message(STATUS "Building ${PROJECT_NAME} with: Sutherland transport model enabled")
   target_compile_definitions(theseus PRIVATE SUTHERLAND)
@@ -192,13 +227,6 @@ endif()
 if(AXISYMMETRIC)
   message(STATUS "Building ${PROJECT_NAME} with: Axisymmetric domain enabled")
   target_compile_definitions(theseus PRIVATE AXISYMMETRIC)
-endif()
-
-if(SOURCE_TERMS)
-  message(STATUS "Building ${PROJECT_NAME} with: Source terms enabled")
-  target_compile_definitions(theseus PRIVATE SOURCE_TERMS)
-else()
-  message(STATUS "Building ${PROJECT_NAME} with: Source terms OFF")
 endif()
 
 # -------------------------------------------------------------------------------

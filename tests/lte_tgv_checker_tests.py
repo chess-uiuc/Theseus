@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Prevent a CPU fallback or unequal physical times from passing device parity."""
 import unittest
+from pathlib import Path
 
-from lte_tgv_device_integration_test import require_device, require_matching_times
+from lte_tgv_device_integration_test import require_device, require_matching_times, logged_output_times
 
 
 class ComparisonContractTests(unittest.TestCase):
@@ -27,6 +28,18 @@ class ComparisonContractTests(unittest.TestCase):
     def test_missing_frame_is_rejected(self):
         with self.assertRaises(AssertionError):
             require_matching_times([0.0, 1e-4], [0.0])
+
+    def test_rounded_pvd_labels_do_not_hide_different_times(self):
+        frames = [(0.0, Path("Cycle000000/data.pvtu")),
+                  (0.001, Path("Cycle000010/data.pvtu"))]
+        cpu = logged_output_times("time step: 10, time: 0.0010000000001, dt: 0.0001", frames)
+        gpu = logged_output_times("time step: 10, time: 0.0010000000002, dt: 0.0001", frames)
+        with self.assertRaises(AssertionError):
+            require_matching_times(cpu, gpu)
+
+    def test_output_requires_its_logged_cycle_time(self):
+        with self.assertRaises(AssertionError):
+            logged_output_times("time step: 9, time: 0.001", [(0.001, Path("Cycle000010/data.pvtu"))])
 
     def test_nonfinite_time_is_rejected(self):
         with self.assertRaises(AssertionError):

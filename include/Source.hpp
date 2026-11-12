@@ -6,6 +6,7 @@
 #pragma once
 
 #include "mfem.hpp"
+#include <cmath>
 #include "GasModel.hpp"
 #include "LTEGasModel.hpp"
 #include "Utilities.hpp"
@@ -18,28 +19,21 @@ namespace Theseus
     MFEM_HOST_DEVICE
     inline void TargetStateSource(const DeviceContext &dc, const mfem::real_t *Ue, mfem::real_t *dUe)
     {
-      const int dof = dc.ndof_scalar_el;
-      const int neq = dc.num_equations;
-      auto gas = dc.gas;
-      const int dim = gas.dim();
+      const int ndof = dc.ndof_scalar_el;
+      const int mass = dc.gas.L.eq_mass;
+      const int momentum = dc.gas.L.eq_mom0;
+      const int energy = dc.gas.L.eq_energy;
+      const auto srho = (dc.target_state_d[mass] - dc.volume_avg_state_d[mass])*dc.tau_inv;
+      const auto smom = (dc.target_state_d[momentum] - dc.volume_avg_state_d[momentum])*dc.tau_inv;
+      for (int point = 0; point < ndof; ++point)
+        {
+          const auto rho = Ue[mass*ndof + point];
+          const auto ux = Ue[momentum*ndof + point]/rho;
+          dUe[mass*ndof + point] += srho;
+          dUe[momentum*ndof + point] += smom;
+          dUe[energy*ndof + point] += ux*smom;
+        }
 
-      const mfem::real_t *volume_avg_state = dc.volume_avg_state_d;
-      const mfem::real_t *target_state = dc.target_state_d;
-
-      mfem::real_t state[Theseus::MAXEQ];
-      mfem::real_t source[Theseus::MAXEQ] = {0.0, 0.0, 0.0, 0.0, 0.0};
-
-      source[0] = (target_state[0] - volume_avg_state[0])*dc.tau_inv;
-      source[1] = (target_state[1] - volume_avg_state[1])*dc.tau_inv;
-
-      for(int point =0; point < dof; point++)
-      {
-        Kernels::el_gather_state(Ue, dof, neq, point, state);
-        PointStateView S{state};
-        // source[dim+1] = (target_state[dim+1] - volume_avg_state[dim+1])*dc.tau_inv + gas.velocity(S,0) * source[1];
-        source[dim+1] = gas.velocity(S,0) * source[1];
-        Kernels::el_scatter_add(source, dof, neq, point, 1.0, dUe);
-      }
     };
 
     template<typename DeviceContext, typename OperatorContext>
@@ -48,12 +42,10 @@ namespace Theseus
       if(dc.use_target_state_source)
       {
         Utilities::ComputeVolumeAverages(dc, op_cache, Ue_d, comm);
-        const mfem::real_t alpha = 0.7; // CL ALERT : This is a tuning parameter for the target state source term
-        if (!(op_cache.current_dt > 0.0))
-        {
-          std::cout << "bad dt in PreProcessSourceTerms: " << op_cache.current_dt << std::endl;
-        }
-        dc.tau_inv = 1.0 / (alpha *op_cache.current_dt);
+        MFEM_VERIFY(std::isfinite(op_cache.current_dt) && op_cache.current_dt > 0.0,
+                    "Channel forcing requires a positive finite step size");
+        dc.tau_inv = 1.0/(0.7*op_cache.current_dt);
+        dc.volume_avg_state_d = op_cache.volume_avg_state.Read();
       }
     };
 

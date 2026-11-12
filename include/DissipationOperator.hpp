@@ -7,10 +7,53 @@
 
 #include "mfem.hpp"
 #include "theseus_kernels.hpp"
-#include "NavierStokesFlux.hpp"
 
 namespace Theseus
 {
+  // Half the maximum acoustic wave speed for an unnormalized face normal.
+  // Callers that already evaluated thermodynamics can reuse their scalar values.
+  MFEM_HOST_DEVICE inline mfem::real_t Lax_dissipation_coefficient(
+      mfem::real_t velocity1_normal, mfem::real_t velocity2_normal,
+      mfem::real_t sound1, mfem::real_t sound2, mfem::real_t normal_magnitude)
+  {
+    const auto speed1 = std::abs(velocity1_normal) + sound1*normal_magnitude;
+    const auto speed2 = std::abs(velocity2_normal) + sound2*normal_magnitude;
+    return 0.5*(speed1 > speed2 ? speed1 : speed2);
+  }
+
+  MFEM_HOST_DEVICE inline mfem::real_t Lax_dissipation(
+      mfem::real_t coefficient, mfem::real_t left, mfem::real_t right)
+  {
+    return coefficient*(right - left);
+  }
+
+  // Framework interface for fluxes that need a complete dissipation vector.
+  // Borrow state views directly; no reconstructed conservative-state arrays.
+  template<typename GasModelT>
+  MFEM_HOST_DEVICE inline void Lax_dissipation(const GasModelT &gas,
+      const PointStateView &left, const PointStateView &right,
+      const mfem::real_t *normal, mfem::real_t *dissipation)
+  {
+    mfem::real_t velocity1_normal = 0;
+    mfem::real_t velocity2_normal = 0;
+    mfem::real_t norm_squared = 0;
+    for (int d = 0; d < gas.dim(); ++d)
+      {
+        velocity1_normal += gas.velocity(left, d)*normal[d];
+        velocity2_normal += gas.velocity(right, d)*normal[d];
+        norm_squared += normal[d]*normal[d];
+      }
+    const auto coefficient = Lax_dissipation_coefficient(velocity1_normal,
+      velocity2_normal, gas.sound_speed(left), gas.sound_speed(right), std::sqrt(norm_squared));
+    dissipation[gas.L.eq_mass] = Lax_dissipation(coefficient, left.mass(gas.L), right.mass(gas.L));
+    for (int d = 0; d < gas.dim(); ++d)
+      {
+        dissipation[gas.L.eq_mom0 + d] = Lax_dissipation(coefficient,
+          left.momentum(gas.L, d), right.momentum(gas.L, d));
+      }
+    dissipation[gas.L.eq_energy] = Lax_dissipation(coefficient, left.energy(gas.L), right.energy(gas.L));
+  }
+
   template<typename GasModelT>
   MFEM_HOST_DEVICE
   inline void Roe_dissipation(const GasModelT &gasModel,
@@ -186,38 +229,5 @@ namespace Theseus
         diss[mom0_eq + d] = 0.5 * lambda_max * (mom2[d] - mom1[d]);
       }
     diss[ener_eq] *= 0.5 * lambda_max;
-  }
-
-  template<typename GasModelT>
-  MFEM_HOST_DEVICE
-  inline void Lax_dissipation(const GasModelT &gasModel,
-                             const PointStateView &S1,
-                             const PointStateView &S2,
-                             const mfem::real_t *nor,
-                             mfem::real_t *diss)
-  {
-    const int dim = gasModel.dim();
-    const int mass_eq = gasModel.L.eq_mass;
-    const int mom0_eq = gasModel.L.eq_mom0;
-    const int ener_eq = gasModel.L.eq_energy;
-
-    mfem::real_t state1[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
-    mfem::real_t state2[Theseus::MAXEQ] = {0.,0.,0.,0.,0.};
-    state1[mass_eq] = gasModel.density(S1);
-    state2[mass_eq] = gasModel.density(S2);
-    for(int d=0; d<dim; d++)
-    {
-      state1[mom0_eq + d] = gasModel.momentum(S1, d);
-      state2[mom0_eq + d] = gasModel.momentum(S2, d);
-    }
-    state1[ener_eq] = gasModel.energy(S1);
-    state2[ener_eq] = gasModel.energy(S2);
-
-    const mfem::real_t lambda_max = NavierStokesFlux::MaximumNormalWaveSpeed(gasModel, state1, state2, nor);
-
-    for (int eq = 0; eq < gasModel.num_equations(); eq++)
-    {
-      diss[eq] = 0.5 * lambda_max * (state2[eq] - state1[eq]);
-    }
   }
 }

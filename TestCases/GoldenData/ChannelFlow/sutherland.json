@@ -1,0 +1,116 @@
+{
+  "reference_revision": "d1b27df + deterministic unforced ChannelFlow case (009 development)",
+  "transport": "sutherland",
+  "cycles": [
+    0,
+    25,
+    50
+  ],
+  "dt": 2.5e-06,
+  "cpu_seconds": 3.87679316685535,
+  "ranks": 1,
+  "config": {
+    "runTime": {
+      "order": 2,
+      "dim": 3,
+      "num_equations": 5,
+      "ser_ref_levels": 0,
+      "precision": 15,
+      "gas_model": "lte_helmholtz",
+      "gas_mixture": "air5",
+      "N_rho": 31,
+      "N_T": 41,
+      "rho_min": 0.01,
+      "rho_max": 3.0,
+      "T_min": 100,
+      "T_max": 2000,
+      "rho_dist": "log",
+      "T_dist": "linear",
+      "visualize": true,
+      "visualization": {
+        "fields": [
+          "density",
+          "velocity",
+          "pressure",
+          "temperature",
+          "specific_total_energy",
+          "viscosity",
+          "thermal_conductivity"
+        ],
+        "mesh_mode": "gll_subcells"
+      },
+      "paraview": true,
+      "visit": false,
+      "vis_steps": 25,
+      "print_interval": 1,
+      "checkpoints_folder": "Checkpoints",
+      "checkpoint_cycle": 1,
+      "checkpoint_save": false,
+      "checkpoint_load": false,
+      "nancheck": true,
+      "clock_simulation": false,
+      "variable_dt": false,
+      "dt": 2.5e-06,
+      "cfl": 1.0,
+      "final_time": 0.000125,
+      "flow_model": "cns",
+      "Pr": 0.72,
+      "mu0": 0.162668791274317,
+      "R_gas": 287.05,
+      "gamma": 1.4,
+      "mesh_ordering": "Hilbert",
+      "mesh_file": "channel_4x4x4.msh",
+      "conditions": {
+        "initial_conditions": {
+          "signature": 2,
+          "params": {
+            "x1": 293.15,
+            "x2": 1.5
+          },
+          "function": "ChannelFlowIC"
+        },
+        "boundary_conditions": {
+          "TopWall": {
+            "type": "no-slip-isothermal",
+            "velocity": {
+              "value": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "temperature": {
+              "value": 293.15
+            }
+          },
+          "BottomWall": {
+            "type": "no-slip-isothermal",
+            "velocity": {
+              "value": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "temperature": {
+              "value": 293.15
+            }
+          }
+        }
+      },
+      "lifting_scheme": "BR1",
+      "numerical_flux": "LTEECFlux",
+      "ode_solver": "RK3SSP",
+      "nsteps_max": 50,
+      "plato_solver": "LTE_table_rhoT_(air5)",
+      "alpha_max": 0.0
+    }
+  },
+  "executable_sha256": "83f46daab69d62aaa34962c53b8cd61943eb1d43a41a97ba9bf805ace3bca63d",
+  "cache_sha256": "8483a00798b89c3f12ef4de97a8bb2e0d6ecd41cf63f953584eb1a16c6b4c9c7",
+  "case_sources_sha256": {
+    "TestCases/LTE/NavierStokes/ChannelFlowRegression/config.json": "7bb5f711a52dc0cf207b749d51fd850ee80d87cf1873304e316716e89d48a3b1",
+    "TestCases/LTE/NavierStokes/ChannelFlowRegression/channel_4x4x4.msh": "87b608d89a6269083bb795fe644a44a07ca74c593c584c8d8069ca72a69db369",
+    "include/ChannelFlowInitialCondition.hpp": "1613c62ec5f502ab3fb342b7d71f4b05f8a1353d73800c6efba7e14715f692f4"
+  }
+}
