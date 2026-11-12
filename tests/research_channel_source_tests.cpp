@@ -9,7 +9,7 @@ namespace
   void Near(mfem::real_t actual, mfem::real_t expected)
   {
     ++checks;
-    if (!std::isfinite(actual) || std::abs(actual - expected) > 2e-12*(1 + std::abs(expected)))
+    if (!std::isfinite(actual) || !std::isfinite(expected) || std::abs(actual - expected) > 2e-12*(1 + std::abs(expected)))
       {
         if (++failures < 10) std::cerr << actual << " expected " << expected << '\n';
       }
@@ -112,7 +112,10 @@ int main(int argc, char **argv)
           }
       Near(result.HostRead()[0], -12345); Near(result.HostRead()[71], -12345);
     }
-  for (int i = 0; i < input.Size(); ++i) Near(input.HostRead()[i], saved[i]);
+  // Host verification must synchronize both vectors before accessing their data.
+  const auto *input_host = input.HostRead();
+  const auto *saved_host = saved.HostRead();
+  for (int i = 0; i < input.Size(); ++i) Near(input_host[i], saved_host[i]);
   int all_failures;
   MPI_Allreduce(&failures, &all_failures, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
   if (rank == 0) std::cout << checks << " source checks per rank; failures=" << all_failures << '\n';
