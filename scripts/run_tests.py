@@ -320,6 +320,11 @@ def integrated_commands(run, manifest, builds):
         ('boundary-state', 'Physical Boundary States', 'axisymmetric', 'physical_boundary_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('lte-px-chamber', 'LTE PX Chamber', 'axisymmetric', 'lte_px_chamber_integration_test.py', ['--database', manifest['prefix'] + '/database']),
     ]
+    entries.extend([
+        ('source-mms', 'Manufactured source evolution', 'standard', 'source_mms_integration_test.py', []),
+        ('euler-mms', 'Periodic CPG Euler MMS spatial convergence', 'standard',
+         'euler_mms_integration_test.py', []),
+    ])
     commands = []
     for name, title, geometry, script, options in entries:
         if manifest.get('suite', 'full') != 'full' and geometry not in manifest.get('builds', {}):

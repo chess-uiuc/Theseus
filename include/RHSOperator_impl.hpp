@@ -8,6 +8,43 @@
 namespace Theseus
 {
   template<typename PhysicsT>
+  void RHSOperator<PhysicsT>::InitializeSources()
+  {
+    if (!this->sources) { return; }
+    Sources::MeshView mesh;
+    mesh.elements = num_elements;
+    mesh.dofs = operator_cache.ndof_scalar_el;
+    mesh.equations = operator_cache.num_equations;
+    mesh.dimension = dim;
+    mesh.layout = device_cache.gas.L;
+    mesh.weights = device_cache.elQWgts_d;
+    mesh.element_attributes = device_cache.elem_attr_d;
+    mesh.attribute_marker = device_cache.attr_marker_d;
+    mesh.communicator = pmesh->GetComm();
+    if (this->sources->Needs().coordinates)
+      {
+        source_coordinates.SetSize(num_elements*mesh.dofs*dim);
+        auto *coordinates = source_coordinates.HostWrite();
+        mfem::Vector point(dim);
+        for (int element = 0; element < num_elements; ++element)
+          {
+            auto *transformation = vfes->GetElementTransformation(element);
+            for (int node = 0; node < mesh.dofs; ++node)
+              {
+                transformation->Transform(operator_cache.ir_vol->IntPoint(node), point);
+                for (int direction = 0; direction < dim; ++direction)
+                  {
+                    coordinates[(element*mesh.dofs + node)*dim + direction] = point[direction];
+                  }
+              }
+          }
+        source_coordinates.UseDevice();
+        mesh.coordinates = source_coordinates.Read();
+      }
+    this->sources->Initialize(mesh);
+  }
+
+  template<typename PhysicsT>
   StabilityEstimate RHSOperator<PhysicsT>::EstimateStability(const mfem::Vector &u) const
   {
     const mfem::Vector &pu = this->Prolongate(u);
@@ -311,6 +348,7 @@ namespace Theseus
     BuildPerssonDeviceCache(operator_cache, indicator->ModalBasis());
 #endif
     GetDeviceCache(operator_cache, device_cache);
+    InitializeSources();
   }
 
   // pu should be prolongated

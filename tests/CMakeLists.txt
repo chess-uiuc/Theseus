@@ -476,3 +476,44 @@ target_link_libraries(channel_flow_case_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI
 add_test(NAME ChannelFlowInitialCondition_CPU COMMAND channel_flow_case_tests)
 add_test(NAME ChannelFlowCheckerTests
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/channel_flow_checker_tests.py)
+
+# General physical-source evaluation.
+add_executable(source_terms_tests source_terms_tests.cpp ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+target_include_directories(source_terms_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(source_terms_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(ENABLE_CUDA)
+  set_source_files_properties(source_terms_tests.cpp
+    ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(source_terms_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(source_terms_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME SourceTerms_CUDA COMMAND source_terms_tests cuda)
+endif()
+add_test(NAME SourceTerms_CPU COMMAND source_terms_tests cpu)
+add_test(NAME SourceTerms_MPI_CPU COMMAND ${MPIEXEC_EXECUTABLE}
+  ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:source_terms_tests> ${MPIEXEC_POSTFLAGS} cpu)
+if(ENABLE_CUDA)
+  add_test(NAME SourceTerms_MPI_CUDA COMMAND ${MPIEXEC_EXECUTABLE}
+    ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:source_terms_tests> ${MPIEXEC_POSTFLAGS} cuda)
+endif()
+
+# Source kernel language regression across CMake directory scopes.
+add_test(NAME SourceKernelLanguageTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/source_kernel_language_tests.py)
+
+# Fatal EOS reporting is checked in a child process, keeping test/device state isolated.
+add_executable(lte_pressure_abort_probe lte_pressure_abort_probe.cpp)
+target_include_directories(lte_pressure_abort_probe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(lte_pressure_abort_probe PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(ENABLE_CUDA)
+  set_source_files_properties(lte_pressure_abort_probe.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(lte_pressure_abort_probe PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(lte_pressure_abort_probe PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME LTEPressureAbort_CUDA COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/lte_pressure_abort_tests.py
+    --executable $<TARGET_FILE:lte_pressure_abort_probe> --backend cuda)
+endif()
+add_test(NAME LTEPressureAbort_CPU COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/lte_pressure_abort_tests.py
+  --executable $<TARGET_FILE:lte_pressure_abort_probe> --backend cpu)
