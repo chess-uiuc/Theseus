@@ -11,6 +11,7 @@
 #include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
 #include "StabilityEstimate.hpp"
+#include "SourceTerms.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_cache_utilities.hpp"
 
@@ -43,6 +44,8 @@ namespace Theseus
 
     mutable mfem::real_t alpha_dof;
     mutable Theseus::IntegralMeasures diag0;
+    std::unique_ptr<Sources::System> sources;
+    mfem::real_t source_step_size = 0.0;
   public:
     RHSOperatorBase(std::shared_ptr<mfem::ParFiniteElementSpace> vfes_,
                     std::shared_ptr<mfem::ParFiniteElementSpace> fes0_,
@@ -68,6 +71,13 @@ namespace Theseus
       diag0.ke = 0.0;
       diag0.en = 0.0;
     }
+    void SetSources(std::unique_ptr<Sources::System> value)
+    {
+      sources = std::move(value);
+      if (sources && sources->Empty()) { sources.reset(); }
+    }
+    bool HasSources() const { return bool(sources); }
+    void SetStepSize(mfem::real_t step_size) { source_step_size = step_size; }
     virtual ~RHSOperatorBase() = default;
     void SetBCDescriptorData(const mfem::Array<Theseus::BCDescriptor> &bc_descr, const mfem::Vector &bc_scalar_dat,
                              const mfem::Vector &bc_vector_dat,
@@ -128,6 +138,7 @@ namespace Theseus
   protected:
     mutable OperatorCache operator_cache;
     mutable DeviceCache device_cache;
+    mfem::Vector source_coordinates;
     const std::string gasModelName;
     const std::string numFluxName;
     const std::string flowModelName;
@@ -160,6 +171,7 @@ namespace Theseus
 
     OperatorCache &GetOperatorCacheReference(){ return operator_cache; };
 
+    void InitializeSources();
     virtual ~RHSOperator() = default;
     void Finalize(mfem::real_t time = 0) override;
 

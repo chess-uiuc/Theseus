@@ -1,3 +1,4 @@
+#include "SourceConfiguration.hpp"
 // Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
 //
 // This file is part of Theseus.
@@ -994,7 +995,12 @@ namespace Theseus
 
     // Set up the operator cache
     rhsOp->SetBCDescriptorData(bc_descriptors, bc_scalar_data, bc_vector_data, boundary_names);
-    try { rhsOp->Finalize(t); }
+    try
+      {
+        rhsOp->SetSources(Theseus::Sources::CreateConfigured(
+          runtime, num_equations, dim, AxisymmetricGeometry::enabled));
+        rhsOp->Finalize(t);
+      }
     catch (const std::exception &error)
       {
         std::cerr << error.what() << std::endl;
@@ -1252,6 +1258,7 @@ namespace Theseus
           }
           {
             Theseus::ScopedTimer timer("Timestep");
+            if (rhsOp->HasSources()) { rhsOp->SetStepSize(dt_real); }
             ode_solver->Step(*sol, t, dt_real);
           }
           if(ti > 1){

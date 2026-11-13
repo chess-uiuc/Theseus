@@ -30,8 +30,8 @@ option(ENABLE_TIMER_OUTPUT_ALLRANKS "Output timers on all ranks." OFF)
 option(ENABLE_TIMER_SYNC_DEVICE "Fence timers with device sync." OFF)
 option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
-set(ENABLE_POINT_PARALLEL_INTERIOR_FACES ON)
-set(ENABLE_POINT_PARALLEL_VOLUME ON)
+option(ENABLE_POINT_PARALLEL_INTERIOR_FACES "Use point-parallel interior face assembly" ON)
+option(ENABLE_POINT_PARALLEL_VOLUME "Use point-parallel volume assembly" ON)
 ## NOTE: PLATO_DB_PATH can be specified at build-time to customize
 ##       the location of the database used by PLATO. Tries to default
 ##       to a reasonable location.
@@ -114,6 +114,7 @@ if (ENABLE_CUDA)
    MESSAGE(STATUS "CMAKE_CUDA_ARCHITECTURES: ${CMAKE_CUDA_ARCHITECTURES}")
    set_source_files_properties(
      src/Simulation.cpp
+     src/SourceConfiguration.cpp
      PROPERTIES LANGUAGE CUDA
    )
    # set_property(TARGET theseus PROPERTY CUDA_ARCHITECTURES 80)
@@ -283,6 +284,7 @@ target_sources(theseus
     PRIVATE src/Indicator.cpp
     PRIVATE src/PerssonPeraireIndicator.cpp
     PRIVATE src/Simulation.cpp
+    PRIVATE src/SourceConfiguration.cpp
 )
 
 target_include_directories(theseus

@@ -243,3 +243,36 @@ turbulent channel.
 The recipe participates in normal Cartesian/full/integrated regression suites.
 The optional kernel stress tests remain controlled separately by
 `THESEUS_BUILD_KERNEL_STRESS`, default OFF.
+
+## Explicit physical sources
+
+`SourceTerms_CPU` and `SourceTerms_MPI_CPU` cover independently registered analytic
+sources, composition, dimensions/scalars, domain masks, guards/input preservation,
+configuration/lifecycle errors, persistent preparation with distinct stage time
+and outer step size, and empty systems with null arrays. Missing/empty configuration
+returns no source system. CUDA builds add `SourceTerms_CUDA` and
+`SourceTerms_MPI_CUDA`. Euler forcing is checked against independent derivatives
+of conservative state/physical fluxes; drag against its physical momentum/work laws.
+
+The central **Manufactured source evolution** check verifies Euler/NS RK3 temporal
+convergence, physical-coordinate packing, uniform drag/energy work, serial/MPI and
+selected CPU/CUDA fields. **Periodic CPG Euler MMS spatial convergence** checks P2
+on 6×6, 12×12 and 24×24 grids, total L2 and independent conservative nodal component
+orders, timestep isolation, a source-off negative control and serial/MPI/selected
+CPU/CUDA field parity at `rtol=atol=1e-10`. See [physical sources](source-terms.md)
+and the [manufactured case](../TestCases/Euler/2D/PeriodicMMS/README.md) for equations,
+commands, criteria and limits. Core golden expectations are unchanged.
+
+`SourceKernelLanguageTests` configures the actual source test-target definition in
+its own CMake directory and verifies CUDA language selection for both the fixture
+and source-registration translation unit. It reproduces directory-scoped language
+properties without requiring a CUDA SDK; actual CUDA compilation/runtime remains
+part of the CUDA build and device suite.
+
+`LTEPressureAbort_CPU` checks the fatal pressure-inversion error path in a child
+process, including the original host diagnostic. CUDA builds add
+`LTEPressureAbort_CUDA`, which invokes the same production reporting function in
+a real device kernel and requires a synchronization error from the intentional
+trap. Each child exits separately so the failed device context cannot affect other
+checks. These tests cover failure reporting, not changes to inversion tolerances
+or the secant method; existing table-lookup tests retain success-path coverage.
