@@ -1,3 +1,4 @@
+#include "SourceConfiguration.hpp"
 // Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
 //
 // This file is part of Theseus.
@@ -994,7 +995,12 @@ namespace Theseus
 
     // Set up the operator cache
     rhsOp->SetBCDescriptorData(bc_descriptors, bc_scalar_data, bc_vector_data, boundary_names);
-    try { rhsOp->Finalize(t); }
+    try
+      {
+        rhsOp->SetSources(Theseus::Sources::CreateConfigured(
+          runtime, num_equations, dim, AxisymmetricGeometry::enabled));
+        rhsOp->Finalize(t);
+      }
     catch (const std::exception &error)
       {
         std::cerr << error.what() << std::endl;
@@ -1020,24 +1026,6 @@ namespace Theseus
                   << "  Total DOFs (all eqns):  " << num_dofs_system << std::endl;
       }
 
-    const auto research_initial = runtime.value("conditions", nlohmann::json::object())
-      .value("initial_conditions", nlohmann::json::object());
-    const bool force_channel = runtime.value("channel_forcing",
-      research_initial.value("function", std::string{}) == "StreamwiseParabolicIC");
-#ifndef SOURCE_TERMS
-    MFEM_VERIFY(!force_channel,
-      "Channel forcing requested: rebuild with SOURCE_TERMS=ON, or explicitly set channel_forcing=false");
-#else
-    if (force_channel)
-      {
-        MFEM_VERIFY(dim == 3, "Research channel forcing expects three dimensions");
-        const mfem::real_t target[Theseus::MAXEQ] = {
-          1.0, 515.68342221905391, 0.0, 0.0, 211275.62962253299};
-        rhsOp->SetTargetState(target, dim);
-        if (mfem::Mpi::Root())
-          std::cout << "Research channel forcing: enabled (tau=0.7*step_dt)" << std::endl;
-      }
-#endif
     ode_solver->Init(*rhsOp);
 
     rho.MakeRef(fes.get(), *sol, offset_mass(stateLayout));
@@ -1270,9 +1258,7 @@ namespace Theseus
           }
           {
             Theseus::ScopedTimer timer("Timestep");
-#ifdef SOURCE_TERMS
-            rhsOp->SetCurrentTime(dt_real);
-#endif
+            if (rhsOp->HasSources()) { rhsOp->SetStepSize(dt_real); }
             ode_solver->Step(*sol, t, dt_real);
           }
           if(ti > 1){

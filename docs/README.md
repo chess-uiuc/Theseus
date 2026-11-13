@@ -57,3 +57,6 @@ single-build testing, results and failure diagnosis.
 
 See the [verification and CI matrix](verification.md) for the maintained test
 inventory and exact regression tolerances.
+
+- [Explicit physical source terms](source-terms.md): prescribed rates, manufactured
+  solutions and optional source preparation.

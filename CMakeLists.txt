@@ -23,8 +23,10 @@ if(THESEUS_BUILD_KERNEL_STRESS AND NOT BUILD_TESTING)
 endif()
 option(SUBCELL_FV_BLENDING "Enable subcell blending" ON)
 option(AXISYMMETRIC "Enable Axisymmetric domain solver" OFF)
-option(SOURCE_TERMS "Enable research channel target-state forcing" OFF)
-option(CHANNEL_RESEARCH_COMPATIBILITY "Use the research channel conductivity and Pirozzoli dissipation" ON)
+option(CHANNEL_RESEARCH_COMPATIBILITY "Use research conductivity and Pirozzoli dissipation" ON)
+if(DEFINED SOURCE_TERMS)
+  message(STATUS "SOURCE_TERMS is no longer required; configure source terms at runtime")
+endif()
 option(SUTHERLAND "Enable Sutherland transport model" OFF)
 option(ENABLE_TIMERS "Enable performance timers." OFF)
 option(ENABLE_TIMER_BARRIER "MPI_BARRIER in performance timers." OFF)
@@ -32,8 +34,8 @@ option(ENABLE_TIMER_OUTPUT_ALLRANKS "Output timers on all ranks." OFF)
 option(ENABLE_TIMER_SYNC_DEVICE "Fence timers with device sync." OFF)
 option(ENABLE_CUDA "Compile CUDA kernels" OFF)
 option(THESEUS_WITH_PLATO "Enable PLATO API for thermo tables" OFF)
-set(ENABLE_POINT_PARALLEL_INTERIOR_FACES ON)
-set(ENABLE_POINT_PARALLEL_VOLUME ON)
+option(ENABLE_POINT_PARALLEL_INTERIOR_FACES "Use point-parallel interior face assembly" ON)
+option(ENABLE_POINT_PARALLEL_VOLUME "Use point-parallel volume assembly" ON)
 ## NOTE: PLATO_DB_PATH can be specified at build-time to customize
 ##       the location of the database used by PLATO. Tries to default
 ##       to a reasonable location.
@@ -116,6 +118,7 @@ if (ENABLE_CUDA)
    MESSAGE(STATUS "CMAKE_CUDA_ARCHITECTURES: ${CMAKE_CUDA_ARCHITECTURES}")
    set_source_files_properties(
      src/Simulation.cpp
+     src/SourceConfiguration.cpp
      PROPERTIES LANGUAGE CUDA
    )
    # set_property(TARGET theseus PROPERTY CUDA_ARCHITECTURES 80)
@@ -212,13 +215,9 @@ else()
   message(STATUS "Building ${PROJECT_NAME} with: Subcell FV Blending OFF")
 endif()
 
-if(SOURCE_TERMS)
-  target_compile_definitions(theseus PRIVATE SOURCE_TERMS)
-endif()
 if(CHANNEL_RESEARCH_COMPATIBILITY)
   target_compile_definitions(theseus PRIVATE CHANNEL_RESEARCH_COMPATIBILITY)
 endif()
-
 if(SUTHERLAND)
   message(STATUS "Building ${PROJECT_NAME} with: Sutherland transport model enabled")
   target_compile_definitions(theseus PRIVATE SUTHERLAND)
@@ -292,6 +291,7 @@ target_sources(theseus
     PRIVATE src/Indicator.cpp
     PRIVATE src/PerssonPeraireIndicator.cpp
     PRIVATE src/Simulation.cpp
+    PRIVATE src/SourceConfiguration.cpp
 )
 
 target_include_directories(theseus

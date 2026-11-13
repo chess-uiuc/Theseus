@@ -204,6 +204,11 @@ namespace Theseus
 #endif
 
     // Scatter RHS back to storage
+    if (this->sources)
+      {
+        const Sources::Stage stage{this->GetTime(), this->source_step_size, Ue_d};
+        this->sources->AddStage(stage, dUe.ReadWrite());
+      }
     operator_cache.restr_v->AddMultTranspose(dUe, pdudt);
 
   }
