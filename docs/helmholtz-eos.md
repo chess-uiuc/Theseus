@@ -1,5 +1,9 @@
 # Using Helmholtz LTE and LTEEC
 
+For the forced-channel research variant and its compatibility overrides, see
+[Research ChannelFlow](../RESEARCH-CHANNEL.md). The transport defaults described
+below apply with `CHANNEL_RESEARCH_COMPATIBILITY=OFF`.
+
 Helmholtz LTE obtains equilibrium thermodynamic properties from a table of
 mass-specific Helmholtz free energy as a function of density and temperature.
 Use `gas_model: "lte_helmholtz"` to select it. `LTEECFlux` is a two-state flux
@@ -65,7 +69,7 @@ same internal-energy convention as the selected thermodynamic model.
 
 ## Run an example and check a build
 
-The [short ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlow/README.md)
+The [short ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlowRegression/README.md)
 provides a complete unforced three-dimensional configuration and mesh. It is a
 50-step regression rather than a sustained turbulent-channel calculation.
 

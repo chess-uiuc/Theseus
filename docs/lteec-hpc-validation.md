@@ -100,7 +100,7 @@ are each checked across backends, not against one another.
 This runs 50 fixed steps and compares three output frames with the CPU golden
 for the build's viscosity setting. Runtime blending is zero for this case even
 when blending support is compiled in. See the
-[case guide](../TestCases/LTE/NavierStokes/ChannelFlow/README.md) for fields,
+[case guide](../TestCases/LTE/NavierStokes/ChannelFlowRegression/README.md) for fields,
 tolerances and runtime bounds.
 
 ## Interpret and retain results

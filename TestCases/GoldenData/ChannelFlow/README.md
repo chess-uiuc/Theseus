@@ -15,5 +15,5 @@ The regression reads these files and never updates them. The development-only
 run and refuses to overwrite either reference file. Review intentional changes
 to inputs or numerical behavior before replacing reference data.
 
-See the [case guide](../../LTE/NavierStokes/ChannelFlow/README.md) for execution,
+See the [case guide](../../LTE/NavierStokes/ChannelFlowRegression/README.md) for execution,
 field tolerances and runtime limits.

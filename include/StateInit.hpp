@@ -4,6 +4,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
+#include <cstdlib>
 
 #include "ConditionFactory.hpp"
 #include "ChannelFlowInitialCondition.hpp"
@@ -1422,4 +1423,68 @@ namespace Prandtl
   // Global static instance to ensure registration happens at startup.
   static RegisterLeBlancShockTube regLeBlancShockTube;
 
+  std::function<void(const mfem::Vector&, mfem::Vector&)> StreamwiseParabolicIC(mfem::real_t Tw, mfem::real_t Ma) // CL ALERT : Decide on parameters
+  {
+    return [Tw, Ma] (const mfem::Vector &x, mfem::Vector &y)
+    {
+      mfem::real_t rho = 1.0;
+// #ifdef USE_PLATO
+//       PlatoMixture mix;
+//       plato_set_state(rho, Tw, mix);
+//       mfem::real_t Uref = Ma * mix.c;
+// #else
+      mfem::real_t gamma = 1.4;
+      mfem::real_t R = 287.05; // Tw = 293.15;
+      mfem::real_t Uref = Ma*std::sqrt(gamma*R*Tw);
+      mfem::real_t p = rho*R*Tw;
+// #endif
+
+      mfem::real_t parabolic_fac = 1.0 - x(1)*x(1);
+
+      mfem::real_t u = 1.5*Uref*parabolic_fac;
+      mfem::real_t v = 0.0;
+      mfem::real_t w = 0.0;
+
+      // Add random perturbation to the velocity components
+      const mfem::real_t ru = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+      const mfem::real_t rv = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+      const mfem::real_t rw = 2.0*std::rand()/static_cast<mfem::real_t>(RAND_MAX) - 1.0;
+
+      mfem::real_t Amp = 0.1*u;
+      u += Amp*ru;
+      v += Amp*rv;
+      w += Amp*rw;
+
+      // Add coherent streamwise-vortex / streak perturbation
+      const mfem::real_t X = x(0), Y = x(1), Z = x(2);
+      const mfem::real_t kx = 2.0*M_PI/4.0, kz = 2.0*M_PI/2.0;
+      const mfem::real_t f = 1.0 - Y*Y, f2 = f*f, df2 = -4.0*Y*f;
+      const mfem::real_t Au = 0.05, Avw = 0.05;
+
+      u += Au*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
+      v += Avw*Uref*f2*std::cos(kx*X)*std::cos(kz*Z);
+      w -= Avw*Uref/kz*df2*std::cos(kx*X)*std::sin(kz*Z);
+
+// #ifdef USE_PLATO
+//       mfem::real_t energy = rho * mix.e + 0.5 * rho * (u * u + v * v + w * w);
+// #else
+      mfem::real_t energy = p / (gamma - 1.0) + 0.5 * rho * (u * u + v * v + w * w);
+// #endif
+
+      y(0) = rho;
+      y(1) = rho*u;
+      y(2) = rho*v;
+      y(3) = rho*w;
+      y(4) = energy;
+    };
+  }
+
+  struct RegisterResearchChannelFlow
+  {
+    RegisterResearchChannelFlow()
+    {
+      ConditionFactory::Instance().RegisterInitialCondition2("StreamwiseParabolicIC", StreamwiseParabolicIC);
+    }
+  };
+  inline RegisterResearchChannelFlow research_channel_registration;
 }

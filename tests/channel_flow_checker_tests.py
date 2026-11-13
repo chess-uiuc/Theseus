@@ -56,7 +56,7 @@ class ChannelCheckerTests(unittest.TestCase):
             self.assertEqual(reference.read_bytes(), b'existing approved data')
 
     def test_case_mesh_has_two_periodic_directions_and_wall_names(self):
-        case = Path(__file__).resolve().parents[1]/'TestCases/LTE/NavierStokes/ChannelFlow'
+        case = Path(__file__).resolve().parents[1]/'TestCases/LTE/NavierStokes/ChannelFlowRegression'
         spec = importlib.util.spec_from_file_location('channel_mesh', case/'make_mesh.py')
         generator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)

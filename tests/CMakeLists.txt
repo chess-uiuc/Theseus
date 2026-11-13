@@ -476,3 +476,29 @@ target_link_libraries(channel_flow_case_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI
 add_test(NAME ChannelFlowInitialCondition_CPU COMMAND channel_flow_case_tests)
 add_test(NAME ChannelFlowCheckerTests
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/channel_flow_checker_tests.py)
+
+add_executable(research_channel_source_tests research_channel_source_tests.cpp)
+target_include_directories(research_channel_source_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(research_channel_source_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(ENABLE_CUDA)
+  set_source_files_properties(research_channel_source_tests.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(research_channel_source_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(research_channel_source_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME ResearchChannelSource_CUDA COMMAND research_channel_source_tests cuda)
+endif()
+add_test(NAME ResearchChannelSource_CPU COMMAND research_channel_source_tests cpu)
+add_test(NAME ResearchChannelSource_MPI_CPU COMMAND ${MPIEXEC_EXECUTABLE}
+  ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:research_channel_source_tests> ${MPIEXEC_POSTFLAGS} cpu)
+add_executable(research_channel_compatibility_tests research_channel_compatibility_tests.cpp)
+target_include_directories(research_channel_compatibility_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(research_channel_compatibility_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+target_compile_definitions(research_channel_compatibility_tests PRIVATE SUTHERLAND CHANNEL_RESEARCH_COMPATIBILITY)
+if(ENABLE_CUDA)
+  set_source_files_properties(research_channel_compatibility_tests.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(research_channel_compatibility_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(research_channel_compatibility_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME ResearchChannelCompatibility_CUDA COMMAND research_channel_compatibility_tests cuda)
+endif()
+add_test(NAME ResearchChannelCompatibility_CPU COMMAND research_channel_compatibility_tests cpu)

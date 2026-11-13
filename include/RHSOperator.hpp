@@ -68,6 +68,9 @@ namespace Theseus
       diag0.ke = 0.0;
       diag0.en = 0.0;
     }
+    virtual void SetTargetState(const mfem::real_t *target, int dimension) = 0;
+    virtual void SetCurrentTime(mfem::real_t step_size) = 0;
+
     virtual ~RHSOperatorBase() = default;
     void SetBCDescriptorData(const mfem::Array<Theseus::BCDescriptor> &bc_descr, const mfem::Vector &bc_scalar_dat,
                              const mfem::Vector &bc_vector_dat,
@@ -159,6 +162,26 @@ namespace Theseus
     }
 
     OperatorCache &GetOperatorCacheReference(){ return operator_cache; };
+
+    void SetTargetState(const mfem::real_t *target, int dimension) override
+    {
+      operator_cache.source_buffers_initialized = true;
+      operator_cache.target_state = 0.0;
+      operator_cache.volume_avg_state = 0.0;
+      auto *values = operator_cache.target_state.HostReadWrite();
+      values[0] = target[0];
+      values[1] = target[1];
+      values[dimension + 1] = target[dimension + 1];
+      operator_cache.use_target_state_source = true;
+      device_cache.use_target_state_source = true;
+      device_cache.target_state_d = operator_cache.target_state.Read();
+      device_cache.volume_avg_state_d = operator_cache.volume_avg_state.Read();
+    }
+
+    void SetCurrentTime(mfem::real_t step_size) override
+    {
+      operator_cache.current_dt = step_size;
+    }
 
     virtual ~RHSOperator() = default;
     void Finalize(mfem::real_t time = 0) override;

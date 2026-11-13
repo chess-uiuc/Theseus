@@ -231,7 +231,7 @@ independent mathematical references, not stored CPU answers.
 ### Short unforced LTEEC channel
 
 The `golden-channel` central recipe runs the checked-in
-[ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlow/README.md) for 50
+[ChannelFlow case](../TestCases/LTE/NavierStokes/ChannelFlowRegression/README.md) for 50
 fixed steps at order 2 on 64 hexahedra. It checks completion, finite positive
 thermodynamic fields, mass conservation, meaningful evolution, and three frames
 against current CPU behavioral goldens. Separate references cover Sutherland

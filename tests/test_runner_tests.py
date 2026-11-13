@@ -242,6 +242,19 @@ requires = []
         self.assertIn('integration-helmholtz-lteec', names)
         self.assertIn('recipe-registration-0', names)
 
+    def test_forced_research_channel_is_selected_once_only_when_enabled(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        manifest = {'suite': 'prepared', 'live_source': True, 'source': str(repository),
+                    'python': sys.executable, 'prefix': str(self.prefix),
+                    'builds': {'standard': str(self.root)}, 'research_source_enabled': True}
+        commands = run_tests.suite_commands(self.root, manifest)
+        self.assertEqual([c.name for c in commands].count('integration-research-channel'), 1)
+        manifest['research_source_enabled'] = False
+        self.assertNotIn('integration-research-channel', [c.name for c in run_tests.suite_commands(self.root, manifest)])
+        manifest['research_source_enabled'] = True
+        manifest['builds'] = {'axisymmetric': str(self.root)}
+        self.assertNotIn('integration-research-channel', [c.name for c in run_tests.suite_commands(self.root, manifest)])
+
     def test_kernel_stress_is_disabled_by_default(self):
         self.prepare()
         manifest = json.loads((self.run / 'manifest.json').read_text())

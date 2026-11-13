@@ -87,9 +87,16 @@ namespace Theseus {
       gas_model_string == "ideal" ||
       gas_model_string == "ideal_gas";
 
+    bool research_channel = false;
+#ifdef CHANNEL_RESEARCH_COMPATIBILITY
+    research_channel = runtime.value("channel_forcing", false) ||
+      runtime.value("conditions", nlohmann::json::object())
+        .value("initial_conditions", nlohmann::json::object())
+        .value("function", std::string{}) == "StreamwiseParabolicIC";
+#endif
     const bool use_lteec = inv_flux_string == "lteec" || inv_flux_string == "lteecflux";
     const bool use_helmholtz = gas_model_string == "lte_helmholtz" ||
-                               (gas_model_string == "lte" && use_lteec);
+                               (gas_model_string == "lte" && (use_lteec || research_channel));
 
     const bool use_lte =
       gas_model_string == "lte";
@@ -159,7 +166,7 @@ namespace Theseus {
             return nullptr;
           }
         const std::string mixture = runtime.value("gas_mixture", "air5");
-        const std::string solver = runtime.value("plato_solver", "LTE_table_rhoT_(air5)");
+        const std::string solver = runtime.value("plato_solver", runtime.value("solver", std::string("LTE_table_rhoT_(air5)")));
         const std::string path = runtime.value("database_path", std::string(BuildConfig::PlatoDBPath));
         auto data = std::make_unique<HelmholtzTable::Data>();
         if (runtime.value("rho_dist", "log") == "log")

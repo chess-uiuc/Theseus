@@ -404,6 +404,11 @@ else
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
         run_command=(ibrun -n "${NMPIRANKS}" ../device_launcher.sh)
         ;;
+    ccc*)
+        # Illinois Campus Cluster
+	# cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"
+        run_command=(srun -N "${NHOSTS}" -n "${NMPIRANKS}")
+        ;;
     c[0-9]*-[0-9]*)
         # Frontera@TACC compute nodes
 	cp "${UTILDIR}/launch_frontera_device.sh" "${RUNDIR}/device_launcher.sh"

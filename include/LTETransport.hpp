@@ -61,7 +61,11 @@ namespace Theseus
                                              const EOSType &eos, const StateViewType &S,
                                              const TableType &lteTables) const
     {
+#if defined(CHANNEL_RESEARCH_COMPATIBILITY) && defined(SUTHERLAND)
+      return viscosity(phys, L, eos, S, lteTables)*phys.cp*phys.PrInverse;
+#else
       return eos.property_lookup(lteTables.L.lambda_idx, phys, L, S, lteTables);
+#endif
     }
   };
   // TODO: Consider refactoring; would be better (explicit) design

@@ -44,6 +44,12 @@ sets up device execution. Each integrated check has one entry in the suite.
 
 ## Discover and read executable recipes
 
+The recipe registry defines which scripts run. Unregistered scripts produce a
+warning and do not prevent testing. A missing or invalid registered recipe is
+reported as a failed check while other registered tests continue. Scripts are
+invoked through Bash and do not require executable permission.
+
+
 Human-readable Bash recipes are the canonical definition of simulation and
 comparison workflows. Suites are ordered lists of those individual recipes. List
 the available recipes and suites without configuring or running a build:
@@ -154,8 +160,9 @@ one- and two-rank simulations, so allocate at least two MPI ranks. Python needs
 `ci-resources/requirements-ci.txt`, and the build needs PLATO support and its
 database. Cartesian builds also need the `table_lookup_tests` target.
 
-`TEST_RESULTS` must name a new directory. It may be inside or outside the source
-checkout; the selected results directory is excluded from the source snapshot. The command
+`TEST_RESULTS` must name a new directory, inside or outside the checkout.
+Prepared-build runs use the supplied source directory directly: no source copy,
+Git cleanliness check or symlink restriction is applied. The command
 waits for completion and returns failure if any required check fails or is
 blocked. Independent checks continue after a failure. Read `summary.txt` and
 `logs/` in that directory. The same command accepts a Cartesian or axisymmetric
@@ -249,7 +256,7 @@ work. Golden simulations and comparisons have separate timings.
 | `recipes/` | Smoke, cyclic and golden recipe output, including prepared references |
 | `results.json` | Commands, exit codes, timestamps and log hashes |
 | `manifest.json` | Source hashes, tool paths, build information and run options |
-| `source/` | Source snapshot |
+| `source/` | Source snapshot in full mode; prepared-build mode uses the supplied checkout |
 | `build-standard/`, `build-axisymmetric/` | Full-mode builds and CTest details |
 | `launcher.log` | Background-worker startup output (`start` only) |
 
@@ -289,7 +296,8 @@ omitted from the snapshot; repository inputs are copied using their source paths
 Versioned source symlinks and submodules are not supported by the snapshot mechanism.
 
 Prepared-build runs record executable and CMake-cache hashes and detect changes during
-execution. Both `--build` and `--suite integrated` results apply to those binaries; the runner cannot establish which
+execution. Both `--build` and `--suite integrated` use the supplied checkout directly and
+apply to those binaries; the runner cannot establish which
 source produced an arbitrary supplied executable. `check` requires a full run and does
 not accept prepared-build results as a full-source commit gate. Keep binaries, dependencies and tool environments
 unchanged during testing; rerun after changing them.

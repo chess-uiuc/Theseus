@@ -31,7 +31,7 @@ def transport(build):
 
 
 def prepare(source, build, database, results):
-    case = source/'TestCases/LTE/NavierStokes/ChannelFlow'
+    case = source/'TestCases/LTE/NavierStokes/ChannelFlowRegression'
     config = json.loads((case/'config.json').read_text())
     config['runTime'].update(database_path=str(database.resolve()),
                             mesh_file=str((case/'channel_4x4x4.msh').resolve()),
@@ -148,7 +148,7 @@ def record(source, build, results, revision):
                 'config': json.loads((results/'config.json').read_text()),
                 'executable_sha256': hashlib.sha256((build/'theseus').read_bytes()).hexdigest(),
                 'cache_sha256': hashlib.sha256((build/'CMakeCache.txt').read_bytes()).hexdigest()}
-    case = source/'TestCases/LTE/NavierStokes/ChannelFlow'
+    case = source/'TestCases/LTE/NavierStokes/ChannelFlowRegression'
     metadata['case_sources_sha256'] = {str(path.relative_to(source)): hashlib.sha256(path.read_bytes()).hexdigest()
                                        for path in [case/'config.json', case/'channel_4x4x4.msh',
                                                     source/'include/ChannelFlowInitialCondition.hpp']}
