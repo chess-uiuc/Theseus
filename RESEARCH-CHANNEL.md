@@ -1,8 +1,8 @@
 # Forced ChannelFlow research build
 
 This research variant combines the repaired Helmholtz/LTEEC/wall numerical code
-with the original channel initializer and target-state forcing. It does not
-require a main merge or a general source-term framework.
+with the original channel initializer and target-state forcing. The channel feedback is a consumer of the general source-term framework.
+Its controller, initializer and transport/dissipation choices remain research-specific.
 
 ## Build and run your existing case
 
@@ -10,7 +10,7 @@ Keep the compiler, CUDA architecture, dependency prefix and run environment from
 your working build. Retain these settings from the original channel build:
 
 ```text
--DTHESEUS_WITH_PLATO=ON -DSOURCE_TERMS=ON -DSUTHERLAND=ON
+-DTHESEUS_WITH_PLATO=ON -DSUTHERLAND=ON
 -DSUBCELL_FV_BLENDING=OFF
 ```
 
@@ -40,12 +40,22 @@ walls and output controls. The research compatibility path maps this channel's
 key. Explicit `lte_helmholtz` and `plato_solver` also work. No initializer rename
 or replacement with the small unforced test case is required.
 
-Forcing is enabled automatically for `StreamwiseParabolicIC` when compiled with
-`SOURCE_TERMS=ON`. The log prints `Research channel forcing: enabled`.
-`"channel_forcing": false` explicitly disables it for a control run. Other
-initializers are unforced unless `"channel_forcing": true` is supplied.
-Requesting forcing without the compile option fails rather than silently running
-unforced.
+Configure the controller explicitly in `runTime`:
+
+```json
+"sources": [{
+  "type": "channel-feedback",
+  "target_density": 1.0,
+  "target_streamwise_momentum": 515.68342221905391,
+  "relaxation_factor": 0.7
+}]
+```
+
+The general framework always compiles; no `SOURCE_TERMS` build option is needed.
+An explicit `sources` list takes precedence over the legacy channel settings;
+`"sources": []` disables all sources. When `sources` is absent, the existing
+`StreamwiseParabolicIC` automatic enabling and `channel_forcing` override remain
+supported. The enabled log message is `Research channel forcing: enabled`.
 
 ## Preserved controller
 
@@ -54,8 +64,15 @@ unforced.
 - Mass/momentum relaxation targets remain rho=1 and rhou=515.68342221905391.
 - Energy source remains local u_x times the momentum source; the commented
   energy-target relaxation has not been activated.
-- Source is added once per element after DG/FV blending. Component reads and
-  updates use scalars, without gathered state/source arrays.
+- Source is added by the general source kernel after fluid RHS assembly and
+  before restriction scatter, without changing the conserved state or fluid CFL.
+- Persistent buffers reduce element integrals on device. Each RK stage reads
+  back three rank-local scalars, followed by one three-value host MPI_Allreduce.
+  This synchronization belongs to the global feedback controller.
+- Initialization computes global volume from the same physical quadrature weights
+  used for the averages. This agrees with geometric volume on the affine channel
+  mesh; on curved meshes it uses the solver quadrature rather than a separate
+  geometric volume integration.
 
 The initializer function is retained. Its `std::rand()` perturbations can still
 vary with decomposition/initialization order; identical initial conservative

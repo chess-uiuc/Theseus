@@ -320,6 +320,11 @@ def integrated_commands(run, manifest, builds):
         ('boundary-state', 'Physical Boundary States', 'axisymmetric', 'physical_boundary_integration_test.py', ['--database', manifest['prefix'] + '/database']),
         ('lte-px-chamber', 'LTE PX Chamber', 'axisymmetric', 'lte_px_chamber_integration_test.py', ['--database', manifest['prefix'] + '/database']),
     ]
+    entries.extend([
+        ('source-mms', 'Manufactured source evolution', 'standard', 'source_mms_integration_test.py', []),
+        ('euler-mms', 'Periodic CPG Euler MMS spatial convergence', 'standard',
+         'euler_mms_integration_test.py', []),
+    ])
     if manifest.get('research_source_enabled', False):
         entries.append(('research-channel', 'Forced research ChannelFlow', 'standard',
                         'research_channel_integration_test.py', ['--database', manifest['prefix'] + '/database']))
@@ -428,7 +433,7 @@ def suite_commands(run, manifest):
                          f'-DTHESEUS_BUILD_KERNEL_STRESS={"ON" if manifest.get("kernel_stress", False) else "OFF"}',
                          f'-DCMAKE_PREFIX_PATH={prefix}', f'-DCMAKE_BUILD_RPATH={prefix}/lib',
                          f'-DCMAKE_INSTALL_RPATH={prefix}/lib', '-DTHESEUS_WITH_PLATO=ON',
-                         '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON', '-DSOURCE_TERMS=ON',
+                         '-DSUBCELL_FV_BLENDING=ON', '-DNO_OPT=ON',
                          f'-DAXISYMMETRIC={"ON" if axis else "OFF"}',
                          f'-DPython3_EXECUTABLE={python}',
                          ]
@@ -517,11 +522,7 @@ def prepare(args):
     if getattr(args, 'kernel_stress', False) and suite != 'full':
         raise ValueError('--kernel-stress requires --suite full so CTest executes the stress tests.')
     builds, build_files = prepared_builds(args) if suite in ('integrated', 'prepared') else ({}, {})
-    research_source_enabled = suite == 'full'
-    if 'standard' in builds:
-        cache_text = (Path(builds['standard']) / 'CMakeCache.txt').read_text()
-        research_source_enabled = bool(re.search(r'^SOURCE_TERMS:BOOL=(ON|YES|TRUE|1)$',
-                                                 cache_text, re.MULTILINE | re.IGNORECASE))
+    research_source_enabled = True
     live_source = suite in ('prepared', 'integrated')
     files = {} if live_source else source_files(source, excluded_results)
     # Exclusive creation prevents overlapping runs from overwriting evidence.
@@ -547,10 +548,9 @@ def prepare(args):
             if not found:
                 raise ValueError(f'Executable not found: {value}')
             return str(Path(found).absolute())
-        manifest = {'schema': 1, 'source': str(source), 'files': files,
+        manifest = {'research_source_enabled': research_source_enabled, 'schema': 1, 'source': str(source), 'files': files,
                     'head': None if live_source else git(source, 'rev-parse', 'HEAD').decode().strip(),
                     'live_source': live_source,
-                    'research_source_enabled': research_source_enabled,
                     'excluded_results': excluded_results,
                     'prefix': str(prefix), 'python': executable(args.python),
                     'cc': executable(os.environ.get('CC', 'mpicc')) if suite == 'full' else None,

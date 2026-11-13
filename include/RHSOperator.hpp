@@ -11,6 +11,7 @@
 #include "PerssonPeraireIndicator.hpp"
 #include "GasModel.hpp"
 #include "StabilityEstimate.hpp"
+#include "SourceTerms.hpp"
 #include "dgsem_cache_utilities.hpp"
 #include "bc_cache_utilities.hpp"
 
@@ -43,6 +44,8 @@ namespace Theseus
 
     mutable mfem::real_t alpha_dof;
     mutable Theseus::IntegralMeasures diag0;
+    std::unique_ptr<Sources::System> sources;
+    mfem::real_t source_step_size = 0.0;
   public:
     RHSOperatorBase(std::shared_ptr<mfem::ParFiniteElementSpace> vfes_,
                     std::shared_ptr<mfem::ParFiniteElementSpace> fes0_,
@@ -68,9 +71,13 @@ namespace Theseus
       diag0.ke = 0.0;
       diag0.en = 0.0;
     }
-    virtual void SetTargetState(const mfem::real_t *target, int dimension) = 0;
-    virtual void SetCurrentTime(mfem::real_t step_size) = 0;
-
+    void SetSources(std::unique_ptr<Sources::System> value)
+    {
+      sources = std::move(value);
+      if (sources && sources->Empty()) { sources.reset(); }
+    }
+    bool HasSources() const { return bool(sources); }
+    void SetStepSize(mfem::real_t step_size) { source_step_size = step_size; }
     virtual ~RHSOperatorBase() = default;
     void SetBCDescriptorData(const mfem::Array<Theseus::BCDescriptor> &bc_descr, const mfem::Vector &bc_scalar_dat,
                              const mfem::Vector &bc_vector_dat,
@@ -131,6 +138,7 @@ namespace Theseus
   protected:
     mutable OperatorCache operator_cache;
     mutable DeviceCache device_cache;
+    mfem::Vector source_coordinates;
     const std::string gasModelName;
     const std::string numFluxName;
     const std::string flowModelName;
@@ -163,26 +171,7 @@ namespace Theseus
 
     OperatorCache &GetOperatorCacheReference(){ return operator_cache; };
 
-    void SetTargetState(const mfem::real_t *target, int dimension) override
-    {
-      operator_cache.source_buffers_initialized = true;
-      operator_cache.target_state = 0.0;
-      operator_cache.volume_avg_state = 0.0;
-      auto *values = operator_cache.target_state.HostReadWrite();
-      values[0] = target[0];
-      values[1] = target[1];
-      values[dimension + 1] = target[dimension + 1];
-      operator_cache.use_target_state_source = true;
-      device_cache.use_target_state_source = true;
-      device_cache.target_state_d = operator_cache.target_state.Read();
-      device_cache.volume_avg_state_d = operator_cache.volume_avg_state.Read();
-    }
-
-    void SetCurrentTime(mfem::real_t step_size) override
-    {
-      operator_cache.current_dt = step_size;
-    }
-
+    void InitializeSources();
     virtual ~RHSOperator() = default;
     void Finalize(mfem::real_t time = 0) override;
 
