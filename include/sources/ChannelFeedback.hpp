@@ -30,6 +30,8 @@ namespace Theseus::Sources
     mfem::real_t streamwise_momentum_source = 0.0;
     ChannelVolumeAverages volume_averages;
 
+  public:
+    // NVCC requires public access for functions enclosing extended device lambdas.
     const mfem::real_t *LocalIntegrals()
     {
       for (int level = 1; level < int(integrals.size()); ++level)
