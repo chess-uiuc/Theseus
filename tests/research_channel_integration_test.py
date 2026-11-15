@@ -12,8 +12,8 @@ from numflux_regression_test import cell_local_fields
 
 FIELDS = ('Density', 'Pressure', 'Temperature', 'Velocity')
 
-def run_case(args, root, flux, forced, device):
-    directory = root / f'{flux}-{forced}-{device}'
+def run_case(args, root, flux, forced, device, *, explicit=False, reference=False):
+    directory = root / f'{flux}-{forced}-{device}-{explicit}-{reference}'
     directory.mkdir()
     source = args.source.resolve()
     case = source / 'TestCases/LTE/NavierStokes/ChannelFlowRegression'
@@ -24,6 +24,9 @@ def run_case(args, root, flux, forced, device):
                    database_path=str(args.database.resolve()),
                    mesh_file=str(case / 'channel_4x4x4.msh'),
                    output_file_path=str(directory / 'solution'))
+    if explicit:
+        runtime['sources'] = [{'type': 'channel-feedback'}] if forced else []
+        runtime['channel_forcing'] = not forced  # Explicit sources take precedence.
     runtime['gas_model'] = 'lte'
     runtime['solver'] = runtime.pop('plato_solver')
     runtime['conditions']['initial_conditions']['function'] = 'StreamwiseParabolicIC'
@@ -32,7 +35,7 @@ def run_case(args, root, flux, forced, device):
     log = directory / 'run.log'
     with log.open('w') as output:
         subprocess.run(['bash', str(source / 'scripts/run_theseus.sh'), '-e',
-            str(args.executable.resolve()), '-c', str(path), '-o', str(directory / 'launch'),
+            str((args.reference_executable if reference else args.executable).resolve()), '-c', str(path), '-o', str(directory / 'launch'),
             '-r', device, '-p', '1', '-P', '-R', '-k'], cwd=source,
             stdout=output, stderr=subprocess.STDOUT, check=True, timeout=180)
     text = log.read_text()
@@ -55,6 +58,7 @@ def main():
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--executable', type=Path, required=True)
     parser.add_argument('--database', type=Path, required=True)
+    parser.add_argument('--reference-executable', type=Path)
     parser.add_argument('--device', choices=('cpu', 'cuda'), default='cpu')
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix='theseus-research-channel-'))
@@ -66,6 +70,16 @@ def main():
             assert np.array_equal(off[0][field], on[0][field]), f'Initial state differs: {field}'
         delta = np.linalg.norm(on[-1]['Velocity'] - off[-1]['Velocity'])
         assert delta > 1e-8*np.linalg.norm(off[-1]['Velocity']), 'Forcing has no measurable effect'
+        for forced, expected in ((False, off), (True, on)):
+            explicit = run_case(args, root, flux, forced, 'cpu', explicit=True)
+            for left, right in zip(expected, explicit):
+                for field in FIELDS:
+                    assert np.array_equal(left[field], right[field]), (flux, forced, field, 'explicit source')
+            if args.reference_executable:
+                reference = run_case(args, root, flux, forced, 'cpu', reference=True)
+                for left, right in zip(expected, reference):
+                    for field in FIELDS:
+                        assert np.allclose(left[field], right[field], rtol=1e-10, atol=1e-10), (flux, forced, field, 'repaired donor')
         if args.device == 'cuda':
             gpu = run_case(args, root, flux, True, 'cuda')
             for left, right in zip(on, gpu):

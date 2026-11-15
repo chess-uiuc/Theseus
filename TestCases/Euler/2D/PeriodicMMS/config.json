@@ -1,0 +1,57 @@
+{
+  "runTime": {
+    "order": 2,
+    "dim": 2,
+    "num_equations": 4,
+    "precision": 17,
+    "visualize": true,
+    "paraview": true,
+    "visit": false,
+    "vis_steps": 10000,
+    "output_file_path": "PeriodicMMS",
+    "nancheck": true,
+    "clock_simulation": false,
+    "variable_dt": false,
+    "cfl": 0.05,
+    "final_time": 0.2,
+    "ser_ref_levels": 2,
+    "gas_model": "cpg",
+    "mesh_file": "../../../LTE/Euler/LTEVortex/LTEVortex.mesh",
+    "conditions": {
+      "initial_conditions": {
+        "function": "PeriodicEulerMMS",
+        "signature": 0
+      }
+    },
+    "numerical_flux": "lfr",
+    "ode_solver": "RK4",
+    "flow_model": "euler",
+    "periodic": true,
+    "dt": 0.001,
+    "nsteps_max": 200,
+    "R_gas": 1.0,
+    "gamma": 1.4,
+    "mu": 0.0,
+    "Pr": 0.72,
+    "alpha_max": 0.0,
+    "print_interval": 1,
+    "exact_solution": {
+      "function": "PeriodicEulerMMS",
+      "signature": 0
+    },
+    "visualization": {
+      "fields": [
+        "density",
+        "velocity",
+        "pressure",
+        "specific_total_energy"
+      ],
+      "mesh_mode": "gll_subcells"
+    },
+    "sources": [
+      {
+        "type": "periodic-euler-mms"
+      }
+    ]
+  }
+}

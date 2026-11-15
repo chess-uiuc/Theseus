@@ -16,6 +16,18 @@ using namespace Theseus::LTETable;
 namespace Theseus
 {
 
+  namespace detail
+  {
+    MFEM_HOST_DEVICE inline void AbortLTEPressureInversion()
+    {
+#if defined(__CUDA_ARCH__) || defined(__HIP_DEVICE_COMPILE__)
+      MFEM_ABORT_KERNEL("Secant method did not converge in internal_energy_from_pressure\n");
+#else
+      MFEM_ABORT("Secant method did not converge in internal_energy_from_pressure");
+#endif
+    }
+  }
+
   // ============================================================================
   // LTEGasEOS: Gas-mixture in local thermodynamic equilibrium
   // ============================================================================
@@ -134,9 +146,10 @@ namespace Theseus
 
           ie_old = ie_new;
           ie_new = ie_update;
-          if(iter == 99){
-            MFEM_ABORT("Secant method did not converge in internal_energy_from_pressure");
-          }
+          if (iter == 99)
+            {
+              detail::AbortLTEPressureInversion();
+            }
         }
       return ie_new;
     }

@@ -62,18 +62,6 @@ namespace Theseus {
     cache->num_elements = ne;
     cache->ndof_scalar_el = num_dofs_per_eqn_per_element;
     cache->num_equations = num_eqns;
-#ifdef SOURCE_TERMS
-    auto *parallel_mesh = dynamic_cast<mfem::ParMesh *>(mesh);
-    MFEM_VERIFY(parallel_mesh, "Channel forcing requires a parallel mesh");
-    mfem::real_t local_volume = 0.0;
-    for (int element = 0; element < ne; ++element)
-      {
-        local_volume += mesh->GetElementVolume(element);
-      }
-    MPI_Allreduce(&local_volume, &cache->total_volume, 1,
-      mfem::MPITypeMap<mfem::real_t>::mpi_type, MPI_SUM, parallel_mesh->GetComm());
-#endif
-
   }
 
   template<typename CacheT>
@@ -823,17 +811,6 @@ namespace Theseus {
     // POD gas model
     device_cache.gas = cache.gas.to_device(cache);
     device_cache.iflux = cache.iflux;
-    if (!cache.source_buffers_initialized)
-      {
-        cache.target_state = 0.0;
-        cache.volume_avg_state = 0.0;
-        cache.source_buffers_initialized = true;
-      }
-    device_cache.use_target_state_source = cache.use_target_state_source;
-    device_cache.total_volume = cache.total_volume;
-    device_cache.target_state_d = cache.target_state.Read();
-    device_cache.volume_avg_state_d = cache.volume_avg_state.Read();
-
 
 #ifdef SUBCELL_FV_BLENDING
     device_cache.subcell_metric_xi_d = cache.subcellMetricXi.Read();
