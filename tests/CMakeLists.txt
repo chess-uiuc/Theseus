@@ -517,3 +517,138 @@ endif()
 add_test(NAME LTEPressureAbort_CPU COMMAND ${Python3_EXECUTABLE}
   ${CMAKE_CURRENT_SOURCE_DIR}/lte_pressure_abort_tests.py
   --executable $<TARGET_FILE:lte_pressure_abort_probe> --backend cpu)
+
+# Multidirectional manufactured Euler source, including the actual device adapter.
+add_executable(trigonometric_euler_tests mms/trigonometric_euler_tests.cpp
+  ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+target_include_directories(trigonometric_euler_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(trigonometric_euler_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(ENABLE_CUDA)
+  set_source_files_properties(mms/trigonometric_euler_tests.cpp
+    ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(trigonometric_euler_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(trigonometric_euler_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME TrigonometricEuler_CUDA COMMAND trigonometric_euler_tests cuda)
+endif()
+add_test(NAME TrigonometricEuler_CPU COMMAND trigonometric_euler_tests cpu)
+
+add_test(NAME TrigonometricEulerStudyTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/trigonometric_euler_study_tests.py)
+
+add_test(NAME MMSErrorNormTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/mms_error_norms_tests.py)
+
+add_test(NAME EulerOrientationAnalysisTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/euler_orientation_tests.py)
+
+add_test(NAME EulerSurveyPreparationTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/euler_survey_preparation_tests.py)
+
+# Pure Cartesian DG operator diagnostic, independent of the solver's FV option.
+if(NOT AXISYMMETRIC)
+  add_executable(euler_rhs_probe mms/euler_rhs_probe.cpp ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+  target_include_directories(euler_rhs_probe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(euler_rhs_probe PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(ENABLE_POINT_PARALLEL_VOLUME)
+    target_compile_definitions(euler_rhs_probe PRIVATE POINT_PARALLEL_VOLUME)
+  endif()
+  if(ENABLE_POINT_PARALLEL_INTERIOR_FACES)
+    target_compile_definitions(euler_rhs_probe PRIVATE POINT_PARALLEL_INTERIOR_FACES)
+  endif()
+  if(ENABLE_CUDA)
+    set_source_files_properties(mms/euler_rhs_probe.cpp PROPERTIES LANGUAGE CUDA)
+    target_include_directories(euler_rhs_probe PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    target_compile_options(euler_rhs_probe PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  endif()
+endif()
+
+add_executable(trigonometric_cns_tests mms/trigonometric_cns_tests.cpp
+  ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+target_include_directories(trigonometric_cns_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(trigonometric_cns_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(SUTHERLAND)
+  target_compile_definitions(trigonometric_cns_tests PRIVATE SUTHERLAND)
+endif()
+if(ENABLE_CUDA)
+  set_source_files_properties(mms/trigonometric_cns_tests.cpp
+    ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(trigonometric_cns_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(trigonometric_cns_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+endif()
+if(NOT SUTHERLAND)
+  add_test(NAME TrigonometricCNS_CPU COMMAND trigonometric_cns_tests cpu)
+  if(ENABLE_CUDA)
+    add_test(NAME TrigonometricCNS_CUDA COMMAND trigonometric_cns_tests cuda)
+  endif()
+endif()
+
+if(NOT AXISYMMETRIC)
+  add_executable(cns_gradient_tests mms/cns_gradient_tests.cpp)
+  target_include_directories(cns_gradient_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(cns_gradient_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(ENABLE_POINT_PARALLEL_VOLUME)
+    target_compile_definitions(cns_gradient_tests PRIVATE POINT_PARALLEL_VOLUME)
+  endif()
+  if(ENABLE_POINT_PARALLEL_INTERIOR_FACES)
+    target_compile_definitions(cns_gradient_tests PRIVATE POINT_PARALLEL_INTERIOR_FACES)
+  endif()
+  if(ENABLE_CUDA)
+    set_source_files_properties(mms/cns_gradient_tests.cpp PROPERTIES LANGUAGE CUDA)
+    target_include_directories(cns_gradient_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    target_compile_options(cns_gradient_tests PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+    add_test(NAME CNSGradient_CUDA COMMAND cns_gradient_tests cuda)
+  endif()
+  add_test(NAME CNSGradient_CPU COMMAND cns_gradient_tests cpu)
+endif()
+
+
+# A constant-forcing configuration must reject a variable-transport build.
+add_executable(cns_transport_mismatch_tests mms/trigonometric_cns_tests.cpp
+  ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+target_compile_definitions(cns_transport_mismatch_tests PRIVATE SUTHERLAND)
+target_include_directories(cns_transport_mismatch_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(cns_transport_mismatch_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+if(ENABLE_CUDA)
+  target_include_directories(cns_transport_mismatch_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(cns_transport_mismatch_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+endif()
+add_test(NAME CNSTransportMismatch_CPU COMMAND cns_transport_mismatch_tests cpu)
+
+add_test(NAME CNSMMSStudyTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/cns_mms_study_tests.py)
+
+# Exercise the variable-transport source and the reverse build-mismatch guard.
+foreach(sutherland_variant IN ITEMS sutherland constant)
+  set(sutherland_target trigonometric_sutherland_${sutherland_variant}_tests)
+  add_executable(${sutherland_target} mms/trigonometric_sutherland_tests.cpp
+    ${PROJECT_SOURCE_DIR}/src/SourceConfiguration.cpp)
+  target_include_directories(${sutherland_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
+  target_link_libraries(${sutherland_target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+  if(sutherland_variant STREQUAL "sutherland")
+    target_compile_definitions(${sutherland_target} PRIVATE SUTHERLAND)
+    set(sutherland_test_name TrigonometricSutherland)
+  else()
+    set(sutherland_test_name SutherlandTransportMismatch)
+  endif()
+  if(ENABLE_CUDA)
+    set_source_files_properties(mms/trigonometric_sutherland_tests.cpp PROPERTIES LANGUAGE CUDA)
+    target_include_directories(${sutherland_target} PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+    target_compile_options(${sutherland_target} PRIVATE
+      $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+    if(sutherland_variant STREQUAL "sutherland")
+      add_test(NAME ${sutherland_test_name}_CUDA COMMAND ${sutherland_target} cuda)
+    endif()
+  endif()
+  add_test(NAME ${sutherland_test_name}_CPU COMMAND ${sutherland_target} cpu)
+endforeach()
+
+add_test(NAME CNSMatrixStudyTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/cns_matrix_study_tests.py)
+
+add_test(NAME MMSDocumentationTests
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/mms_documentation_tests.py)

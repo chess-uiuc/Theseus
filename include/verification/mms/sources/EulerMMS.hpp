@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "SourceRegistry.hpp"
-#include "../PeriodicEulerMMS.hpp"
+#include "verification/mms/PeriodicEulerMMS.hpp"
 
 namespace Theseus::Sources
 {

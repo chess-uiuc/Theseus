@@ -105,7 +105,7 @@ jobs:
         run: |
           python scripts/run_tests.py run \
             --prefix "$GITHUB_WORKSPACE/tpl/install" \
-            --results "$RUNNER_TEMP/theseus-tests" --jobs 4
+            --results "$RUNNER_TEMP/theseus-tests" --jobs 4 --mms-level qualification
           python scripts/run_tests.py check \
             --results "$RUNNER_TEMP/theseus-tests"
 

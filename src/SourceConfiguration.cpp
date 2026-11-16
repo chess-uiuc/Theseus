@@ -3,8 +3,7 @@
 #include "SourceConfiguration.hpp"
 #include "sources/Affine.hpp"
 #include "sources/LinearDrag.hpp"
-#include "sources/EulerMMS.hpp"
-#include "ConditionFactory.hpp"
+#include "verification/mms/Registration.hpp"
 
 namespace Theseus::Sources
 {
@@ -13,7 +12,7 @@ namespace Theseus::Sources
     Registry registry;
     RegisterAffine(registry);
     RegisterDrag(registry);
-    RegisterMMS(registry);
+    RegisterBuiltinManufacturedSources(registry);
     return registry;
   }
 
@@ -40,26 +39,7 @@ namespace
     RegisterMMSStates()
     {
       auto &factory = Prandtl::ConditionFactory::Instance();
-      factory.RegisterInitialCondition0("PeriodicEulerMMS", []()
-      {
-        return [](const mfem::Vector &position, mfem::Vector &state)
-        {
-          MFEM_VERIFY(position.Size() == 2 && state.Size() == 4,
-                      "PeriodicEulerMMS requires 2D and four equations");
-          mfem::real_t forcing[4];
-          Theseus::Sources::PeriodicEulerMMS(position[0], position[1], 0.0, state.HostWrite(), forcing);
-        };
-      });
-      factory.RegisterVectorTDFunctionBoundaryCondition0("PeriodicEulerMMS", []()
-      {
-        return [](const mfem::Vector &position, mfem::real_t time, mfem::Vector &state)
-        {
-          MFEM_VERIFY(position.Size() == 2 && state.Size() == 4,
-                      "PeriodicEulerMMS requires 2D and four equations");
-          mfem::real_t forcing[4];
-          Theseus::Sources::PeriodicEulerMMS(position[0], position[1], time, state.HostWrite(), forcing);
-        };
-      });
+      Theseus::Sources::RegisterManufacturedStates(factory);
     }
   };
   const RegisterMMSStates register_mms_states;

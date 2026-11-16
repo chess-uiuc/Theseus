@@ -11,6 +11,25 @@ records their results individually.
 
 ## Integrated tests
 
+The `mms-euler` recipe runs **Multidirectional 2D/3D Euler MMS convergence** in
+MMS qualification selection of the Cartesian/full/integrated suites. P2 physical aggregate L2 orders must be 2.5–3.5
+over three levels; final physical component L2 refinement orders use the same bounds.
+Timestep halving changes fine L2 by less than 1%, source-off L2 exceeds forced L2
+by at least five times.
+CUDA selection requires the CUDA backend and same-binary CPU parity. Finite positive
+states, independent initial fields and actual final times are checked. The recipe
+retains measurements and exports PNG/PDF convergence plots. See
+[manufactured Euler verification](mms-verification.md) for exact fields and commands.
+`TrigonometricEuler_CPU` check independent finite-difference
+forcing, periodicity, input/output guards and invalid configurations; CUDA builds
+add matching CUDA entries. `TrigonometricEulerStudyTests` checks analysis contracts,
+independent state bounds and saved-data plotting. `MMSErrorNormTests` verifies the
+independent physical quadrature against known polynomial integrals and volume scaling.
+Component L2 norms use 10-point quadrature and must agree with 8-point quadrature
+to rtol=1e-6/atol=1e-12; their aggregate must match the solver norm to rtol=1e-3.
+Unweighted nodal RMS, component L1 estimates and sampled maxima remain diagnostics.
+
+
 | Summary name | Configuration and execution | Required result |
 | --- | --- | --- |
 | **Timestep and CFL** | Cartesian order-3 CNS cavity and CPG/AIR11 Euler/CNS prescribed boundaries, one and two MPI ranks | The initial variable timestep matches the independently calculated mapped advective-plus-viscous stability rate; serial and MPI timesteps agree. Constant and radial-profile exterior states test initial acoustic timestep control for a resting 300 K volume and boundary temperatures up to 10,000 K. CPG uses analytic sound speeds; AIR11 uses separate host EOS queries at the boundary sampling nodes, with the 101×201 chamber table. CNS cases additionally verify the maximum volume/boundary diffusivity with the adjacent mapped geometry. Legacy supersonic inflow remains covered. Fixed-DT reporting occurs at the configured check interval, and a final-time-shortened step reports a proportionally smaller actual CFL. |
@@ -276,3 +295,42 @@ a real device kernel and requires a synchronization error from the intentional
 trap. Each child exits separately so the failed device context cannot affect other
 checks. These tests cover failure reporting, not changes to inversion tolerances
 or the secant method; existing table-lookup tests retain success-path coverage.
+
+## Extended Euler MMS diagnostics
+
+`mms-euler-orientation` belongs to the MMS qualification selection of Cartesian/full/integrated and checks three
+matched cyclic orientations on a P2 periodic cube: mapped fields agree at
+rtol=atol=1e-10 and component physical L2 norms at rtol=1e-9/atol=1e-12.
+`EulerOrientationAnalysisTests` verifies coordinate/vector mapping and rejection
+of a perturbed component. Source fixtures cover all 2D/3D cyclic permutations and
+nonunit time scaling against independently differentiated physical fluxes.
+
+The explicitly selected `mms-verification` suite registers a P1–P5 spatial survey
+with five mesh levels plus five dt/2 controls, coupled RK3SSP/RK4 temporal studies,
+and a matched six-production-flux comparison for P2/P4. Expected slopes are shown in the plots.
+Spatial and flux surveys report diagnostics without claiming nominal accuracy.
+The temporal study requires the last two component orders within .15 of the RK
+order and less than1% change from its higher-degree spatial control.
+`EulerSurveyPreparationTests` verifies periodic edge pairing, spatial time controls,
+valid temporal methods/matching forcing and otherwise-identical flux inputs.
+
+
+The quick `euler-build-verification` suite selects `mms-euler-temporal-quick`
+(six temporal cases without spatial-floor controls) and `mms-euler-flux-quick`
+(three P2 meshes per selected flux without half-dt controls). It retains the
+same temporal/spatial order criteria on these previously qualified configurations.
+
+The `euler-mms-qualification` suite selects `mms-euler`, orientation,
+`mms-euler-temporal-qualified` and `mms-euler-flux-qualified`. The latter two
+retain the P17 spatial-floor and half-timestep controls respectively. The broad
+Cartesian/integrated code suite defaults to quick MMS; `--mms-level qualification`
+selects qualification recipes once, without also running their quick subsets.
+All unrelated checks remain selected in either case. PR CI uses the default;
+Nightly explicitly selects qualification. Multiple ranks are supported execution settings;
+no new MMS MPI-parity cases or unit MPI variants are included in this effort.
+Existing MPI tests elsewhere remain unchanged.
+
+The extended `mms-euler-matrix` stays opt-in for all/subsets of production fluxes
+and the requested CPU/CUDA backend and rank count. No test edits solver source
+or rebuilds to switch flux or dissipation. See the manufactured-verification guide
+for exact entry points and coverage.

@@ -445,6 +445,129 @@ requires = []
                       '--device', 'cuda', '--python', 'python3', '--ranks', '4'):
             self.assertIn(value, command)
 
+    def test_flux_subset_is_forwarded_only_to_supported_recipes(self):
+        recipe = dict(id='matrix', build='standard', script_path=self.root/'recipe.sh',
+                      flux_selection=True)
+        args = argparse.Namespace(source=self.source, build_standard=self.root/'build',
+                                  prefix=self.prefix, results=self.root/'output', device='cuda',
+                                  python=sys.executable, ranks=4, fluxes='LLF,Roe')
+        command = run_tests.recipe_command(recipe, args)
+        self.assertEqual(command[command.index('--fluxes') + 1], 'LLF,Roe')
+        recipe.pop('flux_selection')
+        self.assertNotIn('--fluxes', run_tests.recipe_command(recipe, args))
+
+    def test_selected_fluxes_reach_staged_suite_recipe_commands(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        manifest = dict(source=str(repository), live_source=True, suite='prepared',
+                        builds={'standard': str(self.root/'build')}, device='cpu',
+                        python=sys.executable, prefix=str(self.prefix), fluxes='Roe,HLL', ranks=3)
+        builds = {'standard': self.root/'build', 'axisymmetric': self.root/'axis'}
+        commands = run_tests.suite_recipe_commands(self.root/'run', manifest, builds)
+        selected = [c for c in commands if 'euler-flux-quick.sh' in ' '.join(c.argv)]
+        self.assertEqual(len(selected), 3)
+        for command in selected:
+            self.assertEqual(command.argv[command.argv.index('--fluxes') + 1], 'Roe,HLL')
+            self.assertEqual(command.argv[command.argv.index('--ranks') + 1], '3')
+
+    def test_mms_levels_separate_quick_and_qualification_checks(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        recipes = run_tests.load_recipes(repository)
+        suites = {s['id']: s for s in run_tests.load_recipe_suites(repository, recipes)}
+        self.assertEqual(set(suites['euler-build-verification']['recipes']),
+                         {'mms-euler-flux-quick', 'mms-euler-temporal-quick'})
+        self.assertEqual(set(suites['euler-mms-qualification']['recipes']),
+                         {'mms-euler', 'mms-euler-orientation',
+                          'mms-euler-temporal-qualified', 'mms-euler-flux-qualified'})
+        builds = {'standard': self.root/'build', 'axisymmetric': self.root/'axis'}
+        manifest = dict(source=str(repository), live_source=True, suite='full', builds={},
+                        prefix=str(self.prefix), python=sys.executable, device='cpu')
+        selections = {}
+        for level in ('quick', 'qualification'):
+            commands = run_tests.suite_recipe_commands(self.root/'run',
+                                                       dict(manifest, mms_level=level), builds)
+            selections[level] = {c.name for c in commands}
+        quick_names = selections['quick']
+        qualified_names = selections['qualification']
+        self.assertTrue(any('mms-euler-flux-quick' in name for name in quick_names))
+        self.assertFalse(any('mms-euler-flux-qualified' in name for name in quick_names))
+        self.assertTrue(any('mms-euler-flux-qualified' in name for name in qualified_names))
+        self.assertFalse(any('mms-euler-flux-quick' in name for name in qualified_names))
+        self.assertEqual({n for n in quick_names if not n.startswith('recipe-mms-')},
+                         {n for n in qualified_names if not n.startswith('recipe-mms-')})
+        self.assertIn('recipe-golden-vortex-run', quick_names)
+        manifest.update(cc='mpicc', cxx='mpicxx', mpiexec=None, jobs=1)
+        broad = {}
+        for level in ('quick', 'qualification'):
+            commands = run_tests.suite_commands(self.root/'run', dict(manifest, mms_level=level))
+            broad[level] = [(c.name, c.argv) for c in commands
+                            if not c.name.startswith('recipe-mms-')]
+        self.assertEqual(broad['quick'], broad['qualification'])
+        self.assertTrue(any(name == 'integration-euler-mms' for name, argv in broad['quick']))
+
+
+    def test_legacy_mms_integrations_use_grouped_checker_paths(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        manifest = dict(source=str(repository), live_source=True, suite='full',
+                        prefix=str(self.prefix), python=sys.executable, device='cpu')
+        builds = {'standard': self.root/'build', 'axisymmetric': self.root/'axis'}
+        commands = run_tests.integrated_commands(self.root/'run', manifest, builds)
+        for identifier, filename in (('source-mms', 'source_mms_integration_test.py'),
+                                     ('euler-mms', 'euler_mms_integration_test.py')):
+            command = next(c for c in commands if c.name == 'integration-' + identifier)
+            expected = repository/'tests/mms'/filename
+            self.assertEqual(command.argv[1], str(expected))
+            self.assertTrue(expected.is_file())
+
+    def test_cns_levels_select_real_convergence_in_the_broad_suite(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        recipes = run_tests.load_recipes(repository)
+        suites = {s['id']: s for s in run_tests.load_recipe_suites(repository, recipes)}
+        self.assertEqual(set(suites['cns-build-verification']['recipes']), {'mms-cns-quick'})
+        qualification = {'mms-cns-qualification', 'mms-cns-temporal', 'mms-cns-3d-qualification'}
+        self.assertEqual(set(suites['cns-mms-qualification']['recipes']), qualification)
+        builds = {'standard': self.root/'build', 'axisymmetric': self.root/'axis'}
+        for level in ('quick', 'qualification'):
+            manifest = dict(source=str(repository), live_source=True, suite='full', builds={},
+                            prefix=str(self.prefix), python=sys.executable, device='cpu', mms_level=level)
+            commands = run_tests.suite_recipe_commands(self.root/'run', manifest, builds)
+            for recipe in {'mms-cns-quick'} | qualification:
+                expected = (recipe == 'mms-cns-quick') == (level == 'quick')
+                for stage in ('prepare', 'run', 'compare'):
+                    self.assertEqual(sum(c.name == f'recipe-{recipe}-{stage}' for c in commands),
+                                     1 if expected else 0, (level, recipe, stage))
+
+    def test_cns_matrix_options_only_reach_opted_in_recipes(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        recipes = run_tests.load_recipes(repository)
+        args = argparse.Namespace(source=repository, build_standard=self.root/'build',
+                                  prefix=self.prefix, results=self.root/'output', device='cuda',
+                                  python=sys.executable, ranks=2, fluxes='Roe,HLL', degrees='2,4',
+                                  cells='12,18,27,40', mesh_levels=4, start_level=0, base_cells=20,
+                                  reference_dt=.0005, final_time=.05)
+        for identifier in ('mms-euler-matrix', 'mms-cns-matrix', 'mms-cns-sutherland-matrix'):
+            recipe = next(r for r in recipes if r['id'] == identifier)
+            command = run_tests.recipe_command(recipe, args, 'prepare')
+            for option, value in (('--cells', '12,18,27,40'), ('--degrees', '2,4'), ('--mesh-levels', '4'),
+                                  ('--start-level', '0'), ('--base-cells', '20'),
+                                  ('--reference-dt', '0.0005'), ('--final-time', '0.05')):
+                self.assertEqual(command[command.index(option) + 1], value)
+            self.assertNotIn('full', recipe['suites'])
+        baseline = next(r for r in recipes if r['id'] == 'mms-cns-fluxes')
+        command = run_tests.recipe_command(baseline, args)
+        self.assertNotIn('--degrees', command)
+        self.assertNotIn('--mesh-levels', command)
+
+    def test_ci_retains_broad_suite_with_nightly_mms_qualification(self):
+        repository = Path(SPEC.origin).resolve().parents[1]
+        quick = (repository/'.github/workflows/ci-quick.yml').read_text()
+        nightly = (repository/'.github/workflows/ci-nightly.yml').read_text()
+        for workflow in (quick, nightly):
+            self.assertIn('python scripts/run_tests.py run', workflow)
+            self.assertIn('python scripts/run_tests.py check', workflow)
+            self.assertNotIn('run-test euler-build-verification', workflow)
+        self.assertNotIn('--mms-level qualification', quick)
+        self.assertIn('--mms-level qualification', nightly)
+
     def test_recipe_run_applies_one_top_level_mpi_override(self):
         script = self.root / 'recipe.sh'
         script.write_text(
@@ -467,6 +590,59 @@ requires = []
         )
         self.assertEqual(run_tests.run_recipe(recipe, args), 0)
 
+    def verification_fixture(self):
+        build = self.root/'verification-build'
+        build.mkdir()
+        (build/'theseus').write_text('fixture executable')
+        (build/'CMakeCache.txt').write_text('AXISYMMETRIC:BOOL=OFF\nENABLE_CUDA:BOOL=OFF\n')
+        recipes = [dict(id=name, build='standard', script_path=self.root/(name + '.sh'))
+                   for name in ('first', 'second')]
+        suite = dict(id='verification', title='Verification', recipes=['first', 'second'])
+        args = argparse.Namespace(source=self.source, build_standard=build,
+                                  prefix=self.prefix, results=self.root/'verification-results',
+                                  device='cpu', python=sys.executable, ranks=2,
+                                  mpiexec=None, mpi_arg=[])
+        return suite, recipes, args
+
+    def test_verification_suite_collects_failure_and_keeps_independent_checks(self):
+        suite, recipes, args = self.verification_fixture()
+        with patch.object(run_tests, 'run_recipe', side_effect=[1, 0]) as launch:
+            self.assertEqual(run_tests.run_recipe_suite(suite, recipes, args), 1)
+        self.assertEqual(launch.call_count, 2)
+        result = json.loads((args.results/'results.json').read_text())
+        self.assertEqual([r['state'] for r in result['steps']], ['failed', 'passed'])
+        self.assertEqual(result['builds']['standard']['executable_sha256'],
+                         run_tests.digest(args.build_standard/'theseus'))
+        self.assertTrue((args.results/'summary.txt').exists())
+        self.assertTrue((args.results/'first.log').exists())
+
+    def test_verification_suite_passes_and_refuses_existing_output(self):
+        suite, recipes, args = self.verification_fixture()
+        with patch.object(run_tests, 'run_recipe', return_value=0):
+            self.assertEqual(run_tests.run_recipe_suite(suite, recipes, args), 0)
+        with self.assertRaisesRegex(ValueError, 'already exists'):
+            run_tests.run_recipe_suite(suite, recipes, args)
+
+    def test_verification_suite_rejects_changed_build(self):
+        suite, recipes, args = self.verification_fixture()
+        def mutate(*values, **options):
+            (args.build_standard/'theseus').write_text('changed executable')
+            return 0
+        with patch.object(run_tests, 'run_recipe', side_effect=mutate):
+            self.assertEqual(run_tests.run_recipe_suite(suite, recipes, args), 1)
+        result = json.loads((args.results/'results.json').read_text())
+        self.assertIn('Build changed', result['error'])
+
+    def test_verification_suite_rejects_geometry_and_device_mismatch(self):
+        suite, recipes, args = self.verification_fixture()
+        args.device = 'cuda'
+        with self.assertRaisesRegex(ValueError, 'CUDA requested'):
+            run_tests.run_recipe_suite(suite, recipes, args)
+        args.device = 'cpu'
+        (args.build_standard/'CMakeCache.txt').write_text('AXISYMMETRIC:BOOL=ON\n')
+        with self.assertRaisesRegex(ValueError, 'geometry'):
+            run_tests.run_recipe_suite(suite, recipes, args)
+
     def test_recipe_environment_exposes_dependency_prefix_to_relative_configs(self):
         repository = Path(SPEC.origin).resolve().parents[1]
         helper = repository / 'tests/recipes/recipe-environment.bash'
@@ -488,6 +664,10 @@ requires = []
         link = output / 'tpl/install'
         self.assertTrue(link.is_symlink())
         self.assertEqual(link.resolve(), self.prefix.resolve())
+        identity = json.loads((output/'build-identity.json').read_text())
+        self.assertEqual(identity['builds']['standard']['theseus'], run_tests.digest(executable))
+        self.assertEqual(identity['device'], 'cpu')
+        self.assertEqual(identity['requested_fluxes'], 'all')
 
     def test_registered_recipes_replace_legacy_simulation_commands(self):
         repository = Path(SPEC.origin).resolve().parents[1]

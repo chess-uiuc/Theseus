@@ -51,7 +51,7 @@ refinement levels 1/2/3 produce 6×6, 12×12 and 24×24 grids.
 The complete registered convergence check is:
 
 ```bash
-"$PYTHON" "$THESEUS_SOURCE/tests/euler_mms_integration_test.py" \
+"$PYTHON" "$THESEUS_SOURCE/tests/mms/euler_mms_integration_test.py" \
   --source "$THESEUS_SOURCE" --executable "$THESEUS_BUILD/theseus" --device cpu
 ```
 

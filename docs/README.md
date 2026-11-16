@@ -1,5 +1,10 @@
 # Theseus Documentation
 
+- [Manufactured Euler/CNS verification](mms-verification.md): multidirectional 2D/3D
+  cases, spatial/temporal evidence and exportable plots.
+- [HPC MMS workflow](mms-hpc.md): builds, job arrays, analysis and data collection.
+- [MMS capability inventory](mms-inventory.md): implementation, tests and documentation.
+
 ## Using Theseus
 
 The top-level [README](../README.md) covers dependency installation, building,
@@ -53,6 +58,10 @@ single-build testing, results and failure diagnosis.
   large batches, guards and explicit host/backend agreement
 - [Verification and CI matrix](verification.md): integration assertions, smoke
   cases, golden-data tolerances, and local reproduction commands
+- [Manufactured-solution verification](mms-verification.md): exact fields, fluxes,
+  sources and plotted Euler/CNS evidence
+- [Repeating MMS evaluations](mms-evaluations.md): quick, qualification and extended
+  testing matrices with CPU/GPU reproduction commands
 
 
 See the [verification and CI matrix](verification.md) for the maintained test

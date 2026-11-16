@@ -75,6 +75,8 @@ def load_recipes(source, errors=None, selected_builds=None, selected_suite=None)
                 raise ValueError(f'Missing or invalid recipe script for {identifier}: {script}')
             if script in registered_scripts:
                 raise ValueError(f'Recipe script is registered more than once: {script}')
+            if record.get('mms_level') not in (None, 'quick', 'qualification'):
+                raise ValueError(f'Invalid MMS level: {identifier}')
             stages = record.get('stages', [])
             if len(stages) != len(set(stages)) or not set(stages) <= {'run', 'prepare', 'compare'}:
                 raise ValueError(f'Invalid recipe stages for {identifier}: {stages}')
@@ -196,6 +198,13 @@ def recipe_command(recipe, args, stage=None):
         '--python', str(Path(args.python).expanduser()),
         '--ranks', str(args.ranks),
     ]
+    if recipe.get('flux_selection'):
+        command.extend(['--fluxes', getattr(args, 'fluxes', 'all')])
+    if recipe.get('matrix_selection'):
+        for option, default in (('cells', '12,18,27,40,60,90'), ('degrees', '1,2,3,4,5'), ('mesh_levels', 5),
+                                ('start_level', 1), ('base_cells', 3),
+                                ('reference_dt', .001), ('final_time', .2)):
+            command.extend(['--' + option.replace('_', '-'), str(getattr(args, option, default))])
     if stage is not None:
         command.extend(['--stage', stage])
     return command
@@ -207,13 +216,14 @@ def write_mpi_launcher(path, python, helper, mpiexec, mpi_args):
     path.chmod(0o755)
 
 
-def run_recipe(recipe, args):
+def run_recipe(recipe, args, stdout=None):
     command = recipe_command(recipe, args)
     print('Recipe command: ' + shlex.join(command), flush=True)
     env = os.environ.copy()
     if not args.mpiexec:
         return subprocess.run(command, cwd=args.source.resolve(), env=env,
-                              check=False).returncode
+                              check=False, timeout=getattr(args, 'timeout', 3600), stdout=stdout,
+                              stderr=subprocess.STDOUT if stdout is not None else None).returncode
     mpiexec = shutil.which(args.mpiexec)
     if not mpiexec:
         raise ValueError(f'Executable not found: {args.mpiexec}')
@@ -224,8 +234,89 @@ def run_recipe(recipe, args):
                            mpiexec, args.mpi_arg)
         env['THESEUS_MPI_LAUNCHER'] = str(launcher)
         return subprocess.run(command, cwd=args.source.resolve(), env=env,
-                              check=False).returncode
+                              check=False, timeout=getattr(args, 'timeout', 3600), stdout=stdout,
+                              stderr=subprocess.STDOUT if stdout is not None else None).returncode
 
+
+
+def run_recipe_suite(suite, recipes, args):
+    """Evaluate selected existing builds; no configure or compilation commands."""
+    selected = [recipe for recipe in recipes if recipe['id'] in suite['recipes']]
+    builds = {}
+    for recipe in selected:
+        recipe_command(recipe, args)  # Validate required arguments before creating output.
+        kind = recipe['build']
+        if kind in builds:
+            continue
+        build = getattr(args, 'build_' + kind).resolve()
+        executable = build/'theseus'
+        cache = build/'CMakeCache.txt'
+        if not executable.is_file() or not cache.is_file():
+            raise ValueError(f'Prepared build requires theseus and CMakeCache.txt: {build}')
+        axis = bool(re.search(r'^AXISYMMETRIC:BOOL=(ON|YES|TRUE|1)$', cache.read_text(), re.MULTILINE | re.IGNORECASE))
+        if axis != (kind == 'axisymmetric'):
+            raise ValueError(f'Build geometry does not match {kind}: {build}')
+        if args.device == 'cuda' and not re.search(r'^ENABLE_CUDA:BOOL=(ON|YES|TRUE|1)$', cache.read_text(), re.MULTILINE | re.IGNORECASE):
+            raise ValueError(f'CUDA requested but not enabled: {build}')
+        builds[kind] = dict(path=str(build), executable_sha256=digest(executable),
+                            cmake_cache_sha256=digest(cache))
+    output = args.results.resolve()
+    if output.exists():
+        raise ValueError(f'Results path already exists: {output}')
+    output.mkdir(parents=True)
+    for kind, identity in builds.items():
+        shutil.copy2(Path(identity['path'])/'CMakeCache.txt', output/(kind + '-CMakeCache.txt'))
+    checker_files = sorted(set(args.source.resolve().glob('tests/*.py'))
+                           | set(args.source.resolve().glob('tests/recipes/**/*.sh'))
+                           | set(args.source.resolve().glob('tests/recipes/*.bash'))
+                           | set(args.source.resolve().glob('tests/recipes/recipes.toml'))
+                           | set(args.source.resolve().glob('scripts/run_tests.py')))
+    checker_identity = {str(p.relative_to(args.source.resolve())): digest(p) for p in checker_files}
+    result = dict(suite=suite['id'], state='running', device=args.device, builds=builds,
+                  fluxes=getattr(args, 'fluxes', 'all'),
+                  source=str(args.source.resolve()), checker_sha256=checker_identity, steps=[],
+                  scope='Selected recipes against supplied executables; not a full-suite commit gate.')
+    write_json(output/'results.json', result)
+    for recipe in selected:
+        child = argparse.Namespace(**vars(args))
+        child.results = output/recipe['id']
+        started = time.monotonic()
+        log = output/(recipe['id'] + '.log')
+        print(f"Running {recipe['id']}; log: {log}", flush=True)
+        with log.open('w') as stream:
+            try:
+                code = run_recipe(recipe, child, stdout=stream)
+                state = 'passed' if code == 0 else 'failed'
+                reason = None
+            except Exception as error:
+                code = None
+                state = 'failed'
+                reason = str(error)
+                stream.write(reason + '\n')
+        result['steps'].append(dict(name=recipe['id'], state=state, returncode=code,
+                                    reason=reason, elapsed_seconds=time.monotonic() - started,
+                                    log=log.name))
+        write_json(output/'results.json', result)
+    result['state'] = 'passed' if all(r['state'] == 'passed' for r in result['steps']) else 'failed'
+    # A changed binary/cache invalidates this run's single-build identity.
+    for kind, identity in builds.items():
+        build = Path(identity['path'])
+        if digest(build/'theseus') != identity['executable_sha256'] or digest(build/'CMakeCache.txt') != identity['cmake_cache_sha256']:
+            result['state'] = 'failed'
+            result['error'] = f'Build changed during evaluation: {kind}'
+    if any(not (args.source.resolve()/name).is_file() or digest(args.source.resolve()/name) != checksum
+           for name, checksum in checker_identity.items()):
+        result['state'] = 'failed'
+        result['error'] = 'Verification inputs changed during evaluation'
+    write_json(output/'results.json', result)
+    lines = [f"{suite['title']}: {result['state'].upper()}", result['scope'], '']
+    lines.extend(f"{r['state'].upper():6} {r['elapsed_seconds']:.2f}s {r['name']} ({r['log']})"
+                 for r in result['steps'])
+    if result.get('error'):
+        lines.append(result['error'])
+    (output/'summary.txt').write_text('\n'.join(lines) + '\n')
+    print('\n'.join(lines), flush=True)
+    return 0 if result['state'] == 'passed' else 1
 
 def git(source, *args):
     return subprocess.check_output(['git', '-C', str(source), *args])
@@ -278,7 +369,8 @@ def write_json(path, value):
 def save_results(run, results):
     write_json(run / 'results.json', results)
     lines = [f"Test suite: {results['state'].upper()}", f"Run: {run}",
-             f"Suite: {results.get('suite', 'full')}; device: {results.get('device', 'cpu')}", '']
+             f"Suite: {results.get('suite', 'full')}; device: {results.get('device', 'cpu')}",
+             f"MMS level: {results.get('mms_level', 'quick')}", '']
     for step in results['steps']:
         elapsed = f"{step['elapsed_seconds']:.2f} s" if 'elapsed_seconds' in step else '—'
         label = step.get('label', step['name'])
@@ -321,9 +413,9 @@ def integrated_commands(run, manifest, builds):
         ('lte-px-chamber', 'LTE PX Chamber', 'axisymmetric', 'lte_px_chamber_integration_test.py', ['--database', manifest['prefix'] + '/database']),
     ]
     entries.extend([
-        ('source-mms', 'Manufactured source evolution', 'standard', 'source_mms_integration_test.py', []),
+        ('source-mms', 'Manufactured source evolution', 'standard', 'mms/source_mms_integration_test.py', []),
         ('euler-mms', 'Periodic CPG Euler MMS spatial convergence', 'standard',
-         'euler_mms_integration_test.py', []),
+         'mms/euler_mms_integration_test.py', []),
     ])
     commands = []
     for name, title, geometry, script, options in entries:
@@ -357,6 +449,8 @@ def suite_recipe_commands(run, manifest, builds):
             continue
         if suite != 'full' and recipe['build'] not in manifest.get('builds', {}):
             continue
+        if recipe.get('mms_level') is not None and recipe['mms_level'] != manifest.get('mms_level', 'quick'):
+            continue
         arguments = argparse.Namespace(
             source=source,
             build_standard=builds['standard'],
@@ -365,7 +459,8 @@ def suite_recipe_commands(run, manifest, builds):
             results=run / 'recipes' / recipe['id'],
             device=manifest.get('device', 'cpu'),
             python=manifest['python'],
-            ranks=2,
+            ranks=manifest.get('ranks', 2),
+            fluxes=manifest.get('fluxes', 'all'),
         )
         requirements = []
         if suite == 'full':
@@ -525,7 +620,8 @@ def prepare(args):
     run.mkdir(parents=True, exist_ok=False)
     (run / 'logs').mkdir()
     results = {'state': 'preparing', 'steps': [], 'started': time.time(),
-               'suite': suite, 'device': getattr(args, 'device', 'cpu')}
+               'suite': suite, 'device': getattr(args, 'device', 'cpu'),
+               'mms_level': getattr(args, 'mms_level', 'quick')}
     save_results(run, results)
     try:
         snapshot = source if live_source else run / 'source'
@@ -553,6 +649,8 @@ def prepare(args):
                     'cxx': executable(os.environ.get('CXX', 'mpicxx')) if suite == 'full' else None,
                     'mpiexec': executable(args.mpiexec) if args.mpiexec else None, 'mpi_args': args.mpi_arg,
                     'jobs': args.jobs, 'timeout': args.timeout,
+                    'fluxes': getattr(args, 'fluxes', 'all'), 'ranks': getattr(args, 'ranks', 2),
+                    'mms_level': getattr(args, 'mms_level', 'quick'),
                     'kernel_stress': getattr(args, 'kernel_stress', False),
                     'suite': suite, 'device': getattr(args, 'device', 'cpu'),
                     'builds': builds, 'build_files': build_files}
@@ -682,6 +780,8 @@ def check(run, source):
         raise ValueError(f"Test suite is not complete and passing: {results['state']}")
     if manifest.get('suite', 'full') != 'full':
         raise ValueError('Integrated-only results are not a full-suite commit gate.')
+    if manifest.get('fluxes', 'all').strip().lower() != 'all':
+        raise ValueError('Commit-gating full suite requires the default all-flux selection.')
     expected = suite_commands(run, manifest)
     steps = results['steps']
     if len(steps) != len(expected):
@@ -720,6 +820,16 @@ def main():
     parser.add_argument('--build-standard', type=Path)
     parser.add_argument('--build-axisymmetric', type=Path)
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cpu')
+    parser.add_argument('--mms-level', choices=['quick', 'qualification'], default='quick',
+                        help='MMS coverage inside the broad suite; unrelated tests are unchanged')
+    parser.add_argument('--fluxes', default='all', help='All or comma-separated production fluxes for recipes with flux selection')
+    parser.add_argument('--degrees', default='1,2,3,4,5', help='CNS matrix polynomial-degree subset')
+    parser.add_argument('--cells', default='12,18,27,40,60,90', help='Matrix cells per direction, or geometric')
+    parser.add_argument('--mesh-levels', type=int, default=5, help='CNS matrix refinement count (at least 3)')
+    parser.add_argument('--start-level', type=int, default=1, help='CNS matrix first serial refinement level')
+    parser.add_argument('--base-cells', type=int, default=3, help='CNS matrix base cells per direction')
+    parser.add_argument('--reference-dt', type=float, default=.001, help='CNS matrix P3/24-cell timestep anchor')
+    parser.add_argument('--final-time', type=float, default=.2, help='CNS matrix physical final time')
     parser.add_argument('--ranks', type=int, default=2,
                         help='MPI ranks for direct recipe execution (default: 2)')
     parser.add_argument('--mpi-arg', action='append', default=[])
@@ -748,12 +858,14 @@ def main():
                 else:
                     show_recipe_suite(suite, recipes)
                 return 0
-            recipe = select_recipe(recipes, args.test)
             if args.results is None or args.prefix is None or args.ranks < 1:
                 parser.error('run-test requires --results, --prefix and positive --ranks')
             if args.mpi_arg and not args.mpiexec:
                 parser.error('--mpi-arg requires the exceptional --mpiexec override')
-            return run_recipe(recipe, args)
+            suite = next((item for item in recipe_suites if item['id'] == args.test), None)
+            if suite is not None:
+                return run_recipe_suite(suite, recipes, args)
+            return run_recipe(select_recipe(recipes, args.test), args)
         if args.results is None:
             parser.error(f'{args.action} requires --results')
         if args.action == 'check':
