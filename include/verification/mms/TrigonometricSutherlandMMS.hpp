@@ -10,10 +10,11 @@ TrigonometricSutherlandMMS (int dimension, const mfem::real_t *position, mfem::r
                             mfem::real_t reference_viscosity, mfem::real_t prandtl,
                             mfem::real_t gas_constant, mfem::real_t *state, mfem::real_t *source,
                             mfem::real_t time_scale = 1.0,
-                            mfem::real_t coefficient_gradient_scale = 1.0)
+                            mfem::real_t coefficient_gradient_scale = 1.0,
+                            mfem::real_t mean_velocity_scale = 1.0)
 {
-  const auto density = TrigonometricPrimitive (0, dimension, position, time, time_scale);
-  const auto pressure = TrigonometricPrimitive (4, dimension, position, time, time_scale);
+  const auto density = TrigonometricPrimitive (0, dimension, position, time, time_scale, mean_velocity_scale);
+  const auto pressure = TrigonometricPrimitive (4, dimension, position, time, time_scale, mean_velocity_scale);
   const auto temperature = pressure.value / (density.value * gas_constant);
   constexpr mfem::real_t reference_temperature = 273.15;
   constexpr mfem::real_t sutherland_temperature = 110.4;
@@ -26,13 +27,13 @@ TrigonometricSutherlandMMS (int dimension, const mfem::real_t *position, mfem::r
 
   // First differentiate the viscous flux holding its local coefficients fixed.
   TrigonometricCNSMMS (dimension, position, time, viscosity, conductivity, gas_constant, state,
-                       source, time_scale);
+                       source, time_scale, mean_velocity_scale);
 
   ManufacturedPrimitive velocity[3];
   mfem::real_t divergence = 0.0;
   for (int i = 0; i < dimension; ++i)
     {
-      velocity[i] = TrigonometricPrimitive (i + 1, dimension, position, time, time_scale);
+      velocity[i] = TrigonometricPrimitive (i + 1, dimension, position, time, time_scale, mean_velocity_scale);
       divergence += velocity[i].gradient[i];
     }
   const auto viscosity_temperature_derivative

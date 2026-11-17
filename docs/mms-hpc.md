@@ -23,6 +23,7 @@ export TPL_PATH=/absolute/path/to/cuda-dependencies/install
 export PYTHON=/absolute/path/to/python-environment/bin/python
 export BUILD_ROOT=/absolute/path/to/ValidationRuns/mms/gpu-builds
 export RESULTS_ROOT=/absolute/path/to/ValidationRuns/mms/hpc-matrix-001
+export MMS_REGIME=transonic  # Or subsonic / supersonic; use a separate RESULTS_ROOT.
 export CUDA_ARCH=80  # Replace with your target GPU architecture.
 export ACCOUNT=your_account
 export BUILD_PARTITION=your_build_partition
@@ -109,7 +110,7 @@ printf 'Physics=%s degree=%s flux=%s output=%s\n' \
   --source "$THESEUS_SOURCE" --build-standard "$build" --prefix "$TPL_PATH" \
   --python "$PYTHON" --device cuda --ranks 1 \
   --degrees "$degree" --fluxes "$flux" --cells 12,18,27,40,60,90 \
-  --reference-dt .001 --final-time .2 --timeout 3300 --results "$output"
+  --regime "${MMS_REGIME:-transonic}" --reference-dt .001 --final-time .2 --timeout 3300 --results "$output"
 ```
 
 The one-hour wall limit and 55-minute recipe timeout are initial requests,

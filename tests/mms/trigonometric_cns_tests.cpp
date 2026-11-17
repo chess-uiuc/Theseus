@@ -27,7 +27,7 @@ Near (double actual, double expected, double tolerance)
 using namespace CNSReference;
 
 void
-Check (int dim, double R, double scale)
+Check (int dim, double R, double scale, const char *regime = "transonic", double velocity_scale = 1.)
 {
   constexpr int points = 12;
   constexpr double mu = .02;
@@ -56,6 +56,7 @@ Check (int dim, double R, double scale)
           { "Pr", .72 },
           { "mu", mu },
           { "sources", { { { "type", "trigonometric-cns-mms" }, { "time_scale", scale } } } } };
+  runtime["sources"][0]["regime"] = regime;
   auto system = Theseus::Sources::CreateConfigured (runtime, dim + 2, dim, false);
   system->Initialize (mesh);
   state = 7.;
@@ -73,13 +74,13 @@ Check (int dim, double R, double scale)
               x[d] = coordinates.HostRead ()[point * dim + d];
             }
           double reference[5], analytic_state[5], analytic_source[5], zero_state[5], zero_source[5];
-          Residual (dim, x, time, mu, kappa, R, scale, reference);
+          Residual (dim, x, time, mu, kappa, R, scale, reference, false, velocity_scale);
           Theseus::Sources::TrigonometricCNSMMS (dim, x, time, mu, kappa, R, analytic_state,
-                                                 analytic_source, scale);
+                                                 analytic_source, scale, velocity_scale);
           Theseus::Sources::TrigonometricCNSMMS (dim, x, time, 0., 0., R, zero_state, zero_source,
-                                                 scale);
+                                                 scale, velocity_scale);
           double euler_state[5], euler_source[5];
-          Theseus::Sources::TrigonometricEulerMMS (dim, x, time, euler_state, euler_source, scale);
+          Theseus::Sources::TrigonometricEulerMMS (dim, x, time, euler_state, euler_source, scale, velocity_scale);
           for (int q = 0; q < dim + 2; ++q)
             {
               Near (analytic_source[q], reference[q], 3.e-7);
@@ -91,7 +92,7 @@ Check (int dim, double R, double scale)
           for (int field = 0; field < 5; ++field)
             {
               const auto second
-                  = Theseus::Sources::TrigonometricSecondDerivative (field, dim, x, time, scale);
+                  = Theseus::Sources::TrigonometricSecondDerivative (field, dim, x, time, scale, velocity_scale);
               for (int i = 0; i < dim; ++i)
                 {
                   for (int j = 0; j < dim; ++j)
@@ -102,7 +103,7 @@ Check (int dim, double R, double scale)
                           double shifted[] = { x[0], x[1], x[2] };
                           shifted[j] += offsets[sample] * step;
                           value += weights[sample]
-                                   * Derivative (field, dim, shifted, time * scale, i)
+                                   * Derivative (field, dim, shifted, time * scale, i, velocity_scale)
                                    / (12. * step);
                         }
                       Near (second.hessian[i][j], value, 3.e-7);
@@ -129,12 +130,24 @@ Check (int dim, double R, double scale)
           x[d] = coordinates.HostRead ()[point * dim + d];
         }
       double reference[5];
-      Residual (dim, x, .173, 0., 0., R, scale, reference);
+      Residual (dim, x, .173, 0., 0., R, scale, reference, false, velocity_scale);
       for (int q = 0; q < dim + 2; ++q)
         {
           Near (rhs.HostRead ()[1 + q * points + point], .5 + reference[q], 3.e-7);
         }
     }
+  auto invalid_regime = runtime;
+  invalid_regime["sources"][0]["regime"] = "unknown";
+  bool rejected_regime = false;
+  try
+    {
+      Theseus::Sources::CreateConfigured (invalid_regime, dim + 2, dim, false);
+    }
+  catch (const std::invalid_argument &)
+    {
+      rejected_regime = true;
+    }
+  Near (rejected_regime ? 1. : 0., 1., 0.);
   for (const char *key : { "mu", "Pr", "R_gas", "time_scale", "viscous_scale" })
     {
       auto invalid = runtime;
@@ -192,6 +205,8 @@ main (int argc, char **argv)
         {
           Check (dim, R, 1.);
           Check (dim, R, 7.);
+          Check (dim, R, 1., "subsonic", .25);
+          Check (dim, R, 1., "supersonic", 5.);
         }
     }
   std::cout << checks << " checks; failures=" << failures << '\n';

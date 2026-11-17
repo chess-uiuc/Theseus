@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "SourceRegistry.hpp"
+#include "verification/mms/sources/Regime.hpp"
 #include "verification/mms/TrigonometricSutherlandMMS.hpp"
 
 namespace Theseus::Sources
@@ -9,6 +10,7 @@ namespace Theseus::Sources
 struct TrigonometricSutherlandModel : AnalyticModel
 {
   mfem::real_t reference_viscosity, prandtl, gas_constant, time_scale, coefficient_gradient_scale;
+  mfem::real_t mean_velocity_scale = 1.0;
   Requirements
   Needs () const
   {
@@ -28,6 +30,7 @@ struct TrigonometricSutherlandModel : AnalyticModel
   struct Evaluator
   {
     mfem::real_t reference_viscosity, prandtl, gas_constant, time_scale, coefficient_gradient_scale;
+    mfem::real_t mean_velocity_scale = 1.0;
     MFEM_HOST_DEVICE void
     operator() (const Point &point, const SourceAccumulator &source) const
     {
@@ -39,7 +42,7 @@ struct TrigonometricSutherlandModel : AnalyticModel
       mfem::real_t state[5], forcing[5];
       TrigonometricSutherlandMMS (point.mesh.dimension, position, point.stage.time,
                                   reference_viscosity, prandtl, gas_constant, state, forcing,
-                                  time_scale, coefficient_gradient_scale);
+                                  time_scale, coefficient_gradient_scale, mean_velocity_scale);
       for (int q = 0; q < point.mesh.equations; ++q)
         {
           source.Add (q, forcing[q]);
@@ -49,7 +52,7 @@ struct TrigonometricSutherlandModel : AnalyticModel
   Evaluator
   MakeEvaluator (const Stage &) const
   {
-    return { reference_viscosity, prandtl, gas_constant, time_scale, coefficient_gradient_scale };
+    return { reference_viscosity, prandtl, gas_constant, time_scale, coefficient_gradient_scale, mean_velocity_scale };
   }
 };
 
@@ -94,6 +97,7 @@ RegisterTrigonometricSutherland (Registry &registry)
           model.prandtl = Pr;
           model.gas_constant = R;
           model.time_scale = scale;
+          model.mean_velocity_scale = ManufacturedMeanVelocityScale(configuration);
           model.coefficient_gradient_scale = gradient_scale;
           return std::make_unique<PointSource<TrigonometricSutherlandModel>> (model);
         });

@@ -504,3 +504,32 @@ directory for a different plan; do not silently mix campaigns.
 - `controls_passed`/`passed` describe survey control checks, **not nominal-order qualification**. `accuracy_qualified` is always false. `order_expectations_met`, `needs_order_review` and status `completed_with_order_flags` identify shortfalls even when controls pass. Nonfinite/invalid data or failed time isolation prevent a control pass.
 - `density-all-orders.png`/PDF compares all degrees per flux with $h^{p+1}$ references. `plots-pN/cns-fluxes.png`/PDF shows each degree's density/momentum/energy errors and rates across fluxes.
 - Existing quick and qualification case counts, assertions and selection remain unchanged. These larger surveys stay opt-in; target-device numerical evidence must still be collected on the actual GPU build.
+
+## Flow-speed regime studies
+
+The three extended matrix recipes accept `--regime subsonic`, `transonic` (default),
+or `supersonic`. Use one result directory per regime; for example, against an
+existing constant-transport build:
+
+```bash
+for regime in subsonic transonic supersonic; do
+  "$PYTHON" "$THESEUS_SOURCE/scripts/run_tests.py" run-test mms-cns-matrix \
+    --source "$THESEUS_SOURCE" --build-standard "$BUILD_CONSTANT" \
+    --prefix "$PREFIX" --python "$PYTHON" --device cpu --ranks 1 \
+    --results "$RESULTS_ROOT/constant-$regime" --regime "$regime" \
+    --degrees 2 --fluxes Roe --cells 12,18,27 --final-time .2
+done
+```
+
+Use `mms-euler-matrix` or `mms-cns-sutherland-matrix` with its compatible build
+for the other equations/transport models. For the full survey use
+`--degrees 1,2,3,4,5 --fluxes all --cells 12,18,27,40,60,90`; use `--device cuda`
+in a suitable GPU allocation. Each single-regime full survey still contains
+210 cases per physics model. The existing 90-task HPC campaign describes one
+regime; repeat that campaign with separate result roots to evaluate all three.
+
+Supersonic preparation divides the reference timestep by five before applying
+the existing mesh/degree policy. The finest half-step control remains required.
+This is a conservative starting policy, not proof of temporal isolation.
+`matrix-plan.json` records the effective timestep and Mach evidence; plots name
+the regime. New regime surveys are opt-in and do not multiply ordinary CI work.

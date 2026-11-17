@@ -28,7 +28,7 @@ Near (double actual, double expected, double tolerance)
 }
 
 void
-Check (int dim, double R, double mu0, double scale)
+Check (int dim, double R, double mu0, double scale, const char *regime = "transonic", double velocity_scale = 1.)
 {
   constexpr int points = 12;
   mfem::Vector coordinates (points * dim), state (points * (dim + 2)), rhs (state.Size () + 2);
@@ -57,6 +57,7 @@ Check (int dim, double R, double mu0, double scale)
           { "mu0", mu0 },
           { "sources",
             { { { "type", "trigonometric-cns-sutherland-mms" }, { "time_scale", scale } } } } };
+  runtime["sources"][0]["regime"] = regime;
   auto system = Theseus::Sources::CreateConfigured (runtime, dim + 2, dim, false);
   system->Initialize (mesh);
   Theseus::IdealGasModel gas (Theseus::PhysicsConstants (1.4, .72, R, 777., mu0),
@@ -80,15 +81,15 @@ Check (int dim, double R, double mu0, double scale)
               x[d] = coordinates.HostRead ()[point * dim + d];
             }
           double reference[5], analytic_state[5], forcing[5], frozen_state[5], frozen_forcing[5];
-          CNSReference::Residual (dim, x, time, mu0, 0., R, scale, reference, true);
+          CNSReference::Residual (dim, x, time, mu0, 0., R, scale, reference, true, velocity_scale);
           Theseus::Sources::TrigonometricSutherlandMMS (dim, x, time, mu0, .72, R, analytic_state,
-                                                        forcing, scale);
+                                                        forcing, scale, 1., velocity_scale);
           Theseus::Sources::TrigonometricSutherlandMMS (dim, x, time, mu0, .72, R, frozen_state,
-                                                        frozen_forcing, scale, 0.);
+                                                        frozen_forcing, scale, 0., velocity_scale);
           double euler_state[5], euler_source[5], zero_state[5], zero_source[5];
-          Theseus::Sources::TrigonometricEulerMMS (dim, x, time, euler_state, euler_source, scale);
+          Theseus::Sources::TrigonometricEulerMMS (dim, x, time, euler_state, euler_source, scale, velocity_scale);
           Theseus::Sources::TrigonometricSutherlandMMS (dim, x, time, 0., .72, R, zero_state,
-                                                        zero_source, scale);
+                                                        zero_source, scale, 1., velocity_scale);
           for (int q = 0; q < dim + 2; ++q)
             {
               Near (forcing[q], reference[q], 3.e-7);
@@ -104,8 +105,8 @@ Check (int dim, double R, double mu0, double scale)
             }
           energy_gradient_signal = std::max (energy_gradient_signal,
                                              std::abs (forcing[dim + 1] - frozen_forcing[dim + 1]));
-          const auto temperature = CNSReference::Primitive (4, dim, x, time * scale)
-                                   / (CNSReference::Primitive (0, dim, x, time * scale) * R);
+          const auto temperature = CNSReference::Primitive (4, dim, x, time * scale, velocity_scale)
+                                   / (CNSReference::Primitive (0, dim, x, time * scale, velocity_scale) * R);
           const auto viscosity = mu0 * std::pow (temperature / 273.15, 1.5) * (273.15 + 110.4)
                                  / (temperature + 110.4);
           Theseus::DofStateView view (analytic_state, 0);
@@ -148,18 +149,18 @@ Check (int dim, double R, double mu0, double scale)
           double expected_source[5];
           if (std::string (control) == "viscous_scale")
             {
-              CNSReference::Residual (dim, x, .173, 0., 0., R, scale, expected_source, true);
+              CNSReference::Residual (dim, x, .173, 0., 0., R, scale, expected_source, true, velocity_scale);
             }
           else
             {
-              const auto temperature = CNSReference::Primitive (4, dim, x, .173 * scale)
-                                       / (CNSReference::Primitive (0, dim, x, .173 * scale) * R);
+              const auto temperature = CNSReference::Primitive (4, dim, x, .173 * scale, velocity_scale)
+                                       / (CNSReference::Primitive (0, dim, x, .173 * scale, velocity_scale) * R);
               const auto local_mu = mu0 * std::pow (temperature / 273.15, 1.5) * (273.15 + 110.4)
                                     / (temperature + 110.4);
               // Independently difference the flux with this point's coefficients
               // held fixed, rather than calling the analytic diagnostic source.
               CNSReference::Residual (dim, x, .173, local_mu, local_mu * 3.5 * R / .72, R, scale,
-                                      expected_source);
+                                      expected_source, false, velocity_scale);
             }
           for (int q = 0; q < dim + 2; ++q)
             {
@@ -167,6 +168,18 @@ Check (int dim, double R, double mu0, double scale)
             }
         }
     }
+  auto invalid_regime = runtime;
+  invalid_regime["sources"][0]["regime"] = "unknown";
+  bool rejected_regime = false;
+  try
+    {
+      Theseus::Sources::CreateConfigured (invalid_regime, dim + 2, dim, false);
+    }
+  catch (const std::invalid_argument &)
+    {
+      rejected_regime = true;
+    }
+  Near (rejected_regime ? 1. : 0., 1., 0.);
   for (const char *key :
        { "mu0", "Pr", "R_gas", "time_scale", "viscous_scale", "coefficient_gradient_scale" })
     {
@@ -227,6 +240,8 @@ main (int argc, char **argv)
             {
               Check (dim, R, mu0, 1.);
               Check (dim, R, mu0, 7.);
+              Check (dim, R, mu0, 1., "subsonic", .25);
+              Check (dim, R, mu0, 1., "supersonic", 5.);
             }
         }
     }

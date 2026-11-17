@@ -543,13 +543,13 @@ requires = []
                                   prefix=self.prefix, results=self.root/'output', device='cuda',
                                   python=sys.executable, ranks=2, fluxes='Roe,HLL', degrees='2,4',
                                   cells='12,18,27,40', mesh_levels=4, start_level=0, base_cells=20,
-                                  reference_dt=.0005, final_time=.05)
+                                  reference_dt=.0005, final_time=.05, regime="supersonic")
         for identifier in ('mms-euler-matrix', 'mms-cns-matrix', 'mms-cns-sutherland-matrix'):
             recipe = next(r for r in recipes if r['id'] == identifier)
             command = run_tests.recipe_command(recipe, args, 'prepare')
             for option, value in (('--cells', '12,18,27,40'), ('--degrees', '2,4'), ('--mesh-levels', '4'),
                                   ('--start-level', '0'), ('--base-cells', '20'),
-                                  ('--reference-dt', '0.0005'), ('--final-time', '0.05')):
+                                  ('--reference-dt', '0.0005'), ('--final-time', '0.05'), ('--regime', 'supersonic')):
                 self.assertEqual(command[command.index(option) + 1], value)
             self.assertNotIn('full', recipe['suites'])
         baseline = next(r for r in recipes if r['id'] == 'mms-cns-fluxes')

@@ -19,6 +19,89 @@ class CNSMatrixTests(unittest.TestCase):
             prepare(SOURCE, root, transport, **options)
         return json.loads((root/'cases.json').read_text())
 
+    def test_shared_support_does_not_shadow_local_mms_modules(self):
+        import shutil
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            local = root/'tests/mms'
+            local.mkdir(parents=True)
+            shutil.copy2(SOURCE/'tests/mms/mms_paths.py', local/'mms_paths.py')
+            (root/'tests/trigonometric_euler_study.py').write_text(
+                'def exact_fields(x, t): return "stale"\n')
+            (local/'trigonometric_euler_study.py').write_text(
+                'def exact_fields(x, t, regime): return regime\n')
+            (root/'tests/shared_support.py').write_text('value = 42\n')
+            script = local/'check.py'
+            script.write_text(
+                'import mms_paths\n'
+                'from trigonometric_euler_study import exact_fields\n'
+                'from shared_support import value\n'
+                'assert exact_fields(None, 0., "supersonic") == "supersonic"\n'
+                'assert value == 42\n')
+            subprocess.run([sys.executable, str(script)], cwd=root, check=True)
+
+    def test_regime_bounds_and_configuration(self):
+        from mms_regimes import REGIMES, regime_bounds, regime_evidence
+        for regime in REGIMES:
+            evidence = regime_evidence(regime)
+            if regime == 'transonic':
+                low, high = evidence['sampled_initial_mach_range']
+                self.assertLess(low, 1.)
+                self.assertGreater(high, 1.)
+            for dim in (2, 3):
+                bounds = regime_bounds(regime, dim)
+                self.assertGreater(bounds['density_bounds'][0], 0.)
+                self.assertGreater(bounds['pressure_bounds'][0], 0.)
+                if regime == 'subsonic':
+                    self.assertLess(bounds['mach_bounds'][1], 1.)
+                if regime == 'supersonic':
+                    self.assertGreaterEqual(bounds['mach_bounds'][0], 3.)
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                cases = self.generate(root, degrees=(2,), fluxes=('Roe',),
+                                      cells_sequence=(12, 18, 27), regime=regime)
+                config = json.loads((root/cases[0]['name']/'config.json').read_text())['runTime']
+                self.assertEqual(config['sources'][0]['regime'], regime)
+                self.assertEqual(cases[0]['regime'], regime)
+                if regime != 'transonic':
+                    self.assertEqual(config['exact_solution']['params']['x1'], REGIMES.index(regime))
+                    self.assertEqual(config['conditions']['initial_conditions'], config['exact_solution'])
+                if regime == 'supersonic':
+                    self.assertAlmostEqual(config['dt'], .0002)
+        with self.assertRaises(ValueError):
+            regime_bounds('unknown')
+        with self.assertRaises(ValueError):
+            regime_bounds('subsonic', 1)
+
+    def test_mach_bounds_enclose_independent_space_time_samples(self):
+        from mms_regimes import REGIMES, regime_bounds
+        from trigonometric_euler_study import exact_fields
+        random = np.random.default_rng(42)
+        for dimension in (2, 3):
+            coordinates = random.uniform(-1., 1., (512, dimension))
+            for regime in REGIMES:
+                low, high = regime_bounds(regime, dimension)['mach_bounds']
+                for time in (0., .173, .431):
+                    state = exact_fields(coordinates, time, regime)
+                    rho = state[:, 0]
+                    speed2 = np.sum((state[:, 1:dimension + 1]/rho[:, None])**2, axis=1)
+                    pressure = .4*(state[:, -1] - .5*rho*speed2)
+                    mach = np.sqrt(rho*speed2/(1.4*pressure))
+                    self.assertTrue(np.all(mach >= low))
+                    self.assertTrue(np.all(mach <= high))
+            np.testing.assert_array_equal(exact_fields(coordinates, .173),
+                                          exact_fields(coordinates, .173, 'transonic'))
+
+    def test_reject_mixed_regime_assessment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cases = self.generate(Path(directory), degrees=(2,), fluxes=('Roe',), cells_sequence=(12, 18, 27))
+            records = [dict(**c, component_physical={'l2': [c['h']**3]*4}) for c in cases]
+            records[0]['regime'] = 'supersonic'
+            with self.assertRaisesRegex(RuntimeError, 'common Mach regime'):
+                assess(records)
+
     def test_default_matrix_count_transport_and_exact_time(self):
         for transport in ('euler', 'constant', 'sutherland'):
             with self.subTest(transport=transport), tempfile.TemporaryDirectory() as directory:

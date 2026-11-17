@@ -200,6 +200,45 @@ physical fluxes check the source; the CNS fixture checks all Hessian entries in
 2D/3D. These physical fluxes do not prescribe a numerical interface flux: the
 recipes select LLF, Roe or another production flux as documented in the matrices.
 
+#### Flow-speed regimes
+
+The same periodic fields support `subsonic`, `transonic` (default), and
+`supersonic` regimes. Only the means of the active velocity components change:
+
+$$
+\overline{\boldsymbol{u}}_r=s_r\overline{\boldsymbol{u}},\qquad
+s_{\mathrm{sub}}=0.25,\quad s_{\mathrm{trans}}=1,\quad s_{\mathrm{super}}=5.
+$$
+
+Density, pressure, oscillation amplitudes and phase speeds remain unchanged.
+Velocity derivatives are unchanged; nonlinear inviscid fluxes and viscous work
+are recomputed with the new velocity values. This is a forced manufactured family,
+not a Galilean transformation of the complete space-time solution.
+
+| Regime | Conservative 2D Mach bounds, all positions/times | Conservative 3D bounds | Selection |
+| --- | --- | --- | --- |
+| Subsonic | 0.0466–0.5182 | 0–0.7804 | `--regime subsonic` |
+| Transonic | 0.6136–1.3044 | 0.5029–1.6418 | `--regime transonic` (default) |
+| Supersonic | 3.7669–5.5305 | 3.5380–6.3394 | `--regime supersonic` |
+
+These are triangle-inequality enclosures, not measured extrema. In 2D, initial
+samples of the transonic field occur on both sides of Mach one. The bounds establish
+positive density/pressure and Mach above three for the supersonic case independently
+of mesh resolution and final time. A zero lower speed bound does not imply a vacuum.
+No whole-domain transonic classification is claimed here for 3D.
+
+The source option `regime` applies to all three trigonometric source types. For
+non-default regimes, initial and exact states use `RegimeTrigonometricMMS`,
+`signature: 1`, with `params: {"x1": 0}` for subsonic or `{"x1": 2}` for supersonic
+(`1` selects the original state). State and source selections must agree. The
+regime state function uses the original phase-time scale of one; the matrix does
+not combine it with temporal acceleration. Existing source/state inputs remain valid.
+
+**Artifacts and scope:** matrix plans retain conservative Mach bounds and sampled
+initial Mach ranges; assessments reject mixed regimes. Separate result directories
+keep regime studies independent. The original transonic data are the existing
+baseline; no new-regime convergence result is implied by the analytic bounds alone.
+
 #### Variable-transport extension
 
 The separate `trigonometric-cns-sutherland-mms` source uses the same exact fields

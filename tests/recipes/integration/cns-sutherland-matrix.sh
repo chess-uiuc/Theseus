@@ -10,7 +10,7 @@ if [[ "$THESEUS_RECIPE_STAGE" == all || "$THESEUS_RECIPE_STAGE" == prepare ]]; t
     --source "$THESEUS_SOURCE" --results "$CASES" --ranks "$THESEUS_RANKS" --fluxes "$THESEUS_FLUXES" --transport sutherland \
     --cells "$THESEUS_CELLS" --degrees "$THESEUS_DEGREES" --mesh-levels "$THESEUS_MESH_LEVELS" \
     --start-level "$THESEUS_START_LEVEL" --base-cells "$THESEUS_BASE_CELLS" \
-    --reference-dt "$THESEUS_REFERENCE_DT" --final-time "$THESEUS_FINAL_TIME"
+    --regime "$THESEUS_REGIME" --reference-dt "$THESEUS_REFERENCE_DT" --final-time "$THESEUS_FINAL_TIME"
   # THESEUS_SHOW_END
 fi
 if [[ "$THESEUS_RECIPE_STAGE" == all || "$THESEUS_RECIPE_STAGE" == run ]]; then

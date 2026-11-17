@@ -3,6 +3,7 @@
 #pragma once
 
 #include "SourceRegistry.hpp"
+#include "verification/mms/sources/Regime.hpp"
 #include "verification/mms/TrigonometricEulerMMS.hpp"
 
 namespace Theseus::Sources
@@ -11,8 +12,9 @@ namespace Theseus::Sources
   {
     int orientation = 0;
     mfem::real_t time_scale = 1.0;
-    explicit TrigonometricEulerModel(int value = 0, mfem::real_t scale = 1.0)
-      : orientation(value), time_scale(scale) {}
+    mfem::real_t mean_velocity_scale = 1.0;
+    explicit TrigonometricEulerModel(int value = 0, mfem::real_t scale = 1.0, mfem::real_t velocity_scale = 1.0)
+      : orientation(value), time_scale(scale), mean_velocity_scale(velocity_scale) {}
     Requirements Needs() const { return {true}; }
 
     void Initialize(const MeshView &mesh)
@@ -28,7 +30,7 @@ namespace Theseus::Sources
     struct Evaluator
     {
       int orientation;
-      mfem::real_t time_scale;
+      mfem::real_t time_scale, mean_velocity_scale;
       MFEM_HOST_DEVICE void operator()(const Point &point, const SourceAccumulator &source) const
       {
         mfem::real_t position[3] = {};
@@ -39,7 +41,7 @@ namespace Theseus::Sources
         mfem::real_t state[5];
         mfem::real_t forcing[5];
         OrientedTrigonometricEulerMMS(point.mesh.dimension, orientation, position,
-                                     point.stage.time, state, forcing, time_scale);
+                                     point.stage.time, state, forcing, time_scale, mean_velocity_scale);
         for (int equation = 0; equation < point.mesh.equations; ++equation)
           {
             source.Add(equation, forcing[equation]);
@@ -47,7 +49,7 @@ namespace Theseus::Sources
       }
     };
 
-    Evaluator MakeEvaluator(const Stage &) const { return {orientation, time_scale}; }
+    Evaluator MakeEvaluator(const Stage &) const { return {orientation, time_scale, mean_velocity_scale}; }
   };
 
   inline void RegisterTrigonometricEuler(Registry &registry)
@@ -79,7 +81,7 @@ namespace Theseus::Sources
           throw std::invalid_argument("MMS time_scale must be positive and finite");
         }
       return std::make_unique<PointSource<TrigonometricEulerModel>>(
-        TrigonometricEulerModel{orientation, time_scale});
+        TrigonometricEulerModel{orientation, time_scale, ManufacturedMeanVelocityScale(configuration)});
     });
   }
 }

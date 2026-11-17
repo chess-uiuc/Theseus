@@ -7,7 +7,7 @@ namespace CNSReference
 {
 // Independent scalar specification, without production derivatives/flux/transport.
 inline double
-Primitive (int field, int dimension, const double *x, double t)
+Primitive (int field, int dimension, const double *x, double t, double velocity_scale = 1.)
 {
   const double mean[] = { 2., .7, .3, .2, 1. };
   const double ax[] = { .12, .07, -.05, .04, .08 };
@@ -26,7 +26,7 @@ Primitive (int field, int dimension, const double *x, double t)
       value += az[field] * std::sin (c) + axz[field] * std::cos (a) * std::sin (c)
                + ayz[field] * std::sin (b) * std::cos (c);
     }
-  return value;
+  return value + (field >= 1 && field <= 3 ? (velocity_scale - 1.) * mean[field] : 0.);
 }
 
 constexpr int offsets[] = { -2, -1, 1, 2 };
@@ -34,24 +34,24 @@ constexpr double weights[] = { 1., -8., 8., -1. };
 constexpr double step = 2.e-4;
 
 inline double
-Derivative (int field, int dim, const double *x, double t, int direction)
+Derivative (int field, int dim, const double *x, double t, int direction, double velocity_scale = 1.)
 {
   double result = 0.;
   for (int sample = 0; sample < 4; ++sample)
     {
       double point[] = { x[0], x[1], x[2] };
       point[direction] += offsets[sample] * step;
-      result += weights[sample] * Primitive (field, dim, point, t) / (12. * step);
+      result += weights[sample] * Primitive (field, dim, point, t, velocity_scale) / (12. * step);
     }
   return result;
 }
 
 inline void
 StateOrFlux (int dim, const double *x, double t, int direction, double mu, double conductivity,
-             double R, double *value, bool sutherland = false)
+             double R, double *value, bool sutherland = false, double velocity_scale = 1.)
 {
-  const double rho = Primitive (0, dim, x, t);
-  const double p = Primitive (4, dim, x, t);
+  const double rho = Primitive (0, dim, x, t, velocity_scale);
+  const double p = Primitive (4, dim, x, t, velocity_scale);
   if (sutherland)
     {
       const auto temperature = p / (rho * R);
@@ -62,11 +62,11 @@ StateOrFlux (int dim, const double *x, double t, int direction, double mu, doubl
   double energy = p / .4;
   for (int i = 0; i < dim; ++i)
     {
-      u[i] = Primitive (i + 1, dim, x, t);
+      u[i] = Primitive (i + 1, dim, x, t, velocity_scale);
       energy += .5 * rho * u[i] * u[i];
       for (int j = 0; j < dim; ++j)
         {
-          gradient[i][j] = Derivative (i + 1, dim, x, t, j);
+          gradient[i][j] = Derivative (i + 1, dim, x, t, j, velocity_scale);
         }
       divergence += gradient[i][i];
     }
@@ -80,8 +80,8 @@ StateOrFlux (int dim, const double *x, double t, int direction, double mu, doubl
         }
       return;
     }
-  const double temperature_gradient = (Derivative (4, dim, x, t, direction) / rho
-                                       - p * Derivative (0, dim, x, t, direction) / (rho * rho))
+  const double temperature_gradient = (Derivative (4, dim, x, t, direction, velocity_scale) / rho
+                                       - p * Derivative (0, dim, x, t, direction, velocity_scale) / (rho * rho))
                                       / R;
   value[0] = rho * u[direction];
   value[dim + 1] = (energy + p) * u[direction] - conductivity * temperature_gradient;
@@ -97,7 +97,7 @@ StateOrFlux (int dim, const double *x, double t, int direction, double mu, doubl
 
 inline void
 Residual (int dim, const double *x, double t, double mu, double kappa, double R, double scale,
-          double *source, bool sutherland = false)
+          double *source, bool sutherland = false, double velocity_scale = 1.)
 {
   for (int q = 0; q < dim + 2; ++q)
     {
@@ -118,7 +118,7 @@ Residual (int dim, const double *x, double t, double mu, double kappa, double R,
               point[d] += offsets[sample] * step;
             }
           double flux[5];
-          StateOrFlux (dim, point, time * scale, d, mu, kappa, R, flux, sutherland);
+          StateOrFlux (dim, point, time * scale, d, mu, kappa, R, flux, sutherland, velocity_scale);
           for (int q = 0; q < dim + 2; ++q)
             {
               source[q] += weights[sample] * flux[q] / (12. * step) * (d == dim ? scale : 1.);

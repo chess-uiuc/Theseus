@@ -6,7 +6,7 @@ recipe_usage() {
   echo "          [--device cpu|cuda] [--python PYTHON] [--ranks N]" >&2
   echo "          [--stage all|run|prepare|compare] [--fluxes all|LLF,Roe,...]" >&2
   echo "          Matrix: [--cells 12,18,27,40,60,90] [--degrees 1,2,3,4,5] [--mesh-levels 5] [--start-level 1]" >&2
-  echo "                  [--base-cells 3] [--reference-dt .001] [--final-time .2]" >&2
+  echo "                  [--regime subsonic|transonic|supersonic] [--base-cells 3] [--reference-dt .001] [--final-time .2]" >&2
 }
 
 recipe_parse_arguments() {
@@ -20,6 +20,7 @@ recipe_parse_arguments() {
   THESEUS_RANKS="2"
   THESEUS_FLUXES="all"
   THESEUS_RECIPE_STAGE="all"
+  THESEUS_REGIME="transonic"
   THESEUS_DEGREES="1,2,3,4,5"
   THESEUS_CELLS="12,18,27,40,60,90"
   THESEUS_MESH_LEVELS="5"
@@ -40,6 +41,7 @@ recipe_parse_arguments() {
       --ranks) THESEUS_RANKS="$2"; shift 2 ;;
       --fluxes) THESEUS_FLUXES="$2"; shift 2 ;;
       --stage) THESEUS_RECIPE_STAGE="$2"; shift 2 ;;
+      --regime) THESEUS_REGIME="$2"; shift 2 ;;
       --degrees) THESEUS_DEGREES="$2"; shift 2 ;;
       --cells) THESEUS_CELLS="$2"; shift 2 ;;
       --mesh-levels) THESEUS_MESH_LEVELS="$2"; shift 2 ;;

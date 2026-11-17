@@ -16,7 +16,8 @@ struct Physics
 };
 
 std::array<double, 4>
-GradientError (int degree, int elements, bool constant = false, double *rhs_error = nullptr)
+GradientError (int degree, int elements, bool constant = false, double *rhs_error = nullptr,
+               double mean_velocity_scale = 1.)
 {
   auto mesh = mfem::Mesh::MakeCartesian2D (elements, elements, mfem::Element::QUADRILATERAL, true,
                                            2., 2., false);
@@ -44,11 +45,11 @@ GradientError (int degree, int elements, bool constant = false, double *rhs_erro
   op.Finalize ();
   constexpr double time = .173;
   mfem::VectorFunctionCoefficient exact (4,
-                                         [constant] (const mfem::Vector &x, mfem::Vector &value)
+                                         [constant, mean_velocity_scale] (const mfem::Vector &x, mfem::Vector &value)
                                            {
                                              mfem::real_t source[4];
                                              Theseus::Sources::TrigonometricEulerMMS (
-                                                 2, x.GetData (), time, value.GetData (), source);
+                                                 2, x.GetData (), time, value.GetData (), source, 1., mean_velocity_scale);
                                              if (constant)
                                                {
                                                  value (0) = 2.;
@@ -136,6 +137,30 @@ main (int argc, char **argv)
             }
         }
       std::cout << '\n';
+    }
+  // The same MMS gradients at different mean speeds also exercise the nonlinear
+  // entropy-to-primitive conversion. A third mesh guards against one lucky ratio.
+  for (double velocity_scale : { .25, 5. })
+    {
+      for (int degree : { 2, 3 })
+        {
+          const auto coarse = GradientError (degree, 6, false, nullptr, velocity_scale);
+          const auto middle = GradientError (degree, 12, false, nullptr, velocity_scale);
+          const auto fine = GradientError (degree, 18, false, nullptr, velocity_scale);
+          std::cout << "Mean velocity scale " << velocity_scale << " P" << degree << " gradient orders:";
+          for (int q = 0; q < 4; ++q)
+            {
+              const auto first = std::log (coarse[q] / middle[q]) / std::log (2.);
+              const auto second = std::log (middle[q] / fine[q]) / std::log (1.5);
+              std::cout << ' ' << first << '/' << second;
+              if (!std::isfinite (first) || !std::isfinite (second)
+                  || first < degree - .5 || second < degree - .5)
+                {
+                  ++failures;
+                }
+            }
+          std::cout << '\n';
+        }
     }
   double rhs_error = 0.;
   const auto uniform = GradientError (2, 6, true, &rhs_error);

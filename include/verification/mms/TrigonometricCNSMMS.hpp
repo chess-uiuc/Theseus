@@ -15,7 +15,7 @@ struct ManufacturedSecondDerivative
 // Kept separate so Euler source evaluation does not pay for second derivatives.
 MFEM_HOST_DEVICE inline ManufacturedSecondDerivative
 TrigonometricSecondDerivative (int field, int dimension, const mfem::real_t *position,
-                               mfem::real_t time, mfem::real_t time_scale = 1.0)
+                               mfem::real_t time, mfem::real_t time_scale = 1.0, mfem::real_t mean_velocity_scale = 1.0)
 {
   const mfem::real_t coefficients[5][6] = { { .12, .08, -.06, .04, .03, -.02 },
                                             { .07, -.04, .03, .02, -.02, .01 },
@@ -32,7 +32,7 @@ TrigonometricSecondDerivative (int field, int dimension, const mfem::real_t *pos
   const auto cy = std::cos (y);
   const auto factor = -wave_number * wave_number;
   ManufacturedSecondDerivative result;
-  result.first = TrigonometricPrimitive (field, dimension, position, time, time_scale);
+  result.first = TrigonometricPrimitive (field, dimension, position, time, time_scale, mean_velocity_scale);
   result.hessian[0][0] = factor * (a[0] * sx + a[3] * sx * cy);
   result.hessian[1][1] = factor * (a[1] * cy + a[3] * sx * cy);
   result.hessian[0][1] = result.hessian[1][0] = factor * a[3] * cx * sy;
@@ -53,17 +53,17 @@ TrigonometricSecondDerivative (int field, int dimension, const mfem::real_t *pos
 MFEM_HOST_DEVICE inline void
 TrigonometricCNSMMS (int dimension, const mfem::real_t *position, mfem::real_t time,
                      mfem::real_t viscosity, mfem::real_t conductivity, mfem::real_t gas_constant,
-                     mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0)
+                     mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0, mfem::real_t mean_velocity_scale = 1.0)
 {
-  TrigonometricEulerMMS (dimension, position, time, state, source, time_scale);
-  const auto density = TrigonometricSecondDerivative (0, dimension, position, time, time_scale);
-  const auto pressure = TrigonometricSecondDerivative (4, dimension, position, time, time_scale);
+  TrigonometricEulerMMS (dimension, position, time, state, source, time_scale, mean_velocity_scale);
+  const auto density = TrigonometricSecondDerivative (0, dimension, position, time, time_scale, mean_velocity_scale);
+  const auto pressure = TrigonometricSecondDerivative (4, dimension, position, time, time_scale, mean_velocity_scale);
   ManufacturedSecondDerivative velocity[3];
   mfem::real_t divergence = 0.0;
   mfem::real_t divergence_gradient[3] = {};
   for (int i = 0; i < dimension; ++i)
     {
-      velocity[i] = TrigonometricSecondDerivative (i + 1, dimension, position, time, time_scale);
+      velocity[i] = TrigonometricSecondDerivative (i + 1, dimension, position, time, time_scale, mean_velocity_scale);
       divergence += velocity[i].first.gradient[i];
       for (int j = 0; j < dimension; ++j)
         {

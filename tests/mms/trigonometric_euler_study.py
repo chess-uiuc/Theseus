@@ -23,10 +23,12 @@ FINAL_TIME = .2
 FIELDS = ('Density', 'Velocity', 'Pressure', 'Specific Total Energy')
 
 
-def exact_fields(coordinates, time):
+def exact_fields(coordinates, time, regime="transonic"):
     dimension = coordinates.shape[1]
     # Independent NumPy specification; does not import a production evaluator.
     means = np.array([2., .7, .3, .2, 1.])
+    from mms_regimes import mean_velocity_scale
+    means[1:4] *= mean_velocity_scale(regime)
     ax = np.array([.12, .07, -.05, .04, .08])
     ay = np.array([.08, -.04, .06, -.03, -.06])
     az = np.array([-.06, .03, -.04, .05, .04])
@@ -147,6 +149,9 @@ def matches_final_time(actual, expected, steps, dt):
 
 def read_case(results, case, device, exact_reference=exact_fields,
               quadrature_points=10, check_solver_norm=True, final_time=FINAL_TIME):
+    if exact_reference is exact_fields and case.get('regime', 'transonic') != 'transonic':
+        from functools import partial
+        exact_reference = partial(exact_fields, regime=case['regime'])
     directory = results/case['name']
     log = (directory/'run.log').read_text()
     if f'Device configuration: {device}' not in log:
@@ -202,7 +207,7 @@ def check(results, device):
     (results/'assessment.json').unlink(missing_ok=True)
     analysis = results/'analysis'
     analysis.mkdir(exist_ok=True)
-    for name in ('trigonometric_euler_study.py', 'mms_error_norms.py', 'mms_paths.py'):
+    for name in ('trigonometric_euler_study.py', 'mms_error_norms.py', 'mms_paths.py', 'mms_regimes.py'):
         (analysis/name).write_bytes((Path(__file__).parent/name).read_bytes())
     (analysis/'numflux_regression_test.py').write_bytes(
         (REPOSITORY_ROOT/'tests/numflux_regression_test.py').read_bytes())

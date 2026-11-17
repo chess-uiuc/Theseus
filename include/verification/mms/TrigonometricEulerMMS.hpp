@@ -18,7 +18,7 @@ namespace Theseus::Sources
   // Integer spatial frequencies make values and derivatives periodic on a unit box.
   MFEM_HOST_DEVICE inline ManufacturedPrimitive TrigonometricPrimitive(
     int field, int dimension, const mfem::real_t *position, mfem::real_t time,
-    mfem::real_t time_scale = 1.0)
+    mfem::real_t time_scale = 1.0, mfem::real_t mean_velocity_scale = 1.0)
   {
     const mfem::real_t coefficients[5][7] = {
       {2.0,  .12,  .08, -.06,  .04,  .03, -.02},
@@ -51,6 +51,10 @@ namespace Theseus::Sources
         result.gradient[2] = wave_number*(amplitude[3]*cz + amplitude[5]*cx*cz
           - amplitude[6]*sy*sz);
       }
+    if (field >= 1 && field <= 3)
+      {
+        result.value += (mean_velocity_scale - 1.0)*amplitude[0];
+      }
     result.time_derivative = time_scale*(-.2*result.gradient[0] + .13*result.gradient[1]
       - .11*result.gradient[2]);
     return result;
@@ -60,17 +64,17 @@ namespace Theseus::Sources
   // This manufactured family uses Cartesian CPG Euler, gamma=1.4 and R=1.
   MFEM_HOST_DEVICE inline void TrigonometricEulerMMS(
     int dimension, const mfem::real_t *position, mfem::real_t time,
-    mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0)
+    mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0, mfem::real_t mean_velocity_scale = 1.0)
   {
-    const auto density = TrigonometricPrimitive(0, dimension, position, time, time_scale);
-    const auto pressure = TrigonometricPrimitive(4, dimension, position, time, time_scale);
+    const auto density = TrigonometricPrimitive(0, dimension, position, time, time_scale, mean_velocity_scale);
+    const auto pressure = TrigonometricPrimitive(4, dimension, position, time, time_scale, mean_velocity_scale);
     ManufacturedPrimitive velocity[3];
     mfem::real_t speed_squared = 0.0;
     mfem::real_t velocity_time_work = 0.0;
     mfem::real_t divergence = 0.0;
     for (int d = 0; d < dimension; ++d)
       {
-        velocity[d] = TrigonometricPrimitive(d + 1, dimension, position, time, time_scale);
+        velocity[d] = TrigonometricPrimitive(d + 1, dimension, position, time, time_scale, mean_velocity_scale);
         speed_squared += velocity[d].value*velocity[d].value;
         velocity_time_work += velocity[d].value*velocity[d].time_derivative;
         divergence += velocity[d].gradient[d];
@@ -113,7 +117,7 @@ namespace Theseus::Sources
   // Scalar equations are unchanged; momentum and its forcing rotate together.
   MFEM_HOST_DEVICE inline void OrientedTrigonometricEulerMMS(
     int dimension, int orientation, const mfem::real_t *position, mfem::real_t time,
-    mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0)
+    mfem::real_t *state, mfem::real_t *source, mfem::real_t time_scale = 1.0, mfem::real_t mean_velocity_scale = 1.0)
   {
     mfem::real_t canonical_position[3] = {};
     for (int d = 0; d < dimension; ++d)
@@ -122,7 +126,7 @@ namespace Theseus::Sources
       }
     mfem::real_t canonical_state[5];
     mfem::real_t canonical_source[5];
-    TrigonometricEulerMMS(dimension, canonical_position, time, canonical_state, canonical_source, time_scale);
+    TrigonometricEulerMMS(dimension, canonical_position, time, canonical_state, canonical_source, time_scale, mean_velocity_scale);
     state[0] = canonical_state[0];
     source[0] = canonical_source[0];
     state[dimension + 1] = canonical_state[dimension + 1];

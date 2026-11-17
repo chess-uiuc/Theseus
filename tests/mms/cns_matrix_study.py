@@ -10,6 +10,7 @@ import numpy as np
 from euler_spatial_survey import write_periodic_square
 from mms_error_norms import headline_l2
 from mms_fluxes import FLUXES, select_fluxes
+from mms_regimes import REGIMES, mean_velocity_scale, regime_evidence
 from trigonometric_euler_study import read_case
 
 
@@ -35,7 +36,9 @@ def timestep(degree, cells, reference_dt, final_time):
 
 def prepare(source, results, transport, fluxes=FLUXES, ranks=1, degrees=(1, 2, 3, 4, 5),
             mesh_levels=5, start_level=1, base_cells=3, reference_dt=.001, final_time=.2,
-            cells_sequence=(12, 18, 27, 40, 60, 90)):
+            cells_sequence=(12, 18, 27, 40, 60, 90), regime="transonic"):
+    mach_evidence = regime_evidence(regime)
+    effective_reference_dt = reference_dt/max(1., mean_velocity_scale(regime))
     if (transport not in ('euler', 'constant', 'sutherland') or mesh_levels < 3 or start_level < 0
             or base_cells < 3 or ranks < 1 or not degrees or len(set(degrees)) != len(degrees)
             or any(p not in range(1, 6) for p in degrees) or not fluxes or len(set(fluxes)) != len(fluxes)
@@ -65,7 +68,7 @@ def prepare(source, results, transport, fluxes=FLUXES, ranks=1, degrees=(1, 2, 3
             group = []
             for index, cells in enumerate(cells_sequence):
                 level = 0
-                dt, steps = timestep(degree, cells, reference_dt, final_time)
+                dt, steps = timestep(degree, cells, effective_reference_dt, final_time)
                 group.append(dict(name=f'{flux}-p{degree}-cells-{cells}', level=level,
                                   cells=cells, dt=dt, steps=steps, time_control=False))
             control = dict(group[-1], name=f'{flux}-p{degree}-half-dt',
@@ -85,23 +88,27 @@ def prepare(source, results, transport, fluxes=FLUXES, ranks=1, degrees=(1, 2, 3
                                nsteps_max=case['steps'] + 2, print_interval=case['steps'],
                                initial_save_dt=final_time, refined_save_dt=final_time,
                                nancheck_steps=1, cfl_check_interval=1000,
-                               output_file_path=str(directory/'solution'), sources=[dict(type=source_type)])
+                               output_file_path=str(directory/'solution'), sources=[dict(type=source_type, regime=regime)])
                 condition = dict(function='TrigonometricEulerMMS' if transport == 'euler' else 'TrigonometricCNSMMS', signature=0)
+                if regime != 'transonic':
+                    condition = dict(function='RegimeTrigonometricMMS', signature=1,
+                                     params={'x1': REGIMES.index(regime)})
                 runtime['conditions']['initial_conditions'] = condition
                 runtime['exact_solution'] = condition.copy()
                 (directory/'config.json').write_text(json.dumps(config, indent=2) + '\n')
-                case.update(transport=transport, flux=flux, order=degree, dimension=2,
+                case.update(regime=regime, transport=transport, flux=flux, order=degree, dimension=2,
                             h=2./case['cells'], ranks=ranks, forced=True, final_time=final_time,
                             mesh_levels=mesh_levels, start_level=start_level, base_cells=base_cells,
                             unknowns=4*case['cells']**2*(degree + 1)**2)
                 cases.append(case)
-    plan = dict(transport=transport, degrees=list(degrees), fluxes=list(fluxes), mesh_levels=mesh_levels,
+    plan = dict(regime=regime, mach_evidence=mach_evidence,
+                effective_reference_dt=effective_reference_dt, transport=transport, degrees=list(degrees), fluxes=list(fluxes), mesh_levels=mesh_levels,
                 start_level=start_level, base_cells=base_cells, cells=list(cells_sequence), reference_dt=reference_dt,
                 final_time=final_time, cases=len(cases),
                 max_steps=max(case['steps'] for case in cases),
                 max_unknowns=max(case['unknowns'] for case in cases),
                 unknown_steps=sum(case['steps']*case['unknowns'] for case in cases),
-                timestep_policy='reference_dt * min(1,(24/cells)^2) * min(1,(3/p)^4); '
+                timestep_policy='reference_dt / max(1,mean_velocity_scale) * min(1,(24/cells)^2) * min(1,(3/p)^4); '
                                 'round step count upward to land at final time; finest control dt/2',
                 scope='observational spatial survey; nominal-order shortfalls flagged, '
                       'timestep/nonfinite failures prevent a control pass; not new qualification')
@@ -115,6 +122,11 @@ def assess(records):
     transports = {record['transport'] for record in records}
     if len(transports) != 1 or not transports <= {'euler', 'constant', 'sutherland'}:
         raise RuntimeError('CNS matrix requires one common transport model')
+    regimes = {record.get('regime', 'transonic') for record in records}
+    if len(regimes) != 1:
+        raise RuntimeError('CNS matrix requires one common Mach regime')
+    regime = next(iter(regimes))
+    mach_evidence = regime_evidence(regime)
     studies = []
     groups = dict.fromkeys((record['flux'], record['order']) for record in records)
     for flux, degree in groups:
@@ -146,7 +158,7 @@ def assess(records):
     needs_review = any(not study['nominal_minus_half_met'] or not study['monotone'] for study in studies)
     status = ('failed_controls' if not controls_passed else
               'completed_with_order_flags' if needs_review else 'completed')
-    return dict(status=status, scope='observational_survey_control_checks',
+    return dict(regime=regime, mach_evidence=mach_evidence, status=status, scope='observational_survey_control_checks',
                 quantities=['density', 'momentum', 'energy'], studies=studies,
                 controls_passed=controls_passed, passed=controls_passed, accuracy_qualified=False,
                 order_expectations_met=all(study['nominal_minus_half_met'] for study in studies),
@@ -199,7 +211,7 @@ def plot(results):
         ax.grid(True, which='both', alpha=.3)
     for ax in list(axes.flat)[len(fluxes):]:
         ax.set_visible(False)
-    figure.suptitle(f"{records[0]['transport']} MMS: density by degree\nDashed h^(p+1) references", fontsize=11)
+    figure.suptitle(f"{records[0]['transport']} {records[0].get('regime', 'transonic')} MMS: density by degree\nDashed h^(p+1) references", fontsize=11)
     figure.savefig(results/'density-all-orders.png', dpi=180)
     figure.savefig(results/'density-all-orders.pdf')
     plt.close(figure)
@@ -211,6 +223,7 @@ if __name__ == '__main__':
     parser.add_argument('--source', type=Path, required=True)
     parser.add_argument('--results', type=Path, required=True)
     parser.add_argument('--transport', choices=('euler', 'constant', 'sutherland'), required=True)
+    parser.add_argument('--regime', choices=REGIMES, default='transonic')
     parser.add_argument('--fluxes', default='all')
     parser.add_argument('--degrees', default='1,2,3,4,5')
     parser.add_argument('--cells', default='12,18,27,40,60,90',
@@ -227,7 +240,7 @@ if __name__ == '__main__':
         prepare(args.source.resolve(), args.results.resolve(), args.transport, select_fluxes(args.fluxes),
                 args.ranks, select_degrees(args.degrees), args.mesh_levels, args.start_level,
                 args.base_cells, args.reference_dt, args.final_time,
-                None if args.cells == 'geometric' else tuple(int(n) for n in args.cells.split(',')))
+                None if args.cells == 'geometric' else tuple(int(n) for n in args.cells.split(',')), args.regime)
     elif args.action == 'check':
         check(args.results.resolve(), args.device)
     else:

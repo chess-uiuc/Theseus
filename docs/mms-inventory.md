@@ -26,6 +26,7 @@ introduced. [Runtime layout](../include/verification/mms/README.md) and
 | Capability | Files / interface |
 | --- | --- |
 | Periodic multidirectional Euler state, derivatives and forcing | `include/verification/mms/TrigonometricEulerMMS.hpp`, `include/verification/mms/sources/TrigonometricEuler.hpp` |
+| Subsonic/transonic/supersonic mean-speed variants | Source `regime` selector; `RegimeTrigonometricMMS` initial/exact states; conservative Mach bounds in matrix plans |
 | Constant-transport CNS Hessians and forcing | `include/verification/mms/TrigonometricCNSMMS.hpp`, `include/verification/mms/sources/TrigonometricCNS.hpp` |
 | Sutherland transport and coefficient-gradient forcing | `include/verification/mms/TrigonometricSutherlandMMS.hpp`, `include/verification/mms/sources/TrigonometricSutherland.hpp` |
 | Runtime source selection and validation | `src/SourceConfiguration.cpp`; `trigonometric-euler-mms`, `trigonometric-cns-mms`, `trigonometric-cns-sutherland-mms` |
@@ -95,8 +96,10 @@ record the execution environment; inspect/redact those before public sharing.
 
 ## Scope still outstanding
 
-Distinct whole-domain subsonic/supersonic/hypersonic families and literal Roy
-coefficient sets are planned. The current 2D family is mildly transonic. Sutherland
+Explicit subsonic and Mach-above-three supersonic mean-speed variants are available
+for the extended matrices alongside the original mildly transonic baseline.
+Full new-regime survey evidence remains to be collected. Hypersonic families and
+literal Roy coefficient sets remain planned. Sutherland
 temporal and coupled 3D accuracy, LTE MMS and boundary extensions remain separate
 work. Two Euler P4 scalar-flux configurations retain documented order shortfalls;
 no production scalar-dissipation defect was demonstrated by the pointwise audit.

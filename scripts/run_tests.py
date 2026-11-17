@@ -203,7 +203,7 @@ def recipe_command(recipe, args, stage=None):
     if recipe.get('matrix_selection'):
         for option, default in (('cells', '12,18,27,40,60,90'), ('degrees', '1,2,3,4,5'), ('mesh_levels', 5),
                                 ('start_level', 1), ('base_cells', 3),
-                                ('reference_dt', .001), ('final_time', .2)):
+                                ('reference_dt', .001), ('final_time', .2), ('regime', 'transonic')):
             command.extend(['--' + option.replace('_', '-'), str(getattr(args, option, default))])
     if stage is not None:
         command.extend(['--stage', stage])
@@ -267,6 +267,7 @@ def run_recipe_suite(suite, recipes, args):
     for kind, identity in builds.items():
         shutil.copy2(Path(identity['path'])/'CMakeCache.txt', output/(kind + '-CMakeCache.txt'))
     checker_files = sorted(set(args.source.resolve().glob('tests/*.py'))
+                           | set(args.source.resolve().glob('tests/mms/*.py'))
                            | set(args.source.resolve().glob('tests/recipes/**/*.sh'))
                            | set(args.source.resolve().glob('tests/recipes/*.bash'))
                            | set(args.source.resolve().glob('tests/recipes/recipes.toml'))
@@ -461,6 +462,7 @@ def suite_recipe_commands(run, manifest, builds):
             python=manifest['python'],
             ranks=manifest.get('ranks', 2),
             fluxes=manifest.get('fluxes', 'all'),
+            regime=manifest.get('regime', 'transonic'),
         )
         requirements = []
         if suite == 'full':
@@ -649,7 +651,8 @@ def prepare(args):
                     'cxx': executable(os.environ.get('CXX', 'mpicxx')) if suite == 'full' else None,
                     'mpiexec': executable(args.mpiexec) if args.mpiexec else None, 'mpi_args': args.mpi_arg,
                     'jobs': args.jobs, 'timeout': args.timeout,
-                    'fluxes': getattr(args, 'fluxes', 'all'), 'ranks': getattr(args, 'ranks', 2),
+                    'fluxes': getattr(args, 'fluxes', 'all'),
+                    'regime': getattr(args, 'regime', 'transonic'), 'ranks': getattr(args, 'ranks', 2),
                     'mms_level': getattr(args, 'mms_level', 'quick'),
                     'kernel_stress': getattr(args, 'kernel_stress', False),
                     'suite': suite, 'device': getattr(args, 'device', 'cpu'),
@@ -823,6 +826,8 @@ def main():
     parser.add_argument('--mms-level', choices=['quick', 'qualification'], default='quick',
                         help='MMS coverage inside the broad suite; unrelated tests are unchanged')
     parser.add_argument('--fluxes', default='all', help='All or comma-separated production fluxes for recipes with flux selection')
+    parser.add_argument('--regime', choices=('subsonic', 'transonic', 'supersonic'), default='transonic',
+                        help='Mach regime for extended MMS matrix recipes')
     parser.add_argument('--degrees', default='1,2,3,4,5', help='CNS matrix polynomial-degree subset')
     parser.add_argument('--cells', default='12,18,27,40,60,90', help='Matrix cells per direction, or geometric')
     parser.add_argument('--mesh-levels', type=int, default=5, help='CNS matrix refinement count (at least 3)')

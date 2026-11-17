@@ -1,6 +1,7 @@
 // Copyright (c) 2025-2026 Board of Trustees of the University of Illinois
 // SPDX-License-Identifier: BSD-3-Clause
 #include "SourceConfiguration.hpp"
+#include "cns_reference.hpp"
 #include "verification/mms/TrigonometricEulerMMS.hpp"
 #include <cmath>
 #include <iostream>
@@ -25,7 +26,7 @@ namespace
   }
 
   // Independent primitive formulas: no production field, source or flux calls.
-  double Primitive(int field, int dimension, const double *x, double time)
+  double Primitive(int field, int dimension, const double *x, double time, double velocity_scale = 1.)
   {
     const double mean[] = {2., .7, .3, .2, 1.};
     const double ax[] = {.12, .07, -.05, .04, .08};
@@ -44,18 +45,18 @@ namespace
         value += az[field]*std::sin(pz) + axz[field]*std::cos(px)*std::sin(pz)
           + ayz[field]*std::sin(py)*std::cos(pz);
       }
-    return value;
+    return value + (field >= 1 && field <= 3 ? (velocity_scale - 1.)*mean[field] : 0.);
   }
 
-  void StateOrFlux(int dimension, const double *x, double time, int direction, double *value)
+  void StateOrFlux(int dimension, const double *x, double time, int direction, double *value, double velocity_scale = 1.)
   {
-    const double rho = Primitive(0, dimension, x, time);
-    const double pressure = Primitive(4, dimension, x, time);
+    const double rho = Primitive(0, dimension, x, time, velocity_scale);
+    const double pressure = Primitive(4, dimension, x, time, velocity_scale);
     double velocity[3] = {};
     double energy = pressure/(1.4 - 1.);
     for (int d = 0; d < dimension; ++d)
       {
-        velocity[d] = Primitive(d + 1, dimension, x, time);
+        velocity[d] = Primitive(d + 1, dimension, x, time, velocity_scale);
         energy += .5*rho*velocity[d]*velocity[d];
       }
     if (direction == dimension)
@@ -76,7 +77,7 @@ namespace
       }
   }
 
-  void Residual(int dimension, const double *x, double time, double *source, double time_scale)
+  void Residual(int dimension, const double *x, double time, double *source, double time_scale, double velocity_scale = 1.)
   {
     constexpr double step = 2.e-4;
     const int offsets[] = {-2, -1, 1, 2};
@@ -100,7 +101,7 @@ namespace
                 position[direction] += offsets[sample]*step;
               }
             double value[5];
-            StateOrFlux(dimension, position, shifted_time*time_scale, direction, value);
+            StateOrFlux(dimension, position, shifted_time*time_scale, direction, value, velocity_scale);
             for (int q = 0; q < dimension + 2; ++q)
               {
                 source[q] += weights[sample]*value[q]/(12.*step)*(direction == dimension ? time_scale : 1.);
@@ -109,7 +110,8 @@ namespace
       }
   }
 
-  void CheckDimension(int dimension, int rank, int orientation, double time_scale)
+  void CheckDimension(int dimension, int rank, int orientation, double time_scale,
+                      const char *regime = "transonic", double velocity_scale = 1.)
   {
     constexpr int points = 48;
     Theseus::Sources::MeshView mesh;
@@ -137,6 +139,7 @@ namespace
       R"({"R_gas":1,"sources":[{"type":"trigonometric-euler-mms"}]})");
     config["sources"][0]["orientation"] = orientation;
     config["sources"][0]["time_scale"] = time_scale;
+    config["sources"][0]["regime"] = regime;
     auto system = Theseus::Sources::CreateConfigured(config, mesh.equations, dimension, false);
     system->Initialize(mesh);
     state = 7.;
@@ -161,8 +164,8 @@ namespace
                 canonical_position[d] = x[(d + orientation) % dimension];
               }
             double canonical_source[5], canonical_state[5];
-            Residual(dimension, canonical_position, time, canonical_source, time_scale);
-            StateOrFlux(dimension, canonical_position, time*time_scale, dimension, canonical_state);
+            Residual(dimension, canonical_position, time, canonical_source, time_scale, velocity_scale);
+            StateOrFlux(dimension, canonical_position, time*time_scale, dimension, canonical_state, velocity_scale);
             reference[0] = canonical_source[0];
             independent_state[0] = canonical_state[0];
             reference[dimension + 1] = canonical_source[dimension + 1];
@@ -173,7 +176,7 @@ namespace
                 independent_state[(d + orientation) % dimension + 1] = canonical_state[d + 1];
               }
             Theseus::Sources::OrientedTrigonometricEulerMMS(
-              dimension, orientation, x, time, exact_state, exact_source, time_scale);
+              dimension, orientation, x, time, exact_state, exact_source, time_scale, velocity_scale);
             for (int q = 0; q < mesh.equations; ++q)
               {
                 Near(actual[1 + q*points + point], .5 + reference[q], 2.e-9);
@@ -184,7 +187,7 @@ namespace
                 x[d] += 1.;
                 double shifted_state[5], shifted_source[5];
                 Theseus::Sources::OrientedTrigonometricEulerMMS(
-                  dimension, orientation, x, time, shifted_state, shifted_source, time_scale);
+                  dimension, orientation, x, time, shifted_state, shifted_source, time_scale, velocity_scale);
                 for (int q = 0; q < mesh.equations; ++q)
                   {
                     Near(shifted_state[q], exact_state[q], 2.e-13);
@@ -199,6 +202,40 @@ namespace
       {
         Near(unchanged[i], 7., 0.);
       }
+  }
+
+  void CheckRegimes(int dimension)
+  {
+    const char *regimes[] = {"subsonic", "transonic", "supersonic"};
+    const double scales[] = {.25, 1., 5.};
+    for (int regime = 0; regime < 3; ++regime)
+      {
+        for (double time : {0., .173})
+          {
+            const double x[] = {.13, -.31, .27};
+            double state[5], forcing[5], expected[5], expected_state[5];
+            Theseus::Sources::TrigonometricEulerMMS(dimension, x, time, state, forcing, 1., scales[regime]);
+            CNSReference::Residual(dimension, x, time, 0., 0., 1., 1., expected, false, scales[regime]);
+            CNSReference::StateOrFlux(dimension, x, time, dimension, 0., 0., 1., expected_state, false, scales[regime]);
+            for (int q = 0; q < dimension + 2; ++q)
+              {
+                Near(state[q], expected_state[q], 1.e-13);
+                Near(forcing[q], expected[q], 3.e-7);
+              }
+          }
+      }
+    auto config = nlohmann::json::parse(
+      R"({"R_gas":1,"sources":[{"type":"trigonometric-euler-mms","regime":"unknown"}]})");
+    bool rejected = false;
+    try
+      {
+        Theseus::Sources::CreateConfigured(config, dimension + 2, dimension, false);
+      }
+    catch (const std::invalid_argument &)
+      {
+        rejected = true;
+      }
+    Near(rejected ? 1. : 0., 1., 0.);
   }
 
   void CheckRejections()
@@ -242,6 +279,9 @@ int main(int argc, char **argv)
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   for (int dimension : {2, 3})
     {
+      CheckRegimes(dimension);
+      CheckDimension(dimension, rank, 0, 1., "subsonic", .25);
+      CheckDimension(dimension, rank, 0, 1., "supersonic", 5.);
       for (int orientation = 0; orientation < dimension; ++orientation)
         {
           CheckDimension(dimension, rank, orientation, 1.);

@@ -5,4 +5,5 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 TEST_SUPPORT = REPOSITORY_ROOT/'tests'
 if str(TEST_SUPPORT) not in sys.path:
-    sys.path.insert(0, str(TEST_SUPPORT))
+    # Shared helpers must not shadow MMS modules in the executing script directory.
+    sys.path.append(str(TEST_SUPPORT))

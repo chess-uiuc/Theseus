@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #pragma once
 #include "SourceRegistry.hpp"
+#include "verification/mms/sources/Regime.hpp"
 #include "verification/mms/TrigonometricCNSMMS.hpp"
 
 namespace Theseus::Sources
@@ -9,8 +10,9 @@ namespace Theseus::Sources
 struct TrigonometricCNSModel : AnalyticModel
 {
   mfem::real_t viscosity, conductivity, gas_constant, time_scale;
-  TrigonometricCNSModel (mfem::real_t mu, mfem::real_t kappa, mfem::real_t R, mfem::real_t scale)
-      : viscosity (mu), conductivity (kappa), gas_constant (R), time_scale (scale)
+  mfem::real_t mean_velocity_scale = 1.0;
+  TrigonometricCNSModel (mfem::real_t mu, mfem::real_t kappa, mfem::real_t R, mfem::real_t scale, mfem::real_t velocity_scale = 1.0)
+      : viscosity (mu), conductivity (kappa), gas_constant (R), time_scale (scale), mean_velocity_scale (velocity_scale)
   {
   }
   Requirements
@@ -31,6 +33,7 @@ struct TrigonometricCNSModel : AnalyticModel
   struct Evaluator
   {
     mfem::real_t viscosity, conductivity, gas_constant, time_scale;
+    mfem::real_t mean_velocity_scale = 1.0;
     MFEM_HOST_DEVICE void
     operator() (const Point &point, const SourceAccumulator &source) const
     {
@@ -41,7 +44,7 @@ struct TrigonometricCNSModel : AnalyticModel
         }
       mfem::real_t state[5], forcing[5];
       TrigonometricCNSMMS (point.mesh.dimension, position, point.stage.time, viscosity,
-                           conductivity, gas_constant, state, forcing, time_scale);
+                           conductivity, gas_constant, state, forcing, time_scale, mean_velocity_scale);
       for (int q = 0; q < point.mesh.equations; ++q)
         {
           source.Add (q, forcing[q]);
@@ -51,7 +54,7 @@ struct TrigonometricCNSModel : AnalyticModel
   Evaluator
   MakeEvaluator (const Stage &) const
   {
-    return { viscosity, conductivity, gas_constant, time_scale };
+    return { viscosity, conductivity, gas_constant, time_scale, mean_velocity_scale };
   }
 };
 
@@ -92,7 +95,7 @@ RegisterTrigonometricCNS (Registry &registry)
                                  "trigonometric-cns-mms conductivity overflow");
                            }
                          return std::make_unique<PointSource<TrigonometricCNSModel>> (
-                             TrigonometricCNSModel{ source_mu, conductivity, R, scale });
+                             TrigonometricCNSModel{ source_mu, conductivity, R, scale, ManufacturedMeanVelocityScale(configuration) });
                        });
 }
 }

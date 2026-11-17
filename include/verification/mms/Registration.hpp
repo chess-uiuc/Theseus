@@ -21,6 +21,32 @@ namespace Theseus::Sources
 
   inline void RegisterManufacturedStates(Prandtl::ConditionFactory &factory)
   {
+    factory.RegisterInitialCondition1("RegimeTrigonometricMMS", [](mfem::real_t regime)
+    {
+      MFEM_VERIFY(std::isfinite(regime) && regime == std::floor(regime)
+                  && regime >= 0 && regime <= 2, "MMS regime index must be 0, 1 or 2");
+      const mfem::real_t scale = regime == 0 ? .25 : (regime == 1 ? 1. : 5.);
+      return [scale](const mfem::Vector &position, mfem::Vector &state)
+      {
+        MFEM_VERIFY((position.Size() == 2 || position.Size() == 3)
+                    && state.Size() == position.Size() + 2, "Regime MMS requires 2D/3D state");
+        mfem::real_t forcing[5];
+        TrigonometricEulerMMS(position.Size(), position.GetData(), 0., state.HostWrite(), forcing, 1., scale);
+      };
+    });
+    factory.RegisterVectorTDFunctionBoundaryCondition1("RegimeTrigonometricMMS", [](mfem::real_t regime)
+    {
+      MFEM_VERIFY(std::isfinite(regime) && regime == std::floor(regime)
+                  && regime >= 0 && regime <= 2, "MMS regime index must be 0, 1 or 2");
+      const mfem::real_t scale = regime == 0 ? .25 : (regime == 1 ? 1. : 5.);
+      return [scale](const mfem::Vector &position, mfem::real_t time, mfem::Vector &state)
+      {
+        MFEM_VERIFY((position.Size() == 2 || position.Size() == 3)
+                    && state.Size() == position.Size() + 2, "Regime MMS requires 2D/3D state");
+        mfem::real_t forcing[5];
+        TrigonometricEulerMMS(position.Size(), position.GetData(), time, state.HostWrite(), forcing, 1., scale);
+      };
+    });
     factory.RegisterInitialCondition1("TemporalTrigonometricEulerMMS", [](mfem::real_t time_scale)
     {
       MFEM_VERIFY(std::isfinite(time_scale) && time_scale > 0., "MMS time_scale must be positive and finite");
