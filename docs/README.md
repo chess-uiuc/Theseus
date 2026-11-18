@@ -1,8 +1,9 @@
 # Theseus Documentation
 
 - [Manufactured Euler/CNS verification](mms-verification.md): multidirectional 2D/3D
-  cases, spatial/temporal evidence and exportable plots.
+  cases, complete three-regime spatial evidence, temporal studies and exportable plots.
 - [HPC MMS workflow](mms-hpc.md): builds, job arrays, analysis and data collection.
+- [MMS mesh sensitivity](mms-mesh-sensitivity.md): graded, rotated, sheared and seeded-jitter cells.
 - [MMS capability inventory](mms-inventory.md): implementation, tests and documentation.
 
 ## Using Theseus

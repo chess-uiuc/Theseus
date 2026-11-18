@@ -503,7 +503,7 @@ directory for a different plan; do not silently mix campaigns.
 - `matrix-assessment.json` records all refinement rates, component diagnostics, monotonicity, finest half-step changes and per-group `nominal_minus_half_met` flags.
 - `controls_passed`/`passed` describe survey control checks, **not nominal-order qualification**. `accuracy_qualified` is always false. `order_expectations_met`, `needs_order_review` and status `completed_with_order_flags` identify shortfalls even when controls pass. Nonfinite/invalid data or failed time isolation prevent a control pass.
 - `density-all-orders.png`/PDF compares all degrees per flux with $h^{p+1}$ references. `plots-pN/cns-fluxes.png`/PDF shows each degree's density/momentum/energy errors and rates across fluxes.
-- Existing quick and qualification case counts, assertions and selection remain unchanged. These larger surveys stay opt-in; target-device numerical evidence must still be collected on the actual GPU build.
+- Existing quick and qualification case counts, assertions and selection remain unchanged. These larger surveys stay opt-in; the completed three-regime CUDA campaign is linked in the verification guide.
 
 ## Flow-speed regime studies
 
@@ -533,3 +533,21 @@ the existing mesh/degree policy. The finest half-step control remains required.
 This is a conservative starting policy, not proof of temporal isolation.
 `matrix-plan.json` records the effective timestep and Mach evidence; plots name
 the regime. New regime surveys are opt-in and do not multiply ordinary CI work.
+
+### Interpreting spatial and timestep evidence separately
+
+The completed three-regime campaign retains all spatial measurements, observed
+rates and secondary timestep-control statuses separately. Matrix `check` still
+returns a nonzero status when its timestep gate fails; that status must remain
+visible. It does not delete or invalidate the completed spatial measurements.
+Use the assessment to distinguish failed controls from solver failure or an
+order shortfall. The report's control column is not a substitute for its spatial
+order columns.
+
+Six original supersonic Euler P5 controls fail the 1% comparison at very small
+errors. A separate Roe diagnostic with `--reference-dt .004 --cells 40,60,90`
+passes the unchanged control and recovers sixth order. This is supplemental
+evidence, not a new default timestep policy or a replacement for other fluxes'
+control results. Preserve the original campaign and use a new output directory
+for such diagnostics. The complete spatial dataset and its measured exceptions
+can be reported while supplemental controls remain pending.

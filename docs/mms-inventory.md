@@ -30,6 +30,7 @@ introduced. [Runtime layout](../include/verification/mms/README.md) and
 | Constant-transport CNS Hessians and forcing | `include/verification/mms/TrigonometricCNSMMS.hpp`, `include/verification/mms/sources/TrigonometricCNS.hpp` |
 | Sutherland transport and coefficient-gradient forcing | `include/verification/mms/TrigonometricSutherlandMMS.hpp`, `include/verification/mms/sources/TrigonometricSutherland.hpp` |
 | Runtime source selection and validation | `src/SourceConfiguration.cpp`; `trigonometric-euler-mms`, `trigonometric-cns-mms`, `trigonometric-cns-sutherland-mms` |
+| Real-cell geometry sensitivity | `tests/mms/mesh_sensitivity_tests.cpp`; quick CTests and opt-in extended profile; [study](mms-mesh-sensitivity.md) |
 | Existing numerical fluxes | LLF, Roe, HLL, Chandrashekar, Ranocha, Pirozzoli; source patches/rebuilds are not used to change dissipation within a matrix |
 
 ## Workflows and analysis
@@ -84,11 +85,12 @@ coupled 2D runtime evidence. Do not infer a device-specific check from a CPU pas
 | --- | --- |
 | [Verification guide](mms-verification.md) | Governing-equation links; exact fields/coefficients; fluxes/RHS; baseline and GPU spatial/temporal/3D plots; observed exceptions; references and future scope |
 | [Evaluation guide](mms-evaluations.md) | Quick, qualification, extended and existing-build recipes; selectors; gates; timestep policy; staged execution and recovery |
-| [HPC guide](mms-hpc.md) | Two CUDA builds; 90 seven-case jobs; pilot/dependency submission; remaining jobs; analysis without GPU/allocation; compact data collection; retry/resume limits |
+| [HPC guide](mms-hpc.md) | Two CUDA builds; 90 seven-case jobs per regime; pilot/dependency submission; remaining jobs; analysis without GPU/allocation; compact data collection; retry/resume limits |
 | [Source-term interface](source-terms.md) | Source registration, units and runtime input interfaces |
 | [Test runner](test-runner.md), [adding tests](adding-tests.md), [verification overview](verification.md) | Central suite, CTest/recipe registration and broader verification context |
 | `docs/assets/mms/` | Six baseline figures with measurement JSON and provenance |
-| `docs/assets/mms/hpc-matrix/` | Sanitized full-matrix measurements, 450 rates, coverage/flag summary, figures and SHA-256 provenance |
+| `docs/assets/mms/hpc-matrix/` | Retained original transonic measurements, 450 rates, figures and provenance |
+| `docs/assets/mms/three-regime-matrix/` | Complete 270-group/1,890-run spatial campaign, 1,350 interval comparisons, separate timestep statuses, supplemental diagnostic and provenance |
 
 The public evidence contains no private build/output paths, usernames, account
 names or scheduler IDs. Run-generated identities and raw logs intentionally
@@ -98,8 +100,10 @@ record the execution environment; inspect/redact those before public sharing.
 
 Explicit subsonic and Mach-above-three supersonic mean-speed variants are available
 for the extended matrices alongside the original mildly transonic baseline.
-Full new-regime survey evidence remains to be collected. Hypersonic families and
+The three-regime spatial campaign is complete. Timestep-control outcomes are
+reported separately; six original supersonic Euler P5 controls remain flagged,
+with a passing supplemental Roe diagnostic. Hypersonic families and
 literal Roy coefficient sets remain planned. Sutherland
 temporal and coupled 3D accuracy, LTE MMS and boundary extensions remain separate
-work. Two Euler P4 scalar-flux configurations retain documented order shortfalls;
+work. Two transonic Euler P4 groups and 42 subsonic groups retain spatial-order flags;
 no production scalar-dissipation defect was demonstrated by the pointwise audit.

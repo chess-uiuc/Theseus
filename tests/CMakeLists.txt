@@ -665,3 +665,32 @@ add_test(NAME CNSMatrixStudyTests
 
 add_test(NAME MMSDocumentationTests
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/mms/mms_documentation_tests.py)
+
+# Real-mesh MMS geometry study; independent of full production executables.
+if(NOT AXISYMMETRIC)
+  foreach(transport_variant IN ITEMS constant sutherland)
+    set(mesh_target mms_mesh_sensitivity_${transport_variant}_tests)
+    add_executable(${mesh_target} mms/mesh_sensitivity_tests.cpp)
+    target_include_directories(${mesh_target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(${mesh_target} PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+    if(transport_variant STREQUAL "sutherland")
+      target_compile_definitions(${mesh_target} PRIVATE SUTHERLAND)
+    endif()
+    if(ENABLE_POINT_PARALLEL_VOLUME)
+      target_compile_definitions(${mesh_target} PRIVATE POINT_PARALLEL_VOLUME)
+    endif()
+    if(ENABLE_POINT_PARALLEL_INTERIOR_FACES)
+      target_compile_definitions(${mesh_target} PRIVATE POINT_PARALLEL_INTERIOR_FACES)
+    endif()
+    if(ENABLE_CUDA)
+      set_source_files_properties(mms/mesh_sensitivity_tests.cpp PROPERTIES LANGUAGE CUDA)
+      target_include_directories(${mesh_target} PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+      target_compile_options(${mesh_target} PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+      add_test(NAME MMSMeshSensitivity_${transport_variant}_CUDA
+        COMMAND ${mesh_target} cuda ${CMAKE_CURRENT_BINARY_DIR}/mms-mesh-${transport_variant}-cuda.json)
+    endif()
+    add_test(NAME MMSMeshSensitivity_${transport_variant}_CPU
+      COMMAND ${mesh_target} cpu ${CMAKE_CURRENT_BINARY_DIR}/mms-mesh-${transport_variant}-cpu.json)
+  endforeach()
+endif()
