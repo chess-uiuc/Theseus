@@ -28,6 +28,9 @@ namespace Theseus
   struct LTEGasModel
   {
 
+    // The current local boundary conversions/entropy trace use original LTE tables.
+    static constexpr bool supports_local_characteristic = std::is_same_v<TableType, LTETables>;
+
     Theseus::PhysicsConstants phys;
     Theseus::StateLayout L;
     TableType T;
@@ -72,6 +75,96 @@ namespace Theseus
       PointStateView state(result.GetData());
       ValidateLTERoundTrip(eos, phys, L, state, thermo.temperature, T);
       out = result;
+    }
+
+    // Restrict the forward bilinear EOS to one axis and invert its monotone
+    // piecewise-linear pressure. No secant loop or acoustic-path integration.
+    MFEM_HOST_DEVICE static inline int boundary_interval(const mfem::real_t *grid,
+                                                         int size, mfem::real_t value)
+    {
+      int lower = 0;
+      int upper = size - 1;
+      while (upper - lower > 1)
+        {
+          const int middle = lower + (upper - lower) / 2;
+          if (grid[middle] <= value)
+            {
+              lower = middle;
+            }
+          else
+            {
+              upper = middle;
+            }
+        }
+      return lower;
+    }
+
+    MFEM_HOST_DEVICE inline mfem::real_t boundary_property(int property, mfem::real_t rho,
+                                                          mfem::real_t temperature) const
+    {
+      const auto *r = T.tables.rho_grid;
+      const auto *t = T.tables.T_grid;
+      if (!(rho >= r[0] && rho <= r[T.L.nx - 1] &&
+            temperature >= t[0] && temperature <= t[T.L.ny - 1]))
+        {
+          return std::numeric_limits<mfem::real_t>::quiet_NaN();
+        }
+      const int i = boundary_interval(r, T.L.nx, rho);
+      const int j = boundary_interval(t, T.L.ny, temperature);
+      const auto x = (rho - r[i]) / (r[i + 1] - r[i]);
+      const auto y = (temperature - t[j]) / (t[j + 1] - t[j]);
+      const auto *v = T.tables.lte_table;
+      return (1 - y) * ((1 - x) * v[T.L.property_index(property, i, j)]
+                            + x * v[T.L.property_index(property, i + 1, j)])
+                 + y * ((1 - x) * v[T.L.property_index(property, i, j + 1)]
+                            + x * v[T.L.property_index(property, i + 1, j + 1)]);
+    }
+
+    MFEM_HOST_DEVICE inline mfem::real_t boundary_pressure_root(mfem::real_t pressure,
+        mfem::real_t fixed, bool density_axis) const
+    {
+      const auto *grid = density_axis ? T.tables.rho_grid : T.tables.T_grid;
+      const int size = density_axis ? T.L.nx : T.L.ny;
+      int lower = 0;
+      int upper = size - 1;
+      auto p_lower = boundary_property(T.L.P_idx, density_axis ? grid[lower] : fixed,
+                                      density_axis ? fixed : grid[lower]);
+      auto p_upper = boundary_property(T.L.P_idx, density_axis ? grid[upper] : fixed,
+                                      density_axis ? fixed : grid[upper]);
+      // No valid table root: propagate NaN to the solver's normal diagnostics.
+      if (!(pressure >= p_lower && pressure <= p_upper))
+        {
+          return std::numeric_limits<mfem::real_t>::quiet_NaN();
+        }
+      while (upper - lower > 1)
+        {
+          const int middle = lower + (upper - lower) / 2;
+          const auto value = boundary_property(T.L.P_idx, density_axis ? grid[middle] : fixed,
+                                               density_axis ? fixed : grid[middle]);
+          if (value <= pressure)
+            {
+              lower = middle;
+              p_lower = value;
+            }
+          else
+            {
+              upper = middle;
+              p_upper = value;
+            }
+        }
+      return grid[lower] + (grid[upper] - grid[lower]) * (pressure - p_lower) / (p_upper - p_lower);
+    }
+
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_rho_p(mfem::real_t rho, mfem::real_t pressure) const
+    {
+      const auto temperature = boundary_pressure_root(pressure, rho, false);
+      return {rho, temperature, boundary_property(T.L.e_idx, rho, temperature)};
+    }
+
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_p_T(mfem::real_t pressure, mfem::real_t temperature) const
+    {
+      const auto rho = boundary_pressure_root(pressure, temperature, true);
+      return {rho, temperature, boundary_property(T.L.e_idx, rho, temperature)};
     }
 
     template<typename StateView>

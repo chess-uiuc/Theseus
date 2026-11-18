@@ -1071,7 +1071,8 @@ namespace Theseus
                                                 const mfem::real_t *nor_point,
                                                 const mfem::real_t scale,
                                                 const int fp,
-                                                mfem::real_t *rhs_face[Theseus::MAXDIM])
+                                                mfem::real_t *rhs_face[Theseus::MAXDIM],
+                                                const mfem::real_t *conservative_face = nullptr)
     {
       const int dim = dc.dim;
       const int nfp = dc.num_face_points;
@@ -1083,7 +1084,13 @@ namespace Theseus
 
       Theseus::Kernels::el_gather_state(u_face, nfp, neq, fp, state1);
 
-      Theseus::BC::ComputeBdrFaceGradFlux(dc, bc, state1, fluxN);
+      mfem::real_t conservative[Theseus::MAXEQ];
+      if (conservative_face)
+        {
+          Theseus::Kernels::el_gather_state(conservative_face, nfp, neq, fp, conservative);
+        }
+      Theseus::BC::ComputeBdrFaceGradFlux(dc, bc, state1, fluxN,
+                                          conservative_face ? conservative : nullptr, nor_point);
 
       for(int idim = 0;idim < dim;idim++){
         for(int q = 0;q < neq;q++){

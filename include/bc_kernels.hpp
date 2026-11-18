@@ -8,6 +8,7 @@
 #include "bc_cache_utilities.hpp"
 #include "Flow.hpp"
 #include "NavierStokesFlux.hpp"
+#include "LocalCharacteristicBoundary.hpp"
 
 namespace Theseus {
 
@@ -34,7 +35,9 @@ namespace Theseus {
     void ComputeBdrFaceGradFlux(const DeviceCacheT &dc,
                                 const Theseus::BCDescriptor &bc,
                                 const mfem::real_t *state1,
-                                mfem::real_t *fluxN)
+                                mfem::real_t *fluxN,
+                                const mfem::real_t *conservative = nullptr,
+                                const mfem::real_t *normal = nullptr)
     {
       const auto &gas = dc.gas;
       const int neq = dc.num_equations;
@@ -47,6 +50,41 @@ namespace Theseus {
 
       switch (static_cast<Theseus::BCType>(bc.type))
         {
+        case Theseus::BCType::CharacteristicReference:
+        case Theseus::BCType::CharacteristicPressure:
+        case Theseus::BCType::CharacteristicTotal:
+          {
+            mfem::real_t target[MAXEQ];
+            const auto outgoing = LocalCharacteristicState(gas, static_cast<BCType>(bc.type),
+                conservative, normal, dc.bc_vector_d + bc.data_index, target);
+            if (outgoing)
+              {
+                return;
+              }
+            PointStateView B{target};
+            PointStateView I{conservative};
+            const auto beta = gas.isothermal_wall_beta(gas.temperature(B));
+            mfem::real_t velocity_change_normal = 0;
+            mfem::real_t norm2 = 0;
+            mfem::real_t interior_normal_momentum = 0;
+            for (int d = 0; d < dim; ++d)
+              {
+                fluxN[gas.L.eq_mom[d]] = beta * gas.velocity(B, d) - state1[gas.L.eq_mom[d]];
+                velocity_change_normal += (gas.velocity(B, d) - gas.velocity(I, d)) * normal[d];
+                norm2 += normal[d] * normal[d];
+                interior_normal_momentum += gas.velocity(I, d) * normal[d];
+              }
+            if (bc.type == int(BCType::CharacteristicPressure) || interior_normal_momentum > 0)
+              {
+                for (int d = 0; d < dim; ++d)
+                  {
+                    fluxN[gas.L.eq_mom[d]] -= beta * velocity_change_normal * normal[d] / norm2;
+                  }
+              }
+            fluxN[gas.L.eq_energy] = -beta - state1[gas.L.eq_energy];
+            return;
+          }
+
         case Theseus::BCType::PrescribedState:
           {
             mfem::real_t entropy[Theseus::MAXEQ];
@@ -237,6 +275,17 @@ namespace Theseus {
           dc.iflux.ComputeFaceFlux(gas, state1, state1, nor, fluxN);
           return;
           
+        case Theseus::BCType::CharacteristicReference:
+        case Theseus::BCType::CharacteristicPressure:
+        case Theseus::BCType::CharacteristicTotal:
+          {
+            mfem::real_t target[MAXEQ];
+            LocalCharacteristicState(gas, static_cast<BCType>(bc.type), state1, nor,
+                                     vector_data + bc.data_index, target);
+            dc.iflux.ComputeFaceFlux(gas, state1, target, nor, fluxN);
+            return;
+          }
+
         case Theseus::BCType::PrescribedState:
         case Theseus::BCType::SupersonicInflow:
           {
@@ -311,14 +360,20 @@ namespace Theseus {
           ApplyBoundaryConditionInviscid(dc, bc, state1, nor, fluxN);
           return;
 
+        case Theseus::BCType::CharacteristicReference:
+        case Theseus::BCType::CharacteristicPressure:
+        case Theseus::BCType::CharacteristicTotal:
         case Theseus::BCType::PrescribedState:
           {
             ApplyBoundaryConditionInviscid(dc,bc,state1,nor,fluxN);
-            mfem::real_t visc[Theseus::MAXEQ][Theseus::MAXDIM];
-            NavierStokesFlux::ComputeViscousFluxKernel(
-              gas,state1,gradPrim_x,gradPrim_y,gradPrim_z,visc,dc.axisymmetric,radius);
-            for(int q=0;q<dc.num_equations;++q)
-              for(int d=0;d<dim;++d) fluxN[q]-=visc[q][d]*nor[d];
+            mfem::real_t viscous_normal[Theseus::MAXEQ];
+            NavierStokesFlux::ComputeViscousNormalFluxKernel(
+              gas, state1, gradPrim_x, gradPrim_y, gradPrim_z, nor,
+              viscous_normal, dc.axisymmetric, radius);
+            for (int q = 0; q < dc.num_equations; ++q)
+              {
+                fluxN[q] -= viscous_normal[q];
+              }
             return;
           }
 

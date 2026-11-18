@@ -90,6 +90,8 @@ namespace Theseus
     mfem::Vector dudtInt;
     mfem::Vector uBnd;
     mfem::Vector sBnd;
+    mfem::Vector gradientConservativeBnd;
+    bool characteristicGradientBoundary = false;
     mfem::Vector rhsBnd;
     mfem::Vector dudtBnd;
     mfem::Vector entropyState;

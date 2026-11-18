@@ -104,7 +104,7 @@ class HarnessFixture:
         executable.chmod(0o755)
 
     def run(self, *args: str, hostname: str = "workstation", output: str = "none",
-            launcher: str | None = None):
+            launcher: str | None = None, harness: Path | None = None):
         env = os.environ.copy()
         env.update(
             {
@@ -121,7 +121,7 @@ class HarnessFixture:
         if launcher is not None:
             env["THESEUS_MPI_LAUNCHER"] = launcher
         return subprocess.run(
-            ["/bin/bash", str(HARNESS), "-b", str(self.builddir), *args, "-c", str(self.config)],
+            ["/bin/bash", str(harness or HARNESS), "-b", str(self.builddir), *args, "-c", str(self.config)],
             cwd=self.root,
             env=env,
             text=True,
@@ -151,6 +151,97 @@ class HarnessFixture:
 
 
 class RunTheseusHarnessTests(unittest.TestCase):
+    def test_copied_scripts_use_config_local_inputs(self):
+        for hostname in ("workstation", "gh001"):
+            with self.subTest(hostname=hostname), tempfile.TemporaryDirectory() as tempdir:
+                fixture = HarnessFixture(tempdir)
+                for name in ("run_theseus.sh", "launch_delta_device.sh"):
+                    shutil.copy(ROOT / "scripts" / name, fixture.scriptsdir)
+                fixture._write_launcher("srun", 4)
+                (fixture.config.parent / "mesh.file").touch()
+                (fixture.config.parent / "profile.dat").touch()
+                config = json.loads(fixture.config.read_text())
+                config["runTime"]["conditions"] = {"boundary_conditions": {
+                    "Inflow": {"type": "characteristic-radial-inlet", "file": "profile.dat"}}}
+                fixture.config.write_text(json.dumps(config))
+                result = fixture.run("-P", "-R", "-k", "-o", str(fixture.root / "relocated"),
+                                     hostname=hostname, harness=fixture.scriptsdir / "run_theseus.sh")
+                self.assertEqual(result.returncode, 0, result.stdout)
+                runtime = fixture.patched_config()["runTime"]
+                self.assertEqual(runtime["mesh_file"], str((fixture.config.parent / "mesh.file").resolve()))
+                self.assertEqual(runtime["conditions"]["boundary_conditions"]["Inflow"]["file"],
+                                 str((fixture.config.parent / "profile.dat").resolve()))
+
+    def test_legacy_inputs_are_based_on_launch_directory(self):
+        for copied in (False, True):
+            with self.subTest(copied=copied), tempfile.TemporaryDirectory() as tempdir:
+                fixture = HarnessFixture(tempdir)
+                shutil.copy(HARNESS, fixture.scriptsdir)
+                inputs = fixture.root / "legacy-inputs"
+                inputs.mkdir()
+                (inputs / "mesh.file").touch()
+                (inputs / "profile.dat").touch()
+                config = json.loads(fixture.config.read_text())
+                config["runTime"]["mesh_file"] = "../../legacy-inputs/mesh.file"
+                config["runTime"]["conditions"] = {"boundary_conditions": {
+                    "Inflow": {"type": "radial-profile", "file": "../../legacy-inputs/profile.dat"}}}
+                fixture.config.write_text(json.dumps(config))
+                result = fixture.run("-P", "-R", "-k", "-o", str(fixture.root / "relocated"),
+                                     harness=fixture.scriptsdir / "run_theseus.sh" if copied else HARNESS)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                runtime = fixture.patched_config()["runTime"]
+                self.assertEqual(runtime["mesh_file"], str((inputs / "mesh.file").resolve()))
+                self.assertEqual(runtime["conditions"]["boundary_conditions"]["Inflow"]["file"],
+                                 str((inputs / "profile.dat").resolve()))
+
+    def test_config_local_inputs_survive_relocated_run(self):
+        for boundary_type in ("radial-profile", "characteristic-radial-inlet", "cpg-radial-profile"):
+            with self.subTest(boundary_type=boundary_type), tempfile.TemporaryDirectory() as tempdir:
+                fixture = HarnessFixture(tempdir)
+                for folder in (fixture.root, fixture.config.parent):
+                    (folder / "mesh.file").write_text(str(folder))
+                    (folder / "profile.dat").write_text(str(folder))
+                database = fixture.config.parent / "database"
+                database.mkdir()
+                config = json.loads(fixture.config.read_text())
+                config["runTime"]["database_path"] = "database"
+                config["runTime"]["conditions"] = {"boundary_conditions": {
+                    "Inflow": {"type": boundary_type, "file": "profile.dat"}}}
+                original = json.dumps(config)
+                fixture.config.write_text(original)
+                result = fixture.run("-P", "-R", "-k", "-o", str(fixture.root / "separate outputs"))
+                self.assertEqual(result.returncode, 0, result.stdout)
+                patched = fixture.patched_config()["runTime"]
+                self.assertEqual(patched["mesh_file"], str((fixture.config.parent / "mesh.file").resolve()))
+                self.assertEqual(patched["conditions"]["boundary_conditions"]["Inflow"]["file"],
+                                 str((fixture.config.parent / "profile.dat").resolve()))
+                self.assertEqual(patched["database_path"], str(database.resolve()))
+                self.assertEqual(fixture.config.read_text(), original)
+
+    def test_absolute_input_paths_remain_unchanged(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            config = json.loads(fixture.config.read_text())
+            mesh = str(fixture.root / "external" / "mesh.msh")
+            profile = str(fixture.root / "external" / "profile.dat")
+            config["runTime"]["mesh_file"] = mesh
+            config["runTime"]["conditions"] = {"boundary_conditions": {
+                "Inflow": {"type": "characteristic-radial-inlet", "file": profile}}}
+            fixture.config.write_text(json.dumps(config))
+            result = fixture.run("-k")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            patched = fixture.patched_config()["runTime"]
+            self.assertEqual(patched["mesh_file"], mesh)
+            self.assertEqual(patched["conditions"]["boundary_conditions"]["Inflow"]["file"], profile)
+
+    def test_gh_launcher_is_found_outside_source(self):
+        with tempfile.TemporaryDirectory() as tempdir:
+            fixture = HarnessFixture(tempdir)
+            fixture._write_launcher("srun", 4)
+            result = fixture.run("-k", hostname="gh001")
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertTrue(fixture.launcher_log().startswith("srun"))
+
     def test_k_disables_check_without_disabling_visualization(self):
         with tempfile.TemporaryDirectory() as tempdir:
             fixture = HarnessFixture(tempdir)

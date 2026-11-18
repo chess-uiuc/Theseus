@@ -168,8 +168,8 @@ namespace
     input.UseDevice();
     rhs.UseDevice();
     coordinates.UseDevice();
-    attributes.UseDevice(true);
-    marker.UseDevice(true);
+    attributes.GetMemory().UseDevice(true);
+    marker.GetMemory().UseDevice(true);
     marker[0] = 1;
     marker[1] = 0;
     for (int e = 0; e < mesh.elements; ++e)

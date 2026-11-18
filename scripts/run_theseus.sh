@@ -72,7 +72,7 @@ DT_OVERRIDE=0
 NMPIRANKS=2
 DEVICE="cpu"
 NHOSTS="1"
-UTILDIR="${TOP}/scripts"
+UTILDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SHORT="$(hostname -s)"
 MPI_LAUNCHER_OVERRIDE="${THESEUS_MPI_LAUNCHER:-}"
 MESHNAME="default"
@@ -132,7 +132,7 @@ while getopts ":PdRLzkwC:x:y:m:n:t:s:b:e:o:p:r:c:l:H:h" opt; do
       t) DT="${OPTARG}"; DT_OVERRIDE=1;;
       s) CFL="${OPTARG}"; CFL_OVERRIDE=1;;
       b) BUILDDIR="${OPTARG}"; EXE="${BUILDDIR}/theseus";;
-      d) DEBUG=1;;
+      d) DEBUG=0;;
       e) EXE="${OPTARG}";;
       o) OUTDIR="${OPTARG}";;
       p) NMPIRANKS="${OPTARG}";;
@@ -304,6 +304,30 @@ if mesh_override:
     else:
         current_dir = os.path.dirname(rt["mesh_file"])
         rt["mesh_file"] = os.path.join(current_dir, meshname) if current_dir else meshname
+
+# User input paths are relative to the original JSON, not the relocated run.
+# Retain existing-example fallbacks; the config-local file always takes priority.
+def config_input_path(value):
+    path = Path(value)
+    if path.is_absolute():
+        return value
+    config_directory = Path(src).parent
+    candidates = [config_directory / path, Path(launch_dir) / path,
+                  Path(launch_dir) / "RunTheseus" / config_directory.name / path]
+    for candidate in candidates:
+        candidate = candidate.resolve()
+        if candidate.exists():
+            return str(candidate)
+    return str(candidates[0].resolve())
+
+# Explicit -m overrides retain their existing command-line path semantics.
+if not mesh_override:
+    rt["mesh_file"] = config_input_path(rt["mesh_file"])
+for boundary in rt.get("conditions", {}).get("boundary_conditions", {}).values():
+    if boundary.get("type") in ("radial-profile", "characteristic-radial-inlet", "cpg-radial-profile"):
+        boundary["file"] = config_input_path(boundary["file"])
+if "database_path" in rt:
+    rt["database_path"] = config_input_path(rt["database_path"])
 
 if ref_override:
     ref_lvl = int(reflvl_s)

@@ -164,6 +164,18 @@ namespace Theseus
     Theseus::ScopedTimer timer("NSRHS");
 
     const int dim = operator_cache.dim;
+    // Restrict conservative state before prolongating entropy variables: the
+    // parallel form may reuse its prolongation buffer for the next argument.
+    if (operator_cache.characteristicGradientBoundary)
+      {
+        auto &trace = operator_cache.gradientConservativeBnd;
+        if (trace.Size() != operator_cache.restr_b->Height())
+          {
+            trace.SetSize(operator_cache.restr_b->Height());
+            trace.UseDevice();
+          }
+        operator_cache.restr_b->Mult(this->Prolongate(u), trace);
+      }
     {
       mfem::Vector &entropyState(operator_cache.entropyState);
       {
@@ -327,6 +339,8 @@ namespace Theseus
     operator_cache.restr_b->Mult(pu, u_faces);
 
     const mfem::real_t *u_d = u_faces.Read();
+    const mfem::real_t *conservative_d = operator_cache.characteristicGradientBoundary
+      ? operator_cache.gradientConservativeBnd.Read() : nullptr;
     const mfem::real_t *nor_d = dc.bnd_nor_d;
     const mfem::real_t *wt_d = dc.bnd_wt_d;
     const int *bnd_marker_index_d = dc.bnd_marker_index_d;
@@ -393,7 +407,8 @@ namespace Theseus
                                                                 nor_point,
                                                                 scale,
                                                                 fp,
-                                                                rhs_face);
+                                                                rhs_face,
+                                                                conservative_d ? conservative_d + face_offset : nullptr);
     });
 
     for(int idim = 0;idim < dim;idim++){

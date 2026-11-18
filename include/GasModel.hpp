@@ -21,6 +21,8 @@ namespace Theseus
   struct GasModel
   {
 
+    static constexpr bool supports_local_characteristic = true;
+
     PhysicsConstants phys;
     StateLayout L;
     EOSImpl eos;
@@ -132,6 +134,16 @@ namespace Theseus
     {
       return S.energy(L);
     };
+
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_rho_p(mfem::real_t rho, mfem::real_t pressure) const
+    {
+      return eos.boundary_rho_p(phys, rho, pressure);
+    }
+
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_p_T(mfem::real_t pressure, mfem::real_t temperature) const
+    {
+      return eos.boundary_p_T(phys, pressure, temperature);
+    }
 
     // --- Thermodynamics ------------------------------------------------------
     template<typename StateView>
@@ -276,6 +288,7 @@ namespace Theseus
   {
   public:
     virtual ~GasModelInterface() = default;
+    virtual bool SupportsLocalCharacteristic() const { return false; }
     virtual void ConservativeFromPhysical(const PhysicalStateInput &input,
                                           mfem::Vector &out) const = 0;
     virtual GasProperties EvaluateProperties(const Theseus::DofStateView &state,
@@ -309,6 +322,11 @@ namespace Theseus
     explicit GasModelInterfaceT(std::shared_ptr<const GasT> gas_)
       : gas(std::move(gas_))
     {}
+
+    bool SupportsLocalCharacteristic() const override
+    {
+      return GasT::supports_local_characteristic;
+    }
 
     void ConservativeFromPhysical(const PhysicalStateInput &input,
                                   mfem::Vector &out) const override

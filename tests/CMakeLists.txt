@@ -20,6 +20,19 @@
 # Unit testing self-test suite
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+add_executable(local_characteristic_tests local_characteristic_tests.cpp)
+target_include_directories(local_characteristic_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(local_characteristic_tests PRIVATE ${THESEUS_MFEM_TARGET} MPI::MPI_CXX)
+add_test(NAME LocalCharacteristic_CPU COMMAND local_characteristic_tests cpu)
+if(ENABLE_CUDA)
+  set_source_files_properties(local_characteristic_tests.cpp PROPERTIES LANGUAGE CUDA)
+  target_include_directories(local_characteristic_tests PRIVATE ${MPI_CXX_INCLUDE_DIRS})
+  target_compile_options(local_characteristic_tests PRIVATE
+    $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda --expt-relaxed-constexpr>)
+  add_test(NAME LocalCharacteristic_CUDA COMMAND local_characteristic_tests cuda)
+endif()
+
+
 add_test(NAME NumericalFluxRegressionCheckerTests
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/numflux_regression_checker_tests.py)
 

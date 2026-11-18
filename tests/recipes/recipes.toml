@@ -414,3 +414,13 @@ build = "standard"
 requires = ["python", "pyvista"]
 stages = ["prepare", "run", "compare"]
 order = 448
+
+[[test]]
+id = "local-characteristic"
+title = "Local Characteristic Open Boundaries and LTE Chamber"
+script = "tests/recipes/integration/local-characteristic.sh"
+suites = ["full", "integrated", "axisymmetric"]
+build = "axisymmetric"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 420

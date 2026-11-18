@@ -18,6 +18,19 @@ namespace Theseus
   // ============================================================================
   struct IdealSingleGasEOS
   {
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_rho_p(const PhysicsConstants &phys,
+        mfem::real_t rho, mfem::real_t pressure) const
+    {
+      return {rho, pressure / (rho * phys.R_gas), pressure / (rho * (phys.gamma - 1))};
+    }
+
+    MFEM_HOST_DEVICE inline ThermodynamicState boundary_p_T(const PhysicsConstants &phys,
+        mfem::real_t pressure, mfem::real_t temperature) const
+    {
+      return {pressure / (phys.R_gas * temperature), temperature,
+              phys.R_gas * temperature / (phys.gamma - 1)};
+    }
+
     // Host-only conversion of physical thermodynamic pairs.
     ThermodynamicState thermodynamic_state(const PhysicsConstants &phys,
                                            const ThermodynamicInput &input) const

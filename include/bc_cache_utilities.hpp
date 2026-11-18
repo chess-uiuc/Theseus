@@ -19,7 +19,10 @@ namespace Theseus
       Axis = 5,
       NoSlipAdiab = 6,
       NoSlipIso = 7,
-      NumBCTypes = 8
+      CharacteristicReference = 8,
+      CharacteristicPressure = 9,
+      CharacteristicTotal = 10,
+      NumBCTypes = 11
     };
 
   enum class BCDataKind : int

@@ -69,3 +69,5 @@ inventory and exact regression tolerances.
 
 - [Explicit physical source terms](source-terms.md): prescribed rates, manufactured
   solutions and optional source preparation.
+
+- [Local characteristic open boundaries: equations, inputs, gaps and tests](local-characteristic-boundaries.md)

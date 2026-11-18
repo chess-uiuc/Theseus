@@ -273,9 +273,22 @@ namespace Theseus
           mfem::real_t boundary_wave_speed = normal_wave_speed;
           const BCDescriptor &condition = boundary_conditions[point];
           if (condition.type == int(BCType::PrescribedState) ||
-              condition.type == int(BCType::SupersonicInflow))
+              condition.type == int(BCType::SupersonicInflow) ||
+              condition.type == int(BCType::CharacteristicReference) ||
+              condition.type == int(BCType::CharacteristicPressure) ||
+              condition.type == int(BCType::CharacteristicTotal))
             {
-              PointStateView exterior{boundary_data + condition.data_index};
+              const auto *exterior_data = boundary_data + condition.data_index;
+              mfem::real_t target[MAXEQ];
+              if (condition.type == int(BCType::CharacteristicReference) ||
+                  condition.type == int(BCType::CharacteristicPressure) ||
+                  condition.type == int(BCType::CharacteristicTotal))
+                {
+                  BC::LocalCharacteristicState(gas_model, static_cast<BCType>(condition.type),
+                      interior_state, normal + point * dimensions, exterior_data, target);
+                  exterior_data = target;
+                }
+              PointStateView exterior{exterior_data};
               if (viscous)
                 {
                   boundary_diffusive_rate[point] = diffusion_scale
@@ -323,6 +336,16 @@ namespace Theseus
 #endif
 
     operator_cache.bc_descriptors = bc_descriptors;
+    operator_cache.characteristicGradientBoundary = false;
+    for (int i = 0; i < bc_descriptors.Size(); ++i)
+      {
+        const auto type = static_cast<BCType>(bc_descriptors[i].type);
+        if (type == BCType::CharacteristicReference || type == BCType::CharacteristicPressure ||
+            type == BCType::CharacteristicTotal)
+          {
+            operator_cache.characteristicGradientBoundary = true;
+          }
+      }
     operator_cache.bc_scalar_data = bc_scalar_data;
     operator_cache.bc_vector_data = bc_vector_data;
     int failed = 0;

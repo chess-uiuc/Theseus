@@ -13,11 +13,89 @@
 #include "LTEGasModel.hpp"
 #include "TheseusConfig.hpp"
 #include "json.hpp"
+#include "LocalCharacteristicBoundary.hpp"
+#include "LaxFriedrichsFlux.hpp"
+#include "RadialProfile.hpp"
+#include <filesystem>
 
 using real_t = mfem::real_t;
 
 using namespace Theseus;
 using namespace Theseus::LTETable;
+
+TEST(plato_LocalCharacteristic_reference)
+{
+  const std::string database(Theseus::BuildConfig::PlatoDBPath);
+  plato_initialize("LTE_table_rhoT_(air11)", "air11", "empty", "empty", database.c_str());
+  LTETable::Data data;
+  LTETables tables(101, 201);
+  log_grid(101, 0.0001, 1.1, data.rho_grid);
+  log_grid(201, 250, 15000, data.T_grid);
+  data.lte_table.SetSize(9 * 101 * 201);
+  data.inv_table.SetSize(101 * 201);
+  real_t minimum_energy, maximum_energy;
+  fill_table(tables.L, data.rho_grid.GetData(), data.T_grid.GetData(),
+             data.lte_table.GetData(), minimum_energy, maximum_energy);
+  uniform_grid(201, minimum_energy, maximum_energy, data.e_grid);
+  fill_inv_table(tables.L, data.rho_grid.GetData(), data.e_grid.GetData(),
+                 data.T_grid.GetData(), data.inv_table.GetData());
+  plato_finalize();
+  tables.tables = {data.lte_table.HostRead(), data.inv_table.HostRead(), data.rho_grid.HostRead(),
+                   data.T_grid.HostRead(), data.e_grid.HostRead()};
+  LTEGas gas{PhysicsConstants(1.4, 0.72, 287.05, 0.02), StateLayout(2, 7), tables};
+  const auto path = std::filesystem::path(__FILE__).parent_path().parent_path()
+      / "TestCases/Axisymmetric/NavierStokes/PXChamber/Tuvw_jet_inlet_profile.dat";
+  const auto profile = RadialProfile::Read(path.string(), 0);
+  const real_t normal[] = {-1, 0};
+  LaxFriedrichsFlux::InviscidFlux flux;
+  std::cout.precision(17);
+  for (const auto radius : {0.0, 0.04, 0.08})
+    {
+      const auto sample = profile.Evaluate(radius);
+      mfem::Vector reference, cold;
+      gas.ConservativeFromPhysical({PressureTemperature{10000, sample[1]}, {sample[2], sample[3]}}, reference);
+      gas.ConservativeFromPhysical({PressureTemperature{10000, 300}, {0, 0}}, cold);
+      PointStateView A{reference.HostRead()};
+      PointStateView I{cold.HostRead()};
+      const auto pi = gas.pressure(I);
+      const auto pa = gas.pressure(A);
+      const auto ci = gas.sound_speed(I);
+      const auto Zi = cold[0] * ci;
+      const auto qa = -sample[2];
+      const auto pb = (pa + pi - Zi * qa) / 2;
+      const auto qb = -(pb - pi) / Zi;
+      const auto rho = (qb < 0 ? reference[0] : cold[0])
+          + (pb - (qb < 0 ? pa : pi)) / (ci * ci);
+      const auto ur = qb < 0 ? sample[3] : 0;
+      mfem::Vector independent;
+      // Existing host conversion scans all pressure-table brackets; production
+      // uses binary bracketing. Neither calls an acoustic-path solver.
+      gas.ConservativeFromPhysical({DensityPressure{rho, pb}, {-qb, ur}}, independent);
+      real_t target[4], measured_flux[4], baseline_flux[4];
+      BC::LocalCharacteristicState(gas, BCType::CharacteristicReference,
+          cold.HostRead(), normal, reference.HostRead(), target);
+      for (int q = 0; q < 4; ++q)
+        {
+          EXPECT_CLOSE(target[q] / std::max(real_t(1), std::abs(independent[q])),
+                       independent[q] / std::max(real_t(1), std::abs(independent[q])), 1e-9);
+        }
+      flux.ComputeFaceFlux(gas, cold.HostRead(), target, normal, measured_flux);
+      flux.ComputeFaceFlux(gas, cold.HostRead(), reference.HostRead(), normal, baseline_flux);
+      const auto cb = gas.sound_speed(PointStateView{independent.HostRead()});
+      const auto lambda = std::max(ci, std::abs(qb) + cb);
+      const auto expected_mass = rho * qb / 2 - lambda * (rho - cold[0]) / 2;
+      EXPECT_CLOSE((measured_flux[0] - expected_mass) / (cold[0] * ci), 0, 1e-9);
+      std::cout << "real_lte_flux," << radius << ',' << sample[1] << ',' << qb << ','
+                << measured_flux[0] << ',' << expected_mass << ',' << baseline_flux[0] << '\n';
+      BC::LocalCharacteristicState(gas, BCType::CharacteristicReference,
+          reference.HostRead(), normal, reference.HostRead(), target);
+      for (int q = 0; q < 4; ++q)
+        {
+          EXPECT_CLOSE((target[q] - reference[q]) / std::max(real_t(1), std::abs(reference[q])), 0, 1e-9);
+        }
+    }
+  return 0;
+}
 
 TEST(plato_library_init_test)
 {

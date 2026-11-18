@@ -759,6 +759,24 @@ namespace Theseus
                   rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
                 }
               }
+            else if (type == "characteristic-inlet" || type == "characteristic-radial-inlet" ||
+                     type == "characteristic-pressure-outlet" || type == "characteristic-total-inlet")
+              {
+                try
+                  {
+                    const auto payload = ParseLocalCharacteristicBoundary(bc_props, gasModel);
+                    bc_descr.type = int(type == "characteristic-pressure-outlet" ? BCType::CharacteristicPressure :
+                        (type == "characteristic-total-inlet" ? BCType::CharacteristicTotal : BCType::CharacteristicReference));
+                    bc_descr.data_kind = int(payload.kind);
+                    bc_descr.data_index = AppendBCVectorPayload(bc_vector_data, payload.values);
+                    rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());
+                  }
+                catch (const std::exception &error)
+                  {
+                    std::cerr << "Boundary '" << boundaryName << "': " << error.what() << std::endl;
+                    boundary_failed = 1;
+                  }
+              }
             else if (type == "exterior-state" || type == "radial-profile")
               {
                 try

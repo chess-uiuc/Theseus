@@ -334,3 +334,20 @@ The extended `mms-euler-matrix` stays opt-in for all/subsets of production fluxe
 and the requested CPU/CUDA backend and rank count. No test edits solver source
 or rebuilds to switch flux or dissipation. See the manufactured-verification guide
 for exact entry points and coverage.
+
+### Local characteristic open boundaries
+
+`LocalCharacteristic_CPU`/`_CUDA` verify the HEGEL-style local reference/pressure
+algebra and frozen total model, supported CPG/LTE conversions and normal/gradient/
+flux behavior. The central `local-characteristic` recipe (axisymmetric build)
+adds reference/radial/total/reverse uniform Euler/CNS channels on one/two ranks,
+including variable-CFL paths,
+and heated/reverse real-LTE chamber runs through1microsecond with retained fields,
+CSV/JSON and complete coordinate-grouped MPI agreement. It preserves old configs
+and golden data; actual CUDA execution, all-Mach transitions and developed-chamber
+validation remain separate evidence.
+
+`plato_LocalCharacteristic_reference`, within the existing ThermoTableTestingSuite,
+checks actual air11 profile/cold-state EOS conversion and LLF flux against independent
+calculations, records the baseline exterior-state flux, and protects matching states.
+No duplicate CTest registration is added.

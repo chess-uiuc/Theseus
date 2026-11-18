@@ -16,6 +16,83 @@ namespace Theseus
   };
 
   inline BoundaryStatePayload ParseBoundaryState(const nlohmann::json &config,
+                                                 const GasModelInterface &gas);
+
+  inline BoundaryStatePayload ParseLocalCharacteristicBoundary(nlohmann::json config,
+                                                               const GasModelInterface &gas)
+  {
+    if (!gas.SupportsLocalCharacteristic())
+      {
+        throw std::invalid_argument("Local characteristic boundaries support CPG and original LTE; LTE_Helmholtz is not supported");
+      }
+    const auto &layout = gas.layout();
+    if (layout.nequations() != layout.dim + 2)
+      {
+        throw std::invalid_argument("Characteristic boundaries require a single gas without transported scalars");
+      }
+    const auto type = config.at("type").get<std::string>();
+    if (type != "characteristic-total-inlet" && type != "characteristic-inlet" &&
+        type != "characteristic-radial-inlet" && type != "characteristic-pressure-outlet")
+      {
+        throw std::invalid_argument("Unknown local characteristic boundary type");
+      }
+    if (type != "characteristic-total-inlet")
+      {
+        config["type"] = type == "characteristic-radial-inlet" ? "radial-profile" : "exterior-state";
+        return ParseBoundaryState(config, gas);
+      }
+    const std::set<std::string> keys{"type", "total_pressure", "total_temperature", "direction"};
+    for (const auto &entry : config.items())
+      {
+        if (!keys.count(entry.key()))
+          {
+            throw std::invalid_argument("Unknown total-inlet field '" + entry.key() + "'");
+          }
+      }
+    if (!config.at("total_pressure").is_number() || !config.at("total_temperature").is_number())
+      {
+        throw std::invalid_argument("Total pressure and temperature must be numeric");
+      }
+    const auto pressure = config.at("total_pressure").get<mfem::real_t>();
+    const auto temperature = config.at("total_temperature").get<mfem::real_t>();
+    RequirePositiveFinite(pressure, "Total pressure");
+    RequirePositiveFinite(temperature, "Total temperature");
+    const auto direction = config.at("direction").get<std::vector<mfem::real_t>>();
+    if (direction.size() != size_t(layout.dim))
+      {
+        throw std::invalid_argument("Total-inlet direction must have one entry per dimension");
+      }
+    mfem::real_t norm2 = 0;
+    for (const auto component : direction)
+      {
+        if (!std::isfinite(component))
+          {
+            throw std::invalid_argument("Total-inlet direction must be finite");
+          }
+        norm2 += component * component;
+      }
+    RequirePositiveFinite(norm2, "Flow direction norm");
+    BoundaryStatePayload result;
+    result.kind = BCDataKind::VectorConstant;
+    PhysicalStateInput reservoir{PressureTemperature{pressure, temperature},
+                                 std::vector<mfem::real_t>(layout.dim, 0)};
+    mfem::Vector reference;
+    gas.ConservativeFromPhysical(reservoir, reference);
+    result.values.SetSize(layout.nequations() + 2 + layout.dim);
+    for (int q = 0; q < layout.nequations(); ++q)
+      {
+        result.values[q] = reference[q];
+      }
+    result.values[layout.nequations()] = pressure;
+    result.values[layout.nequations() + 1] = temperature;
+    for (int d = 0; d < layout.dim; ++d)
+      {
+        result.values[layout.nequations() + 2 + d] = direction[d] / std::sqrt(norm2);
+      }
+    return result;
+  }
+
+  inline BoundaryStatePayload ParseBoundaryState(const nlohmann::json &config,
                                                  const GasModelInterface &gas)
   {
     const auto type = config.at("type").get<std::string>();
