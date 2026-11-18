@@ -34,7 +34,7 @@ physical fluxes and forcing in solver state order.
 
 - [Governing-equations reference](theory.md).
 - [Source-term interface](source-terms.md).
-- Current evidence: periodic CPG Euler and constant-transport CNS; Sutherland adds independently checked forcing and the 2D P3/Roe spatial evidence below. LTE and wall-boundary accuracy are not established.
+- Current evidence: three-regime periodic CPG Euler, constant CNS and Sutherland CNS spatial studies; separate Euler/constant-CNS temporal and selected 3D evidence. LTE and wall-boundary accuracy are not established.
 
 ### Equation and discrete-operator coverage
 
@@ -48,12 +48,12 @@ available evidence, not a promise that every study runs in quick CI.
 | Conservation laws | Density, vector momentum and total energy for Euler and CNS, with analytic forcing | Independent source/reference checks; spatial convergence for Euler, constant CNS and Sutherland CNS |
 | CPG equation of state | Pressure, temperature and energy relations entering fluxes and transport; $\gamma=1.4$ | Source/reference checks use analytic CPG relations. No LTE or real-gas MMS coverage |
 | Inviscid volume and face fluxes | Combined contribution to evolved solutions with LLF, Roe, HLL, Chandrashekar, Ranocha and Pirozzoli flux choices | Separate Riemann/scalar-penalty checks; MMS does not isolate every volume/face contribution. Euler P4 LLF/Chandrashekar order exceptions remain documented |
-| BR1 gradient pathway | Entropy-variable gradients and their conversion to primitive gradients feed the CNS viscous fluxes | Production-path test compares both directional gradients of density, both velocities and pressure with analytic derivatives: 2D periodic Cartesian P2/P3, $6^2$ and $12^2$ meshes, observed gradient order at least $p-0.5$. Constant gradients and constant-state CNS RHS must vanish within $10^{-11}$. This checks the combined pathway, not BR1 in isolation |
+| BR1 gradient pathway | Entropy-variable gradients and their conversion to primitive gradients feed the CNS viscous fluxes | Production-path test compares both directional gradients of density, both velocities and pressure with analytic derivatives: 2D periodic Cartesian P2/P3, $6^2$/$12^2$ baseline meshes and $6^2$/$12^2$/$18^2$ at the subsonic/supersonic mean speeds, observed gradient order at least $p-0.5$. Constant gradients and constant-state CNS RHS must vanish within $10^{-11}$. This checks the combined pathway, not BR1 in isolation |
 | Newtonian viscous stress | Velocity-gradient stresses enter momentum transport and viscous work in total energy | Independent CNS forcing/derivative references and viscous-contribution controls supplement coupled convergence; not a standalone refinement study of every stress component |
 | Fourier heat conduction | Temperature-gradient heat flux enters the energy equation | Analytic forcing/reference checks and coupled constant/Sutherland CNS studies; no independently varied conductivity-law family |
 | Constant transport | Constant dynamic viscosity with conductivity set through the CPG heat capacity and prescribed Prandtl number | Transport/source consistency, zero-transport Euler limit and build/source mismatch checks |
 | Sutherland transport | Temperature-dependent viscosity and associated conductivity, including coefficient-gradient contributions in the forcing | Independent variable-transport checks and omission controls; 2D P1–P5/all-flux spatial evidence. Temporal and coupled 3D accuracy remain untested |
-| Time integration and source coupling | Forced evolution with SSPRK3 and RK4 | Separate Euler and constant-CNS temporal studies recover approximately third and fourth order; half-timestep controls bound temporal contamination in spatial studies |
+| Time integration and source coupling | Forced evolution with SSPRK3 and RK4 | Separate Euler and constant-CNS temporal studies recover approximately third and fourth order; spatial studies include half-timestep checks, with explicit control exceptions reported below |
 | Dimension, geometry and boundaries | Primarily 2D periodic Cartesian studies; selected constant-CNS 3D P2/Roe spatial evidence | No wall-boundary, curved-geometry or axisymmetric MMS accuracy claim. Direct gradient refinement is currently 2D |
 
 **Coverage summary**
@@ -64,7 +64,7 @@ available evidence, not a promise that every study runs in quick CI.
   degree and geometry limits. The [capability inventory](mms-inventory.md) identifies
   implementations and test entry points; [evaluation workflows](mms-evaluations.md)
   distinguish quick, qualification and extended studies.
-- Coverage is for smooth solutions. Distinct Mach-regime families, LTE, shocks and
+- Coverage is for smooth solutions. The three speed regimes use the same smooth periodic family. LTE, shocks and
   boundary accuracy are not established by this MMS campaign.
 
 ## Current manufactured solutions
@@ -236,8 +236,8 @@ not combine it with temporal acceleration. Existing source/state inputs remain v
 
 **Artifacts and scope:** matrix plans retain conservative Mach bounds and sampled
 initial Mach ranges; assessments reject mixed regimes. Separate result directories
-keep regime studies independent. The original transonic data are the existing
-baseline; no new-regime convergence result is implied by the analytic bounds alone.
+keep regime studies independent. The completed spatial campaign below provides
+measured convergence separately from these analytic bounds.
 
 #### Variable-transport extension
 
@@ -389,70 +389,117 @@ new qualification of the added mesh.
 [Measurements](assets/mms/cns-sutherland-spatial-measurements.json);
 recipe `mms-cns-sutherland-qualification` reproduces the six-case study.
 
-#### Full GPU degree, flux and transport matrix
+#### Three-regime GPU spatial matrix
 
-The full matrix covers 630 CUDA simulations: Euler, constant-transport CNS and
-Sutherland CNS, P1–P5, all six production fluxes, 12/18/27/40/60/90 elements per
-direction and one finest half-timestep control per degree/flux group. Runs use
-Release builds, FV blending compiled off, one rank, RK4 and $t_f=0.2$. The exact
-family and transport parameters are the ones specified above. Every run uses a
-fixed timestep; its size varies by mesh and degree as documented in the
-[evaluation guide](mms-evaluations.md#timestep-policy-and-preflight-cost).
+The complete dataset covers **1,620 spatial-refinement simulations** plus
+**270 separate half-timestep controls**: subsonic/transonic/supersonic Euler,
+constant CNS and Sutherland CNS; P1–P5; all six numerical fluxes;
+12/18/27/40/60/90 cells per direction. Each regime contains 90 degree/flux/physics
+groups and 630 simulations. All 1,890 runs completed and reported CUDA execution.
+The campaign uses one rank, RK4 and $t_f=0.2$, with fixed timesteps within each
+run and the mesh/degree/regime policy in the [evaluation guide](mms-evaluations.md).
+Recipes specify Release builds with FV blending compiled off.
 
-![GPU density convergence by degree, Roe flux](assets/mms/hpc-matrix/roe-density.png)
+![Three-regime Roe density convergence, all orders](assets/mms/three-regime-matrix/roe-density-three-regimes.png)
 
-Dashed guides indicate $h^{p+1}$. Roe is shown for readability; the
-[all-flux density matrix](assets/mms/hpc-matrix/density-full-matrix.png) and
-[all finest-order comparisons](assets/mms/hpc-matrix/finest-order-deficits.png)
-retain the full coverage. Adjacent rates use actual spacing ratios, not an assumed
-factor of two. Momentum is the physical norm of the momentum error vector.
+Each curve has six spatial points. Dashed guides show expected $h^{p+1}$ slopes
+with arbitrary normalization. Adjacent rates use the actual spacing ratios,
+including 27-to-40 refinement. Momentum is the physical norm of the momentum
+error vector. The [full subsonic](assets/mms/three-regime-matrix/density-full-subsonic.png),
+[transonic](assets/mms/three-regime-matrix/density-full-transonic.png) and
+[supersonic](assets/mms/three-regime-matrix/density-full-supersonic.png) figures
+retain every flux.
 
-| Evidence | Result |
-| --- | --- |
-| Completed GPU simulations | 630/630 |
-| Completed group assessments | 90/90 |
-| Component timestep-isolation controls | 90/90; largest relative change 0.0078%, below 1% |
-| Groups meeting nominal-minus-0.5 comparison | 88/90 |
-| Flagged groups | Euler P4 with LLF and Chandrashekar |
+| Regime | Groups / simulations complete | Finest spatial comparison met | Timestep controls passed |
+| --- | --- | --- | --- |
+| Subsonic | 90 / 630 | 48 / 90 | 90 / 90 |
+| Transonic | 90 / 630 | 88 / 90 | 90 / 90 |
+| Supersonic | 90 / 630 | 90 / 90 | 84 / 90 |
 
-P3 finest density/momentum/energy rates are 3.945/3.994/3.930 for Roe Euler,
-3.938/3.922/3.894 for Roe constant CNS and 3.945/3.930/3.907 for Roe Sutherland
-CNS, against nominal four. The finer meshes clarify the earlier P3 shortfall.
-Roe CPU/GPU errors on shared meshes agree within $1.8\times10^{-9}$ relatively.
+The spatial comparison requires every headline quantity's finest rate to be at
+least nominal order minus 0.5. It is a regression comparison, not a claim of exact
+nominal asymptotics. **226/270 groups meet it; 44 retain order flags.** The
+secondary timestep-control column is separate from the headline spatial evidence.
+Original controls pass for 264/270 groups; supplemental results do not overwrite
+unverified statuses.
 
-![Euler P4 rate dependence on flux and refinement](assets/mms/hpc-matrix/euler-p4-rates.png)
+![All finest spatial-order comparisons](assets/mms/three-regime-matrix/spatial-order-map.png)
 
-Euler P4 Roe reaches 4.945/4.984/4.970 on 60-to-90 cells. LLF reaches
-4.384/4.606/4.290, and Chandrashekar 4.400/4.581/4.300. Their density and energy
-rates fail the 4.5 comparison; the flags are retained. All their timestep controls
-pass. CNS P4 finest rates span approximately 4.53–4.81; satisfying the regression
-comparison does not establish fifth-order asymptotics. P5 Euler rates sometimes
-exceed six at very small errors, while CNS rates span approximately 5.74–6.00;
-superconvergence alone is not taken as proof of nominal asymptotic behavior.
+Numbers give the minimum of density/momentum/energy rates; outlines identify
+spatial-order flags using unrounded values. Displayed numbers are rounded. **Subsonic shortfalls are broader than the original scalar
+flux dip:** both CNS models flag P3/P4 across all six fluxes, with some P5 flags
+as well. Supersonic P1–P5 groups all meet the spatial comparison; their P5 rates
+span 5.85–6.01 for Euler and 5.89–5.97 for CNS, against expected six.
 
-Independent 2D/3D scalar-penalty checks verify the LLF formula, the published
-Chandrashekar energy expression, normal scaling and entropy/kinetic-energy
-identities. No scalar-formula defect was demonstrated. Related degree-dependent
-LLF order loss is reported by Hindenlang and Gassner [[6]](#ref-order-reduction),
-but their problem is not identical and does not establish the cause here.
-LLF uses conservative energy jumps; Chandrashekar uses a modified energy jump.
-Neither production dissipation nor its runtime interface was changed for this
-campaign.
+![Roe order deficits by regime](assets/mms/three-regime-matrix/roe-regime-order-deficits.png)
 
-[Group measurements and rates](assets/mms/hpc-matrix/groups.json),
-[450 adjacent-interval comparisons](assets/mms/hpc-matrix/observed-orders.csv),
-[assessment summary](assets/mms/hpc-matrix/summary.json) and
-[configuration/provenance hashes](assets/mms/hpc-matrix/provenance.json) are
-portable compact records. Original solver fields were independently postprocessed
-on HPC; this documentation archive contains their error measurements, not fields
-or private build/run logs. Reproduce the campaign with the [HPC workflow](mms-hpc.md).
+The original transonic campaign remains unchanged. Its P3/Roe finest
+density/momentum/energy rates are 3.945/3.994/3.930 for Euler,
+3.938/3.922/3.894 for constant CNS and 3.945/3.930/3.907 for Sutherland CNS.
+Shared transonic Roe CPU/GPU errors agree within $1.8\times10^{-9}$ relatively.
+
+![Original transonic Euler P4 refinement/flux comparison](assets/mms/hpc-matrix/euler-p4-rates.png)
+
+Transonic Euler P4 Roe reaches 4.945/4.984/4.970 on 60-to-90 cells; LLF reaches
+4.384/4.606/4.290 and Chandrashekar 4.400/4.581/4.300. Their density/energy flags
+remain explicit, and their timestep controls pass. Transonic CNS P4 rates span
+about 4.53–4.81; passing the comparison does not establish fifth-order asymptotics.
+Some transonic Euler P5 rates exceed six at tiny errors, so apparent
+superconvergence is interpreted cautiously.
+
+Independent 2D/3D scalar-penalty checks cover LLF, Chandrashekar's modified energy
+jump, normal scaling and entropy/kinetic-energy identities. No production
+scalar-formula defect was demonstrated. Hindenlang and Gassner [[6]](#ref-order-reduction)
+report Mach/flux-dependent Euler order reduction; their tests provide context,
+not an explanation of all of these CNS/Roe deficits. Production dissipation was
+not changed for this campaign.
+
+##### Secondary timestep evidence
+
+The six original supersonic Euler P5 controls fail the unchanged 1% component
+error-norm comparison: maximum relative changes range from 1.77% to 6.77% at
+finest errors of roughly $10^{-12}$–$10^{-11}$. Their spatial rates remain near six.
+Halving the timestep increases these tiny errors. Arithmetic accumulation and
+final-time roundoff are plausible contributors; neither is uniquely established.
+
+![Timestep controls and supplemental diagnostic](assets/mms/three-regime-matrix/timestep-controls-and-diagnostic.png)
+
+A separate four-run Roe diagnostic at approximately four times the original
+Euler P5 timestep, using 40/60/90 meshes and a finest half-step control, gives
+6.009/6.015/6.019 spatial rates. Its control passes at 0.499%/0.431%/0.378%.
+Recorded build identities match the original run. Errors increase across
+27,127/54,254/108,507/217,014 steps, supporting roundoff sensitivity. This
+supplemental result is separate from the 1,890-run campaign and does not mark
+other original controls passed. Future reviewed control data can update the
+control column without replacing the headline spatial measurements.
+
+**Portable evidence:** [270 groups](assets/mms/three-regime-matrix/groups.json),
+[1,350 adjacent-interval comparisons](assets/mms/three-regime-matrix/observed-orders.csv),
+[summary](assets/mms/three-regime-matrix/summary.json),
+[supplemental diagnostic](assets/mms/three-regime-matrix/supplemental-timestep-diagnostic.json)
+and [provenance](assets/mms/three-regime-matrix/provenance.json).
+The [original transonic records](assets/mms/hpc-matrix/groups.json) remain retained.
+Fields were independently postprocessed on HPC; these compact public records
+contain measurements rather than bulk fields or private logs. The local audit
+recalculates rates/assessments and checks saved configurations and solver logs;
+it does not independently reintegrate the omitted fields.
+
+##### Supplemental real-mesh sensitivity
+
+A separate [cell-geometry study](mms-mesh-sensitivity.md) exercises graded,
+27-degree rotated, sheared and two seeded-jitter periodic quadrilateral families
+with Euler, constant CNS and Sutherland CNS. Its 108 extended CPU evolutions retain
+measured error amplification and order flags separately from the 270-group GPU
+campaign. Rigid-rotation covariance, geometry/free-stream checks and BR1 gradient
+checks pass; not every short-time solution-rate comparison meets nominal minus 0.5.
+This is bounded geometry evidence, not a general distorted-mesh accuracy claim.
 
 **Artifact inventory**
 
-- Six baseline plots and the full GPU matrix figures above, with linked conservative-field measurements and [provenance](assets/mms/provenance.json).
-- Euler: degree-dependent spatial observations and isolated third-/fourth-order time integration.
+- Six baseline plots and the three-regime GPU figures above, with linked conservative-field measurements and [provenance](assets/mms/provenance.json).
+- Euler: three-regime degree/flux spatial observations, separate timestep controls and isolated third-/fourth-order time integration.
 - Constant-transport CNS: third-order P2 spatial convergence in 2D/3D and isolated third-/fourth-order time integration.
-- Sutherland CNS: the 2D P3 spatial study meets its 3.5 lower-order gate and detects omitted coefficient-gradient contributions in the evolved solution; measured rates are reported without claiming exact fourth order.
+- Sutherland CNS: three-regime P1–P5/all-flux spatial evidence, plus forcing-omission controls in the baseline qualification; observed deficits are retained.
 
 ### Repeat the evaluations
 

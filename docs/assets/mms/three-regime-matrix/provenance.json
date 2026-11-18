@@ -1,0 +1,25 @@
+{
+  "date": "2026-11-17",
+  "input_archives": {
+    "mms-full-matrix.tar.gz": "e519241030ad575c7d5042c7afb5290bb7c01f7b76c6dc4649575506c65aaac5",
+    "mms-p5-reanalysis.tar.gz": "5653cd98308ebff85b3aa0dfd7aff08986177312e23a9f8faa5226bc549c074e",
+    "mms-002.tgz": "4e619b07d47e2fd5ed6f79b1334a1a8aa3d7cc9450aefd6d888339fef2d2c23e",
+    "mms-supersonic-p5-results.tgz": "2333d950da365ec81580d2bacf15e35551430ac8da82af8327f3ed7e968ce6fa",
+    "study.tgz": "4cb3e74ecebd45c6357bf837be3e466c5f4f38dfcfee0bd93e463387e04a6285"
+  },
+  "campaign": "Three regimes; 270 groups; 1890 simulations. Supplemental diagnostic is separate.",
+  "audit": "Saved assessments/measurements/configurations and CUDA completion/final-time logs checked; archived fields were postprocessed on HPC and omitted from compact archives.",
+  "files": {
+    "density-full-subsonic.png": "ec0bf90f1aa18be4cbd98c227b0f7091d9fad889d4d0265b4a8fd3764c86d4e2",
+    "density-full-supersonic.png": "63dfd4ac56049695fd4dea24cf4c1ba61cb7f719fba3caa5858e7cc2525d1136",
+    "density-full-transonic.png": "687cd49686384c4926b8988701c287b253e79a8e5d94f27ac2b350f3f32f0ef8",
+    "groups.json": "c21f702a04a726272b5445aced9667e572a8fcce4cb8352441f5151f2f95143c",
+    "observed-orders.csv": "7695bf71e57f7e22c2c9f11a26b547ff6baf2ffab7eef585be95a968e8c3e4b2",
+    "roe-density-three-regimes.png": "b0700f34571e75d363310e448ae00c43b1d7c6cbb3c5132d978886302371fce6",
+    "roe-regime-order-deficits.png": "f595ec95e1af0c801cb97100650f415cf045dabcbcf7901f1ede5e296b3c1329",
+    "spatial-order-map.png": "cfc2ecb4fb49c58219a54399b09cb69c266e8e59a8eed8583f7fda408484b78c",
+    "summary.json": "1b85b27699f7b048a5aa30010a248d5ffac039b63b4e9806cff22f40cd62896e",
+    "supplemental-timestep-diagnostic.json": "d17433488f60949b8190ee9b9f324a8a4ae5c33a4e0a5e1e5dac8146d0f778e6",
+    "timestep-controls-and-diagnostic.png": "3ee9ef8d9faf6792131f8992320a04d58917ea3e1cc00bd4bd7a4d62bbcce41c"
+  }
+}

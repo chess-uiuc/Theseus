@@ -330,6 +330,14 @@ Nightly explicitly selects qualification. Multiple ranks are supported execution
 no new MMS MPI-parity cases or unit MPI variants are included in this effort.
 Existing MPI tests elsewhere remain unchanged.
 
+The completed [three-regime spatial campaign](mms-verification.md#three-regime-gpu-spatial-matrix)
+contains 270 groups / 1,890 CUDA simulations for Euler, constant CNS and Sutherland
+CNS. The extended matrix recipes accept `--regime subsonic|transonic|supersonic`.
+Headline spatial measurements, order flags and secondary timestep-control outcomes
+are reported separately. The complete dataset does not imply every group attains
+nominal order or that every timestep control passes. These matrices remain opt-in;
+PR CI uses quick MMS coverage and nightly uses qualification.
+
 The extended `mms-euler-matrix` stays opt-in for all/subsets of production fluxes
 and the requested CPU/CUDA backend and rank count. No test edits solver source
 or rebuilds to switch flux or dissipation. See the manufactured-verification guide

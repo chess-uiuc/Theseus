@@ -9,7 +9,7 @@ import unittest
 
 ROOT = REPOSITORY_ROOT
 DOCUMENTS = tuple(ROOT/'docs'/name for name in (
-    'mms-verification.md', 'mms-evaluations.md', 'mms-hpc.md', 'mms-inventory.md'))
+    'mms-verification.md', 'mms-evaluations.md', 'mms-hpc.md', 'mms-inventory.md', 'mms-mesh-sensitivity.md'))
 
 
 class MMSDocumentationTests(unittest.TestCase):
@@ -59,9 +59,68 @@ class MMSDocumentationTests(unittest.TestCase):
         self.assertEqual(pilots, [13, 43, 73])
         self.assertFalse(set(pilots) & set(remaining))
         self.assertEqual(sorted(pilots + remaining), list(range(90)))
-        self.assertEqual(expand(selections[2]), list(range(90)))
+        supersonic_main = expand(selections[2])
+        supersonic_p5 = expand(selections[3])
+        self.assertFalse(set(supersonic_main) & set(supersonic_p5))
+        self.assertFalse(set(pilots) & (set(supersonic_main) | set(supersonic_p5)))
+        self.assertEqual(sorted(pilots + supersonic_main + supersonic_p5), list(range(90)))
+        self.assertTrue(all((task % 30)//6 == 4 for task in supersonic_p5))
+        self.assertTrue(all((task % 30)//6 < 4 for task in supersonic_main))
+        self.assertEqual(expand(selections[4]), list(range(90)))
         for task in pilots:
             self.assertEqual(((task % 30)//6 + 1, task % 6), (3, 1))
+
+    def test_hpc_logs_stay_inside_results(self):
+        text = (ROOT/'docs/mms-hpc.md').read_text()
+        self.assertNotIn('mkdir -p logs', text)
+        self.assertNotRegex(text, r'--output=logs/')
+        self.assertIn('--output="$RESULTS_ROOT/logs/build-%j.log"', text)
+        self.assertIn('--output="$RESULTS_ROOT/$regime/logs/%x-%A_%a.log"', text)
+        self.assertIn('--timeout "${MMS_TIMEOUT:-1700}"', text)
+
+    def test_three_regime_evidence_preserves_separate_control_results(self):
+        assets = ROOT/'docs/assets/mms/three-regime-matrix'
+        summary = json.loads((assets/'summary.json').read_text())
+        groups = json.loads((assets/'groups.json').read_text())
+        provenance = json.loads((assets/'provenance.json').read_text())
+        diagnostic = json.loads((assets/'supplemental-timestep-diagnostic.json').read_text())
+        self.assertEqual(len(groups), 270)
+        self.assertEqual(len({(g['regime'], g['physics'], g['degree'], g['flux']) for g in groups}), 270)
+        self.assertEqual(summary['spatial_simulations'], 1620)
+        self.assertEqual(summary['timestep_control_simulations'], 270)
+        self.assertEqual(summary['total_simulations'], 1890)
+        self.assertEqual(sum(g['spatial_order_floor_met'] for g in groups), 226)
+        self.assertEqual(sum(g['dt_control_passed'] for g in groups), 264)
+        for regime, expected_orders, expected_controls in (
+                ('subsonic', 48, 90), ('transonic', 88, 90), ('supersonic', 90, 84)):
+            subset = [g for g in groups if g['regime'] == regime]
+            self.assertEqual(len(subset), 90)
+            self.assertEqual(sum(g['spatial_order_floor_met'] for g in subset), expected_orders)
+            self.assertEqual(sum(g['dt_control_passed'] for g in subset), expected_controls)
+            self.assertTrue(all(len(g['errors']) == 6 and len(g['observed_orders']) == 5 for g in subset))
+        original_roe = next(g for g in groups if (g['regime'], g['physics'], g['degree'], g['flux'])
+                            == ('supersonic', 'euler', 5, 'Roe'))
+        self.assertFalse(original_roe['dt_control_passed'])
+        self.assertTrue(diagnostic['assessment']['controls_passed'])
+        csv_lines = (assets/'observed-orders.csv').read_text().splitlines()
+        self.assertEqual(len(csv_lines), 1351)
+        for filename, digest in provenance['files'].items():
+            with self.subTest(asset=filename):
+                self.assertEqual(hashlib.sha256((assets/filename).read_bytes()).hexdigest(), digest)
+
+    def test_mesh_sensitivity_evidence_retains_order_flags(self):
+        assets = ROOT/'docs/assets/mms/mesh-sensitivity'
+        data = json.loads((assets/'measurements.json').read_text())
+        provenance = json.loads((assets/'provenance.json').read_text())
+        self.assertEqual(len(data['records']), 108)
+        self.assertTrue(data['core_checks_passed'])
+        self.assertFalse(data['passed'])
+        self.assertEqual(len(data['order_flags']), 27)
+        self.assertEqual({r['mesh'] for r in data['records']},
+                         {'uniform', 'graded', 'rotated', 'sheared', 'jitter17', 'jitter91'})
+        self.assertEqual(len(data['groups']), 36)
+        for filename, digest in provenance['files'].items():
+            self.assertEqual(hashlib.sha256((assets/filename).read_bytes()).hexdigest(), digest)
 
     def test_public_metadata_has_no_machine_absolute_paths(self):
         for path in (ROOT/'docs/assets/mms').rglob('*.json'):
