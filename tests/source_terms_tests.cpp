@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #include "SourceConfiguration.hpp"
 #include "sources/Affine.hpp"
-#include "sources/EulerMMS.hpp"
+#include "verification/mms/sources/EulerMMS.hpp"
 #include "sources/LinearDrag.hpp"
 #include <cmath>
 #include <iostream>

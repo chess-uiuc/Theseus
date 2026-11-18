@@ -138,12 +138,8 @@ namespace Theseus
       const int mom0_eq = gasModel.L.eq_mom0;
       const int ener_eq = gasModel.L.eq_energy;
 
-      // Dissipative part of the flux based on Roe's approximate Riemann solver
-      // Roe_dissipation(gasModel, S1, S2, nor, diss);
-      // NOTE: This isn't really Chandrashekar's KEPEC if not using Roe dissipation.
-      // But Roe dissipation makes test simulations unstable with current testing
-      // configurations. For now, we keep scalar default, and add the following todo...
-      // TODO: Add runtime selection for dissipation operator
+      // Scalar dissipation with the entropy-consistent energy construction.
+      // Runtime selection of other dissipation operators is not exposed here.
       Scalar_dissipation(gasModel, S1, S2, nor, diss);
 
       flux[mass_eq] = rho_ln * vn - diss[mass_eq];

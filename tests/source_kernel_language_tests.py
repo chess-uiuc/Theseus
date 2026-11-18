@@ -7,6 +7,41 @@ import unittest
 
 
 class SourceKernelLanguageTests(unittest.TestCase):
+    def test_relocated_mms_targets_keep_cuda_source_properties(self):
+        source = Path(__file__).resolve().parents[1]
+        definitions = (source/'tests/CMakeLists.txt').read_text()
+        block = definitions.split('# Multidirectional manufactured Euler source, including the actual device adapter.\n', 1)[1]
+        sources = sorted((source/'tests/mms').glob('*.cpp'))
+        for path in sources:
+            block = block.replace('mms/' + path.name,
+                                  '"${REPOSITORY_SOURCE_DIR}/tests/mms/' + path.name + '"')
+        with tempfile.TemporaryDirectory(prefix='mms-language-', dir=Path.cwd()) as directory:
+            root = Path(directory)
+            (root/'child').mkdir()
+            (root/'CMakeLists.txt').write_text(
+                'cmake_minimum_required(VERSION 3.18)\n'
+                'project(MMSLanguageScope LANGUAGES CXX)\n'
+                'enable_testing()\n'
+                'set(REPOSITORY_SOURCE_DIR "' + source.as_posix() + '")\n'
+                'set(PROJECT_SOURCE_DIR "${REPOSITORY_SOURCE_DIR}")\n'
+                'set(ENABLE_CUDA ON)\n'
+                'add_library(test_mfem INTERFACE)\n'
+                'add_library(MPI::MPI_CXX INTERFACE IMPORTED)\n'
+                'set(THESEUS_MFEM_TARGET test_mfem)\n'
+                'add_subdirectory(child)\n')
+            verification = ''
+            for path in sources + [source/'src/SourceConfiguration.cpp']:
+                name = path.as_posix()
+                verification += ('get_source_file_property(language "' + name + '" LANGUAGE)\n'
+                    'if(NOT language STREQUAL "CUDA")\n'
+                    '  message(FATAL_ERROR "MMS CUDA language lost: ' + name + '")\n'
+                    'endif()\n'
+                    'set_source_files_properties("' + name + '" PROPERTIES LANGUAGE CXX)\n')
+            (root/'child/CMakeLists.txt').write_text(block + verification)
+            result = subprocess.run(['cmake', '-S', str(root), '-B', str(root/'build')],
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_registration_translation_unit_is_cuda_in_tests_directory(self):
         source = Path(__file__).resolve().parents[1]
         definitions = (source/'tests/CMakeLists.txt').read_text()

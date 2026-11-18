@@ -1,0 +1,49 @@
+{
+  "campaign_date": "2026-11-15",
+  "device": "cuda",
+  "architecture": 90,
+  "build_type": "Release",
+  "subcell_fv_blending": false,
+  "physics": [
+    "euler",
+    "constant",
+    "sutherland"
+  ],
+  "degrees": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "fluxes": [
+    "lfr",
+    "Roe",
+    "HLL",
+    "Chandrashekar",
+    "Ranocha",
+    "Pirozzoli"
+  ],
+  "cells": [
+    12,
+    18,
+    27,
+    40,
+    60,
+    90
+  ],
+  "cases": 630,
+  "groups": 90,
+  "component_timestep_controls_passed": 90,
+  "order_flagged_groups": 2,
+  "measurement_scope": "Physical L2 error measurements postprocessed from original GPU solver fields; rates and assessments recomputed from compact archives. P5 controls recovered by analysis only after bounded timestamp-roundoff correction. No spatial measurements changed.",
+  "files": {
+    "density-full-matrix.png": "42943236875905329068c7f2c2414ee412ec28c0388fd2a8f204e7cb7d2a70d0",
+    "euler-p4-rates.png": "06cfc261e47d471ebd70f5fcc56036b350e06372493da0fecff75196608033e4",
+    "finest-order-deficits.png": "3200c235de90435297f6dec746d01abb99e431abe3d899b3bab3ff66474fe7c5",
+    "groups.json": "0170aac8181f284e45c46a0202ada486344fa7534d75342648a5e7cca2dcd665",
+    "observed-orders.csv": "498bd5e6d42e1c481edce76f4aa6512297cf6fee8fda9f6022519e89e0124c8e",
+    "roe-density.png": "4d234cd6e682248c64a85a56ca2a9ced249c3e222425a534d9e9dfb9b9799515",
+    "summary.json": "d4ea04ae45d53de599bb6cfe39b7179759678c974a9f5495eb77945d045d4282"
+  }
+}

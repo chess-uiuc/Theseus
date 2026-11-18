@@ -145,3 +145,272 @@ build = "standard"
 requires = ["python", "pyvista"]
 stages = ["prepare", "run", "compare"]
 order = 350
+
+[[test]]
+id = "mms-euler"
+mms_level = "qualification"
+title = "Multidirectional 2D/3D Euler MMS convergence"
+script = "tests/recipes/integration/trigonometric-euler.sh"
+suites = ["cartesian", "full", "integrated", "euler-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 420
+
+[[test]]
+id = "mms-euler-orientation"
+mms_level = "qualification"
+title = "Matched cyclic Euler MMS orientations"
+script = "tests/recipes/integration/euler-orientation.sh"
+suites = ["cartesian", "full", "integrated", "euler-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 421
+
+[[suite]]
+id = "mms-verification"
+title = "Extended MMS accuracy studies"
+
+[[test]]
+id = "mms-euler-spatial-survey"
+title = "Euler spatial survey P1 through P5"
+script = "tests/recipes/integration/euler-spatial-survey.sh"
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 422
+
+[[test]]
+id = "mms-euler-temporal-survey"
+title = "Coupled Euler RK3 and RK4 temporal convergence"
+script = "tests/recipes/integration/euler-temporal-survey.sh"
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 423
+
+[[test]]
+id = "mms-euler-flux-comparison"
+flux_selection = true
+title = "Euler MMS comparison of six CPG flux formulations"
+script = "tests/recipes/integration/euler-flux-comparison.sh"
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 424
+
+[[test]]
+id = "mms-euler-rhs"
+flux_selection = true
+title = "Projected Euler RHS defects across six fluxes and P1 through P5"
+script = "tests/recipes/integration/euler-rhs.sh"
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 425
+
+
+[[test]]
+id = "mms-euler-spatial-fine"
+title = "Fine-grid Euler density convergence P1 through P5"
+script = "tests/recipes/integration/euler-spatial-fine.sh"
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 426
+
+
+[[suite]]
+id = "euler-build-verification"
+title = "Quick regression of an existing Euler build"
+
+[[test]]
+id = "mms-euler-temporal-quick"
+mms_level = "quick"
+title = "Bounded coupled Euler RK3SSP/RK4 temporal convergence"
+script = "tests/recipes/integration/euler-temporal-quick.sh"
+suites = ["cartesian", "full", "integrated", "euler-build-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 428
+
+
+[[test]]
+id = "mms-euler-flux-quick"
+mms_level = "quick"
+title = "Bounded P2 Euler verification across selected production fluxes"
+script = "tests/recipes/integration/euler-flux-quick.sh"
+flux_selection = true
+suites = ["cartesian", "full", "integrated", "euler-build-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 429
+
+
+[[test]]
+id = "mms-euler-matrix"
+title = "Extended P1-P5 Euler spatial matrix across selected production fluxes"
+script = "tests/recipes/integration/euler-matrix.sh"
+matrix_selection = true
+flux_selection = true
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 430
+
+
+[[suite]]
+id = "euler-mms-qualification"
+title = "Euler MMS qualification with error-isolation controls"
+
+[[test]]
+id = "mms-euler-temporal-qualified"
+mms_level = "qualification"
+title = "Euler RK3SSP/RK4 temporal convergence with spatial-floor controls"
+script = "tests/recipes/integration/euler-temporal-qualified.sh"
+suites = ["cartesian", "full", "integrated", "euler-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 431
+
+[[test]]
+id = "mms-euler-flux-qualified"
+mms_level = "qualification"
+title = "P2 Euler production-flux convergence with timestep controls"
+script = "tests/recipes/integration/euler-flux-qualified.sh"
+flux_selection = true
+suites = ["cartesian", "full", "integrated", "euler-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 432
+
+
+[[test]]
+id = "mms-cns-qualification"
+title = "Periodic constant-transport CNS MMS qualification"
+script = "tests/recipes/integration/cns-mms.sh"
+mms_level = "qualification"
+suites = ["mms-verification", "cartesian", "full", "integrated", "cns-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 440
+
+
+[[test]]
+id = "mms-cns-temporal"
+title = "Coupled constant-transport CNS temporal convergence"
+script = "tests/recipes/integration/cns-temporal.sh"
+mms_level = "qualification"
+suites = ["mms-verification", "cartesian", "full", "integrated", "cns-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 441
+
+
+[[test]]
+id = "mms-cns-3d-qualification"
+title = "Periodic 3D constant-transport CNS MMS qualification"
+script = "tests/recipes/integration/cns-3d.sh"
+mms_level = "qualification"
+suites = ["mms-verification", "cartesian", "full", "integrated", "cns-mms-qualification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 442
+
+
+[[suite]]
+id = "cns-build-verification"
+title = "Quick CNS convergence check of an existing build"
+
+[[suite]]
+id = "cns-mms-qualification"
+title = "Constant-transport CNS qualification with error-isolation controls"
+
+[[test]]
+id = "mms-cns-quick"
+mms_level = "quick"
+title = "Bounded P2 CNS spatial convergence"
+script = "tests/recipes/integration/cns-quick.sh"
+suites = ["cartesian", "full", "integrated", "cns-build-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 443
+
+
+[[test]]
+id = "mms-cns-sutherland-qualification"
+title = "Coupled Sutherland CNS spatial convergence and product-rule controls"
+script = "tests/recipes/integration/cns-sutherland.sh"
+suites = ["sutherland-mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 444
+
+[[suite]]
+id = "sutherland-mms-verification"
+title = "Sutherland CNS qualification against an existing Sutherland build"
+
+
+[[test]]
+id = "mms-cns-fluxes"
+title = "Constant-transport CNS convergence across selected production fluxes"
+script = "tests/recipes/integration/cns-constant-fluxes.sh"
+flux_selection = true
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 445
+
+[[test]]
+id = "mms-cns-sutherland-fluxes"
+title = "Sutherland CNS convergence across selected production fluxes"
+script = "tests/recipes/integration/cns-sutherland-fluxes.sh"
+flux_selection = true
+suites = ["sutherland-mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 446
+
+
+[[test]]
+id = "mms-cns-matrix"
+title = "Extended constant-transport CNS degree/mesh/flux survey"
+script = "tests/recipes/integration/cns-constant-matrix.sh"
+flux_selection = true
+matrix_selection = true
+suites = ["mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 447
+
+
+[[test]]
+id = "mms-cns-sutherland-matrix"
+title = "Extended sutherland-transport CNS degree/mesh/flux survey"
+script = "tests/recipes/integration/cns-sutherland-matrix.sh"
+flux_selection = true
+matrix_selection = true
+suites = ["sutherland-mms-verification"]
+build = "standard"
+requires = ["python", "pyvista"]
+stages = ["prepare", "run", "compare"]
+order = 448

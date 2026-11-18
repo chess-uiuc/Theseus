@@ -1,0 +1,13 @@
+{
+  "scope": "Supplemental 2D periodic real-mesh operator study; not part of the 270-group GPU campaign.",
+  "extended_evolutions": 108,
+  "quick_evolutions": 18,
+  "core_checks_passed": true,
+  "strict_evolved_order_component_flags": 27,
+  "strict_evolved_order_group_flags": 20,
+  "files": {
+    "density-convergence.png": "157bdd4f1fea0524fd63784c4f151672dc3db155372674186bb8191c1a853bbd",
+    "measurements.json": "325a2d50a79f2389e3b8f98321e36e5486c5c72b21871eff4850df3eca09386e",
+    "meshes.png": "3cc5ed67e72fd195cee38b8d1261909db70962bb775c2831489d3cd62f47509c"
+  }
+}

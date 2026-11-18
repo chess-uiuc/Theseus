@@ -1,0 +1,145 @@
+{
+  "case": "supersonic Euler P5 Roe, 90 cells per direction",
+  "build_identity_match": true,
+  "diagnostic_simulations": 4,
+  "assessment": {
+    "regime": "supersonic",
+    "mach_evidence": {
+      "regime": "supersonic",
+      "mean_velocity_scale": 5.0,
+      "dimension": 2,
+      "density_bounds": [
+        1.76,
+        2.24
+      ],
+      "pressure_bounds": [
+        0.83,
+        1.17
+      ],
+      "mach_bounds": [
+        3.766979467708088,
+        5.530463280448171
+      ],
+      "bound_scope": "conservative bounds valid at all positions and times",
+      "sampled_initial_mach_range": [
+        4.295593330267654,
+        4.908610393625562
+      ]
+    },
+    "status": "completed",
+    "scope": "observational_survey_control_checks",
+    "quantities": [
+      "density",
+      "momentum",
+      "energy"
+    ],
+    "studies": [
+      {
+        "flux": "Roe",
+        "degree": 5,
+        "expected_order": 6,
+        "cells": [
+          40,
+          60,
+          90
+        ],
+        "refinement_ratios": [
+          1.5,
+          1.5
+        ],
+        "observed_orders": [
+          [
+            5.990055686838927,
+            5.992998516983579,
+            5.992613790828844
+          ],
+          [
+            6.0086990056259975,
+            6.0145618326458266,
+            6.01886715570292
+          ]
+        ],
+        "observed_component_orders": [
+          [
+            5.990055686838927,
+            5.9924830039939145,
+            5.998747500805848,
+            5.992613790828844
+          ],
+          [
+            6.0086990056259975,
+            6.012182364538979,
+            6.041482499649267,
+            6.01886715570292
+          ]
+        ],
+        "monotone": true,
+        "nominal_minus_half_met": true,
+        "finest_timestep_relative_change": [
+          0.004988507832691447,
+          0.004314780445251687,
+          0.0037816616864048136
+        ],
+        "timestep_isolation_passed": true
+      }
+    ],
+    "controls_passed": true,
+    "passed": true,
+    "accuracy_qualified": false,
+    "order_expectations_met": true,
+    "needs_order_review": false
+  },
+  "timestep_ladder": [
+    {
+      "run": "diagnostic",
+      "half_dt": false,
+      "steps": 27127,
+      "dt": 7.372728278099311e-06,
+      "final_time_drift": 0.0,
+      "errors": [
+        5.0255588649758905e-12,
+        2.084851618405284e-11,
+        4.629667342032416e-11
+      ]
+    },
+    {
+      "run": "diagnostic",
+      "half_dt": true,
+      "steps": 54254,
+      "dt": 3.6863641390496556e-06,
+      "final_time_drift": 0.0,
+      "errors": [
+        5.050628904737474e-12,
+        2.0938472953996303e-11,
+        4.6471751776405796e-11
+      ]
+    },
+    {
+      "run": "original",
+      "half_dt": false,
+      "steps": 108507,
+      "dt": 1.8431990562820833e-06,
+      "final_time_drift": -2.5032753647735717e-13,
+      "errors": [
+        5.102311487127136e-12,
+        2.112208697105027e-11,
+        4.6842325360379885e-11
+      ]
+    },
+    {
+      "run": "original",
+      "half_dt": true,
+      "steps": 217014,
+      "dt": 9.215995281410417e-07,
+      "final_time_drift": -6.267764085521321e-13,
+      "errors": [
+        5.192562545199876e-12,
+        2.144664786013626e-11,
+        4.747787861436614e-11
+      ]
+    }
+  ],
+  "interpretation": "Supports accumulated floating-point/time-roundoff sensitivity; does not independently separate those mechanisms.",
+  "raw_solution_fields_available": false,
+  "other_flux_controls": "Original five non-Roe Euler P5 controls remain unresolved; original Roe failure retained separately from new passing diagnostic."
+}

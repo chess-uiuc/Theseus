@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Uniform manufactured energy solution with independent RK3 convergence checks."""
+from mms_paths import REPOSITORY_ROOT
 import argparse
 import copy
 import json

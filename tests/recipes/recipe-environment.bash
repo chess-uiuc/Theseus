@@ -4,7 +4,9 @@ recipe_usage() {
   echo "Usage: $1 --source DIR --build-standard DIR --prefix DIR --output DIR" >&2
   echo "          [--build-axisymmetric DIR]" >&2
   echo "          [--device cpu|cuda] [--python PYTHON] [--ranks N]" >&2
-  echo "          [--stage all|run|prepare|compare]" >&2
+  echo "          [--stage all|run|prepare|compare] [--fluxes all|LLF,Roe,...]" >&2
+  echo "          Matrix: [--cells 12,18,27,40,60,90] [--degrees 1,2,3,4,5] [--mesh-levels 5] [--start-level 1]" >&2
+  echo "                  [--regime subsonic|transonic|supersonic] [--base-cells 3] [--reference-dt .001] [--final-time .2]" >&2
 }
 
 recipe_parse_arguments() {
@@ -16,7 +18,16 @@ recipe_parse_arguments() {
   THESEUS_DEVICE="cpu"
   THESEUS_PYTHON="python3"
   THESEUS_RANKS="2"
+  THESEUS_FLUXES="all"
   THESEUS_RECIPE_STAGE="all"
+  THESEUS_REGIME="transonic"
+  THESEUS_DEGREES="1,2,3,4,5"
+  THESEUS_CELLS="12,18,27,40,60,90"
+  THESEUS_MESH_LEVELS="5"
+  THESEUS_START_LEVEL="1"
+  THESEUS_BASE_CELLS="3"
+  THESEUS_REFERENCE_DT=".001"
+  THESEUS_FINAL_TIME=".2"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -28,7 +39,16 @@ recipe_parse_arguments() {
       --device) THESEUS_DEVICE="$2"; shift 2 ;;
       --python) THESEUS_PYTHON="$2"; shift 2 ;;
       --ranks) THESEUS_RANKS="$2"; shift 2 ;;
+      --fluxes) THESEUS_FLUXES="$2"; shift 2 ;;
       --stage) THESEUS_RECIPE_STAGE="$2"; shift 2 ;;
+      --regime) THESEUS_REGIME="$2"; shift 2 ;;
+      --degrees) THESEUS_DEGREES="$2"; shift 2 ;;
+      --cells) THESEUS_CELLS="$2"; shift 2 ;;
+      --mesh-levels) THESEUS_MESH_LEVELS="$2"; shift 2 ;;
+      --start-level) THESEUS_START_LEVEL="$2"; shift 2 ;;
+      --base-cells) THESEUS_BASE_CELLS="$2"; shift 2 ;;
+      --reference-dt) THESEUS_REFERENCE_DT="$2"; shift 2 ;;
+      --final-time) THESEUS_FINAL_TIME="$2"; shift 2 ;;
       *) recipe_usage "$0"; echo "Unknown argument: $1" >&2; exit 2 ;;
     esac
   done
@@ -71,6 +91,30 @@ PY
     mkdir -p "$THESEUS_TEST_OUTPUT"
     mkdir -p "$THESEUS_TEST_OUTPUT/tpl"
     ln -s "$THESEUS_PREFIX" "$THESEUS_TEST_OUTPUT/tpl/install"
+    "$THESEUS_PYTHON" - "$THESEUS_TEST_OUTPUT" "$THESEUS_SOURCE" \
+      "$THESEUS_BUILD_STANDARD" "$THESEUS_BUILD_AXISYMMETRIC" "$THESEUS_PREFIX" \
+      "$THESEUS_DEVICE" "$THESEUS_RANKS" "$THESEUS_FLUXES" <<'PY_IDENTITY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+output, source, standard, axis, prefix, device, ranks, fluxes = sys.argv[1:]
+metadata = dict(source=source, prefix=prefix, device=device, requested_ranks=int(ranks),
+                requested_fluxes=fluxes, builds={})
+for name, directory in (('standard', standard), ('axisymmetric', axis)):
+    if not directory:
+        continue
+    build = Path(directory)
+    identity = dict(path=directory)
+    for filename in ('theseus', 'CMakeCache.txt'):
+        path = build/filename
+        if path.is_file():
+            identity[filename] = hashlib.sha256(path.read_bytes()).hexdigest()
+            if filename == 'CMakeCache.txt':
+                (Path(output)/(name + '-CMakeCache.txt')).write_bytes(path.read_bytes())
+    metadata['builds'][name] = identity
+(Path(output)/'build-identity.json').write_text(json.dumps(metadata, indent=2) + '\n')
+PY_IDENTITY
   }
   case "$THESEUS_RECIPE_STAGE" in
     all)

@@ -56,6 +56,11 @@ equations. The manufactured solution varies density, both velocities and pressur
 the case is a bounded inviscid verification, not viscous, boundary or LTE accuracy
 verification.
 
+`trigonometric-euler-mms` supplies distinct directional and mixed periodic modes
+for Cartesian 2D/3D CPG Euler with gamma=1.4 and R_gas=1. See
+[manufactured Euler verification](mms-verification.md) for equations, coefficients,
+the registered convergence recipe and reproducible plots.
+
 ## Source ownership and execution
 
 `SourceTerms.hpp` defines the generic source lifecycle and `PointSource<Model>`

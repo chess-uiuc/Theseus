@@ -1,0 +1,47 @@
+[
+  {
+    "name": "euler-spatial",
+    "archived_source": "Outputs/mms/iteration-003/spatial",
+    "plot_sha256": "66dad6d8fb112944614064d3ce896c2e719923a45aa8c66c4effcca7abbc58b9",
+    "measurements_sha256": "49e44c5467ca443d6fc06fa458a28bdc645cb353aa40fcf97ebbf324bdf8a9b2",
+    "status": "completed study; see caption for scope"
+  },
+  {
+    "name": "euler-temporal",
+    "archived_source": "Outputs/mms/iteration-003/temporal",
+    "plot_sha256": "c74817b564d9479dd3630e7f6e2aee8a0e4ebc4c6d150be1841009e0c4a2c326",
+    "measurements_sha256": "3efed0ebb551fe919d9ec8b9d106f793de72ecb6d9063d1cddbdee7a1b3cc69c",
+    "status": "completed study; see caption for scope"
+  },
+  {
+    "name": "cns-spatial",
+    "archived_source": "Outputs/mms/cns-initial/spatial",
+    "plot_sha256": "fc00490e0dc86c031d3323f2fe02b3f62ff289851e628dbcc5b7e494631f36aa",
+    "measurements_sha256": "2deec32ffc360b4b2270d978db63a89309fe9d40ad73ee6a36c0e75d842c61ae",
+    "status": "completed study; see caption for scope"
+  },
+  {
+    "name": "cns-temporal",
+    "archived_source": "Outputs/mms/cns-initial/temporal",
+    "plot_sha256": "bc0e976cf8052f9bb992802496050c46331c2a2c7d0d7572efe0a45373d83b17",
+    "measurements_sha256": "399fb880e8e3c3f81bd44a86a9d206959a893e49af9e1aa8eb787b783d639c9d",
+    "status": "completed study; see caption for scope"
+  },
+  {
+    "name": "cns-3d-qualified",
+    "archived_source": "ValidationRuns/mms/cns-3d-qualification-001/cases",
+    "plot_sha256": "c389fac1e8c91da4229ae3c7aa662de68d3d624c244653e90f5fd2cd8c8ac7d8",
+    "measurements_sha256": "8ca06cf7c443281584fb652e9c9ea3c690e2f126953f495ebeed8afcd88edd9f",
+    "status": "completed constant-transport 3D qualification"
+  },
+  {
+    "name": "cns-sutherland-spatial",
+    "archived_sources": [
+      "ValidationRuns/mms/cns-sutherland-qualification-001/cases",
+      "ValidationRuns/mms/cns-sutherland-fine-001"
+    ],
+    "plot_sha256": "bc3655ab0eafeccf1b837a4b8882943bd4ace9d7aed5c2b2e1e2bf1ff7d65d86",
+    "measurements_sha256": "b1238f09101df82e9500cb925e8d2273fa98f7ac5e8494d08dd66616a92dd57f",
+    "status": "six-case 6/12/24 qualification passed; additional 48-cell diagnostic with quarter timestep"
+  }
+]

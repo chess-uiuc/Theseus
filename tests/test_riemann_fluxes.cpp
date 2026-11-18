@@ -799,3 +799,150 @@ TEST(RoeFace_NormalAccumulationPreservesPassiveScalarFlux)
     }
   return 0;
 }
+
+// Independent primitive-variable reference and stability identities for the
+// scalar face penalties. The energy formula is Chandrashekar (2013), Sec. 5.2;
+// LLF deliberately uses the conservative energy jump instead.
+static void run_scalar_penalty_audit(int dim)
+{
+    const real_t gamma = 1.4;
+    Theseus::PhysicsConstants phys(gamma, 0.72, 1.0, 0.02);
+    Theseus::StateLayout layout(dim, 1);
+    Theseus::IdealGasModel gas(phys, layout);
+    const int energy = dim + 1;
+
+    for (int sample = 0; sample < 36; ++sample)
+    {
+        const real_t jump = sample % 3 == 0 ? 1.0 : (sample % 3 == 1 ? 1e-4 : 1e-8);
+        const real_t rhoL = 1.5 + .2*std::sin(sample + .2);
+        const real_t rhoR = rhoL + jump*.3*std::cos(sample + .7);
+        const real_t pL = 1.2 + .1*std::cos(sample + .4);
+        const real_t pR = pL + jump*.2*std::sin(sample + .9);
+        real_t uL[3] = {}, uR[3] = {}, qL[5] = {}, qR[5] = {};
+        qL[0] = rhoL;
+        qR[0] = rhoR;
+        qL[energy] = pL/(gamma - 1.0);
+        qR[energy] = pR/(gamma - 1.0);
+        real_t speed2L = 0.0, speed2R = 0.0, velocity_jump2 = 0.0;
+        for (int d = 0; d < dim; ++d)
+        {
+            uL[d] = .8*std::sin(sample + .6*d);
+            uR[d] = uL[d] + jump*.4*std::cos(sample + .3*d);
+            qL[d + 1] = rhoL*uL[d];
+            qR[d + 1] = rhoR*uR[d];
+            speed2L += uL[d]*uL[d];
+            speed2R += uR[d]*uR[d];
+            velocity_jump2 += (uR[d] - uL[d])*(uR[d] - uL[d]);
+        }
+        qL[energy] += .5*rhoL*speed2L;
+        qR[energy] += .5*rhoR*speed2R;
+        const real_t betaL = rhoL/(2*pL);
+        const real_t betaR = rhoR/(2*pR);
+        const auto logmean = [](long double a, long double b)
+        {
+            return a == b ? a : (b - a)/std::log1p((b - a)/a);
+        };
+        const real_t beta_log = logmean(betaL, betaR);
+        const real_t rho_log = logmean(rhoL, rhoR);
+        const real_t rho_mean = .5*(rhoL + rhoR);
+        const real_t drho = rhoR - rhoL;
+        real_t reference_energy = drho/(2*(gamma - 1)*beta_log)
+            + rho_mean/(2*(gamma - 1))*(1/betaR - 1/betaL);
+        for (int d = 0; d < dim; ++d)
+        {
+            reference_energy += .5*uL[d]*uR[d]*drho
+                + rho_mean*.5*(uL[d] + uR[d])*(uR[d] - uL[d]);
+        }
+
+        for (real_t scale : {.01, 1.0, 13.0})
+        {
+            real_t normal[3] = {.3*scale, -.7*scale, .5*scale};
+            real_t opposite[3] = {-normal[0], -normal[1], -normal[2]};
+            real_t norm2 = 0.0, unL = 0.0, unR = 0.0;
+            for (int d = 0; d < dim; ++d)
+            {
+                norm2 += normal[d]*normal[d];
+                unL += uL[d]*normal[d];
+                unR += uR[d]*normal[d];
+            }
+            const real_t norm = std::sqrt(norm2);
+            const real_t lambda = std::max(std::abs(unL) + std::sqrt(gamma*pL/rhoL)*norm,
+                                          std::abs(unR) + std::sqrt(gamma*pR/rhoR)*norm);
+            real_t diss[5] = {}, swapped[5] = {}, zero[5] = {}, lax[5] = {};
+            real_t face[5] = {}, reverse_face[5] = {};
+            Theseus::PointStateView left{qL}, right{qR};
+            Theseus::Scalar_dissipation(gas, left, right, normal, diss);
+            Theseus::Scalar_dissipation(gas, right, left, opposite, swapped);
+            Theseus::Scalar_dissipation(gas, left, left, normal, zero);
+            Theseus::Lax_dissipation(gas, left, right, normal, lax);
+            Theseus::LaxFriedrichsFlux::InviscidFlux{}.ComputeFaceFlux(gas, qL, qR, normal, face);
+            Theseus::ChandrashekarFlux::InviscidFlux{}.ComputeFaceFlux(gas, qR, qL, opposite, reverse_face);
+            real_t chan_face[5] = {};
+            Theseus::ChandrashekarFlux::InviscidFlux{}.ComputeFaceFlux(gas, qL, qR, normal, chan_face);
+            for (int eq = 0; eq < dim + 2; ++eq)
+            {
+                const real_t reference = .5*lambda*(eq == energy ? reference_energy : qR[eq] - qL[eq]);
+                EXPECT_CLOSE(diss[eq], reference, 2e-13 + 2e-11*std::abs(reference));
+                EXPECT_CLOSE(lax[eq], .5*lambda*(qR[eq] - qL[eq]), 2e-13 + 2e-11*std::abs(lax[eq]));
+                EXPECT_CLOSE(diss[eq], -swapped[eq], 2e-12*std::max(real_t(1), std::abs(diss[eq])));
+                EXPECT_CLOSE(zero[eq], 0.0, 1e-14);
+                EXPECT_CLOSE(chan_face[eq], -reverse_face[eq], 2e-12*std::max(real_t(1), std::abs(chan_face[eq])));
+                real_t physicalL = qL[eq]*unL;
+                real_t physicalR = qR[eq]*unR;
+                if (eq > 0 && eq < energy)
+                {
+                    physicalL += pL*normal[eq - 1];
+                    physicalR += pR*normal[eq - 1];
+                }
+                if (eq == energy)
+                {
+                    physicalL += pL*unL;
+                    physicalR += pR*unR;
+                }
+                const real_t expected_face = .5*(physicalL + physicalR) - .5*lambda*(qR[eq] - qL[eq]);
+                EXPECT_CLOSE(face[eq], expected_face, 2e-12*std::max(real_t(1), std::abs(expected_face)));
+            }
+            // Entropy contraction must equal the nonnegative sum of squares.
+            real_t wL[5] = {}, wR[5] = {};
+            wL[0] = (gamma - (std::log(pL) - gamma*std::log(rhoL)))/(gamma - 1) - betaL*speed2L;
+            wR[0] = (gamma - (std::log(pR) - gamma*std::log(rhoR)))/(gamma - 1) - betaR*speed2R;
+            wL[energy] = -2*betaL;
+            wR[energy] = -2*betaR;
+            for (int d = 0; d < dim; ++d)
+            {
+                wL[d + 1] = 2*betaL*uL[d];
+                wR[d + 1] = 2*betaR*uR[d];
+            }
+            real_t entropy_production = 0.0, kinetic_contraction = 0.0;
+            for (int eq = 0; eq < dim + 2; ++eq)
+            {
+                entropy_production += (wR[eq] - wL[eq])*diss[eq];
+            }
+            for (int d = 0; d < dim; ++d)
+            {
+                kinetic_contraction += (uR[d] - uL[d])
+                    *(diss[d + 1] - .5*(uL[d] + uR[d])*diss[0]);
+            }
+            const real_t dbeta = betaR - betaL;
+            const real_t expected_entropy = .5*lambda*(drho*drho/rho_log
+                + rho_mean*(betaL + betaR)*velocity_jump2
+                + rho_mean*dbeta*dbeta/((gamma - 1)*betaL*betaR));
+            EXPECT_CLOSE(entropy_production, expected_entropy, 2e-12*std::max(real_t(1), expected_entropy));
+            EXPECT_TRUE(entropy_production >= -1e-14);
+            EXPECT_CLOSE(kinetic_contraction, .5*lambda*rho_mean*velocity_jump2,
+                         2e-12*std::max(real_t(1), .5*lambda*rho_mean*velocity_jump2));
+        }
+    }
+}
+
+TEST(ScalarDissipation_IndependentFormulaAndStability_2D)
+{
+    run_scalar_penalty_audit(2);
+    return 0;
+}
+
+TEST(ScalarDissipation_IndependentFormulaAndStability_3D)
+{
+    run_scalar_penalty_audit(3);
+    return 0;
+}

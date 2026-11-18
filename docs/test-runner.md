@@ -69,7 +69,8 @@ literal `run_theseus.sh` command, including the case, mesh, timestep and step
 count, followed by any reference-preparation and comparison commands. Recipe
 setup and argument-parsing boilerplate is omitted.
 
-Run one recipe against an existing build:
+Run one recipe against an existing build (or supply a recipe-suite identifier
+to run its members with a collected summary):
 
 ```bash
 python3 scripts/run_tests.py run-test golden-vortex \
@@ -310,3 +311,17 @@ recorded in the run manifest. The flag is rejected in integrated-only mode, whic
 does not execute CTest. For existing builds, enable `THESEUS_BUILD_KERNEL_STRESS`
 with CMake and select `ctest -L kernel-stress`. See
 [kernel stress testing](kernel-stress-testing.md) for complete commands and coverage.
+
+
+## MMS coverage within the broad suite
+
+The existing `run`/`start` suite continues to include all registered non-MMS code
+checks. `--mms-level quick` is the default and selects the bounded new Euler MMS
+spatial/temporal regressions. `--mms-level qualification` substitutes the longer
+new MMS cases and controls. This changes only recipes carrying an MMS-level tag;
+existing unrelated tests are unchanged. The manifest and summary record the
+selection, and `check` verifies completion of that recorded suite.
+
+PR CI uses the broad runner with its quick MMS default. Nightly uses the same
+runner with `--mms-level qualification`. This is distinct from the MMS-only
+`run-test euler-build-verification` shortcut for developers.

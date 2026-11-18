@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Periodic forced CPG Euler: spatial refinement, temporal isolation and controls."""
+from mms_paths import REPOSITORY_ROOT
 import argparse
 import copy
 import json

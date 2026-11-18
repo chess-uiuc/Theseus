@@ -1,0 +1,136 @@
+{
+  "data_complete": true,
+  "groups": 270,
+  "spatial_simulations": 1620,
+  "timestep_control_simulations": 270,
+  "total_simulations": 1890,
+  "spatial_order_floor_met": 226,
+  "spatial_order_flags": 44,
+  "dt_controls_passed": 264,
+  "dt_controls_total": 270,
+  "regimes": {
+    "subsonic": {
+      "groups": 90,
+      "simulations": 630,
+      "spatial_order_floor_met": 48,
+      "spatial_order_flags": 42,
+      "dt_controls_passed": 90,
+      "dt_controls_total": 90
+    },
+    "transonic": {
+      "groups": 90,
+      "simulations": 630,
+      "spatial_order_floor_met": 88,
+      "spatial_order_flags": 2,
+      "dt_controls_passed": 90,
+      "dt_controls_total": 90
+    },
+    "supersonic": {
+      "groups": 90,
+      "simulations": 630,
+      "spatial_order_floor_met": 90,
+      "spatial_order_flags": 0,
+      "dt_controls_passed": 84,
+      "dt_controls_total": 90
+    }
+  },
+  "quantities": [
+    "density",
+    "vector momentum",
+    "total energy"
+  ],
+  "cells": [
+    12,
+    18,
+    27,
+    40,
+    60,
+    90
+  ],
+  "degrees": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "fluxes": [
+    "lfr",
+    "Roe",
+    "HLL",
+    "Chandrashekar",
+    "Ranocha",
+    "Pirozzoli"
+  ],
+  "order_floor": "nominal p+1 minus 0.5 on finest interval; observations retained",
+  "dt_control_limit": 0.01,
+  "interpretation": "Complete spatial dataset; timestep-control results reported separately. No blanket nominal-order qualification.",
+  "mach_evidence": {
+    "subsonic": {
+      "regime": "subsonic",
+      "mean_velocity_scale": 0.25,
+      "dimension": 2,
+      "density_bounds": [
+        1.76,
+        2.24
+      ],
+      "pressure_bounds": [
+        0.83,
+        1.17
+      ],
+      "mach_bounds": [
+        0.046645730520854474,
+        0.5181059109291836
+      ],
+      "bound_scope": "conservative bounds valid at all positions and times",
+      "sampled_initial_mach_range": [
+        0.17503384283180629,
+        0.3136084240011348
+      ]
+    },
+    "transonic": {
+      "regime": "transonic",
+      "mean_velocity_scale": 1.0,
+      "dimension": 2,
+      "density_bounds": [
+        1.76,
+        2.24
+      ],
+      "pressure_bounds": [
+        0.83,
+        1.17
+      ],
+      "mach_bounds": [
+        0.6136820158727291,
+        1.3043024263095995
+      ],
+      "bound_scope": "conservative bounds valid at all positions and times",
+      "sampled_initial_mach_range": [
+        0.8274667426344702,
+        1.0233329111546028
+      ]
+    },
+    "supersonic": {
+      "regime": "supersonic",
+      "mean_velocity_scale": 5.0,
+      "dimension": 2,
+      "density_bounds": [
+        1.76,
+        2.24
+      ],
+      "pressure_bounds": [
+        0.83,
+        1.17
+      ],
+      "mach_bounds": [
+        3.766979467708088,
+        5.530463280448171
+      ],
+      "bound_scope": "conservative bounds valid at all positions and times",
+      "sampled_initial_mach_range": [
+        4.295593330267654,
+        4.908610393625562
+      ]
+    }
+  }
+}
