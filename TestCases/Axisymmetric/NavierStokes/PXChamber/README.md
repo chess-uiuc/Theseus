@@ -6,7 +6,9 @@ LTE treatment, or `config-local-characteristic.json` for CPG. The original
 The new total inlet deliberately uses the documented frozen-property approximation;
 LTE density and conserved energy still come from the actual EOS.
 
-Set absolute mesh/profile/database paths and run with the normal harness:
+Mesh/profile paths may be relative to the input JSON. An explicit relative
+database path is also config-local; otherwise use the installed build default.
+Run with the normal harness:
 
 ```bash
 scripts/run_theseus.sh -e /absolute/path/to/build-axis/theseus \
@@ -24,3 +26,9 @@ The [local boundary guide](../../../../docs/local-characteristic-boundaries.md)
 contains equations, input examples, implementation/EOS details, distinct gaps from
 HEGEL and physical correctness, and registered tests. The
 [geometry/case guide](../../../../docs/px-chamber.md) describes the legacy case.
+
+For the separate frozen total-state comparison, select `config-lte-frozen-total.json`.
+Only Top changes boundary model; mesh/profile filenames resolve beside the JSON.
+Build the intended LTE chamber executable with `SUTHERLAND=ON`; the runtime-only
+JSON does not select compiled transport. The signed total construction does not
+guarantee inward flow; see the local boundary guide for its contract.

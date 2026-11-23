@@ -13,7 +13,7 @@ fi
 if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "run" ]]; then
   cd "$THESEUS_SOURCE"
   # THESEUS_SHOW run
-  for provider in reference radial total reverse; do
+  for provider in reference radial total reverse frozen frozen-reverse frozen-pulse; do
     for model in euler cns; do
       scripts/run_theseus.sh -e "$THESEUS_BUILD_AXISYMMETRIC/theseus" \
         -c "$CASES/$provider/$model-1/config.json" -o "$CASES/$provider/$model-1/launch" \
@@ -23,7 +23,7 @@ if [[ "$THESEUS_RECIPE_STAGE" == "all" || "$THESEUS_RECIPE_STAGE" == "run" ]]; t
         -p 2 -r "$THESEUS_DEVICE" -P -k > "$CASES/$provider/$model-2/run.log" 2>&1
     done
   done
-  for scenario in heated reverse; do
+  for scenario in heated reverse frozen-heated frozen-reverse; do
     scripts/run_theseus.sh -e "$THESEUS_BUILD_AXISYMMETRIC/theseus" \
       -c "$CASES/chamber-$scenario-1/config.json" -o "$CASES/chamber-$scenario-1/launch" \
       -p 1 -r "$THESEUS_DEVICE" -P -k > "$CASES/chamber-$scenario-1/run.log" 2>&1

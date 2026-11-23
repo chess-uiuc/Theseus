@@ -351,3 +351,11 @@ validation remain separate evidence.
 checks actual air11 profile/cold-state EOS conversion and LLF flux against independent
 calculations, records the baseline exterior-state flux, and protects matching states.
 No duplicate CTest registration is added.
+
+`frozen-total-inlet` is covered by the same registered local-characteristic CTest
+fixtures and central recipe. Independent signed/oblique root checks distinguish
+it from pressure continuation; incoming/outgoing CPG uniform channels, a small
+pressure perturbation, and real-LTE heated/reverse chamber cases exercise solver
+assembly and one/two-rank agreement. Actual-air11 cold/hot target conversion checks
+run in ThermoTableTestingSuite. This is equation/assembly verification, not proof
+of inward top flow or quantitative HEGEL chamber agreement.

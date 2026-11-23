@@ -22,6 +22,7 @@ namespace Theseus
       CharacteristicReference = 8,
       CharacteristicPressure = 9,
       CharacteristicTotal = 10,
+      FrozenTotal = 11,
       NumBCTypes = 11
     };
 

@@ -760,13 +760,15 @@ namespace Theseus
                 }
               }
             else if (type == "characteristic-inlet" || type == "characteristic-radial-inlet" ||
-                     type == "characteristic-pressure-outlet" || type == "characteristic-total-inlet")
+                     type == "characteristic-pressure-outlet" || type == "characteristic-total-inlet" ||
+                     type == "frozen-total-inlet")
               {
                 try
                   {
                     const auto payload = ParseLocalCharacteristicBoundary(bc_props, gasModel);
                     bc_descr.type = int(type == "characteristic-pressure-outlet" ? BCType::CharacteristicPressure :
-                        (type == "characteristic-total-inlet" ? BCType::CharacteristicTotal : BCType::CharacteristicReference));
+                        (type == "characteristic-total-inlet" ? BCType::CharacteristicTotal :
+                         (type == "frozen-total-inlet" ? BCType::FrozenTotal : BCType::CharacteristicReference)));
                     bc_descr.data_kind = int(payload.kind);
                     bc_descr.data_index = AppendBCVectorPayload(bc_vector_data, payload.values);
                     rhsOp->AddBdrFaceMarker(bdr_marker_vector.back());

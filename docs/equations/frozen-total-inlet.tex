@@ -1,0 +1,28 @@
+% Reusable fragment: load amsmath in an article or Beamer document.
+% Unit outward normal n; normalized supplied Cartesian direction d.
+\begin{align}
+q_i &= \boldsymbol{u}_i\cdot\boldsymbol{n}, &\qquad g= \gamma_i-1,\\
+H_f &= \frac{\gamma_i R_i T_i}{g}+\frac{|\boldsymbol{u}_i|^2}{2},\\
+J &= -q_i-\frac{2c_i}{g},\\
+a &= 1+\frac{2}{g}, &\qquad b= 2J,\\
+k &= g\left(\frac{J^2}{2}-H_f\right),\\
+c_b &= \max\left(\frac{-b+\sqrt{b^2-4ak}}{2a},
+                  \frac{-b-\sqrt{b^2-4ak}}{2a}\right),\\
+V_b &= \frac{2c_b}{g}+J,\\
+F &= 1+\frac{gV_b^2}{2c_b^2},\\
+p_b &= p_0 F^{-\gamma_i/g}, &\qquad T_b= \frac{T_0}{F},\\
+\boldsymbol{u}_b &= V_b\boldsymbol{d},\\
+\rho_b &= \rho_{\mathrm{EOS}}(p_b,T_b),\\
+(\rho E)_b &= \rho_b\left[e_{\mathrm{EOS}}(\rho_b,T_b)
+                         +\frac{|\boldsymbol{u}_b|^2}{2}\right].
+\end{align}
+The frozen total inlet uses this signed construction for either sign of subsonic
+$q_i$, without pressure-outlet continuation or outgoing-material replacement.
+$H_f$ is a frozen perfect-gas auxiliary enthalpy, not the equilibrium-EOS total
+enthalpy. The multiplier $V_b$ may be negative; the supplied direction does not
+ensure inward flow. The auxiliary $c_b$ is distinct from the EOS sound speed
+of the resulting target. Sonic/choked operation and general oblique acoustic
+compatibility are not established by these equations.
+
+For tabulated LTE, $c_i^2$ need not equal $\gamma_i R_i T_i$ exactly; this frozen
+construction therefore need not preserve a matching uniform resting EOS state.

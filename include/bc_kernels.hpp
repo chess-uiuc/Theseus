@@ -53,6 +53,7 @@ namespace Theseus {
         case Theseus::BCType::CharacteristicReference:
         case Theseus::BCType::CharacteristicPressure:
         case Theseus::BCType::CharacteristicTotal:
+        case Theseus::BCType::FrozenTotal:
           {
             mfem::real_t target[MAXEQ];
             const auto outgoing = LocalCharacteristicState(gas, static_cast<BCType>(bc.type),
@@ -74,7 +75,8 @@ namespace Theseus {
                 norm2 += normal[d] * normal[d];
                 interior_normal_momentum += gas.velocity(I, d) * normal[d];
               }
-            if (bc.type == int(BCType::CharacteristicPressure) || interior_normal_momentum > 0)
+            if (bc.type == int(BCType::CharacteristicPressure) ||
+                (bc.type != int(BCType::FrozenTotal) && interior_normal_momentum > 0))
               {
                 for (int d = 0; d < dim; ++d)
                   {
@@ -278,6 +280,7 @@ namespace Theseus {
         case Theseus::BCType::CharacteristicReference:
         case Theseus::BCType::CharacteristicPressure:
         case Theseus::BCType::CharacteristicTotal:
+        case Theseus::BCType::FrozenTotal:
           {
             mfem::real_t target[MAXEQ];
             LocalCharacteristicState(gas, static_cast<BCType>(bc.type), state1, nor,
@@ -363,6 +366,7 @@ namespace Theseus {
         case Theseus::BCType::CharacteristicReference:
         case Theseus::BCType::CharacteristicPressure:
         case Theseus::BCType::CharacteristicTotal:
+        case Theseus::BCType::FrozenTotal:
         case Theseus::BCType::PrescribedState:
           {
             ApplyBoundaryConditionInviscid(dc,bc,state1,nor,fluxN);

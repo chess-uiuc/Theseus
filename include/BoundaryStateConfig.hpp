@@ -31,12 +31,13 @@ namespace Theseus
         throw std::invalid_argument("Characteristic boundaries require a single gas without transported scalars");
       }
     const auto type = config.at("type").get<std::string>();
-    if (type != "characteristic-total-inlet" && type != "characteristic-inlet" &&
+    if (type != "characteristic-total-inlet" && type != "frozen-total-inlet" &&
+        type != "characteristic-inlet" &&
         type != "characteristic-radial-inlet" && type != "characteristic-pressure-outlet")
       {
         throw std::invalid_argument("Unknown local characteristic boundary type");
       }
-    if (type != "characteristic-total-inlet")
+    if (type != "characteristic-total-inlet" && type != "frozen-total-inlet")
       {
         config["type"] = type == "characteristic-radial-inlet" ? "radial-profile" : "exterior-state";
         return ParseBoundaryState(config, gas);

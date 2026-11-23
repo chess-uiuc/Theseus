@@ -10,7 +10,7 @@ import local_characteristic_channel_support as channel
 
 
 def prepare(source, results, database):
-    for provider in ("reference", "radial", "total", "reverse"):
+    for provider in ("reference", "radial", "total", "reverse", "frozen", "frozen-reverse", "frozen-pulse"):
         directory = results / provider
         channel.prepare(source, directory)
         profile = directory / "profile.dat"
@@ -23,12 +23,20 @@ def prepare(source, results, database):
                 bc = rt["conditions"]["boundary_conditions"]
                 if provider == "radial":
                     bc["left"] = {"type": "characteristic-radial-inlet", "file": str(profile), "pressure": 172230}
-                elif provider == "total":
+                elif provider in ("total", "frozen", "frozen-reverse", "frozen-pulse"):
                     # Independent CPG total/static relation for a matching state.
-                    T0 = 400 + 80**2 / (2 * 3.5 * 287.05)
+                    speed = -80 if provider == "frozen-reverse" else 80
+                    T0 = 400 + speed**2 / (2 * 3.5 * 287.05)
                     p0 = 172230 * (T0 / 400)**3.5
-                    bc["left"] = {"type": "characteristic-total-inlet", "total_pressure": p0,
+                    bc["left"] = {"type": "characteristic-total-inlet" if provider == "total" else "frozen-total-inlet", "total_pressure": p0,
                                    "total_temperature": T0, "direction": [1, 0]}
+                    if provider == "frozen-reverse":
+                        rt["conditions"]["initial_conditions"]["state"]["velocity"] = [-80, 0]
+                        bc["right"]["state"]["velocity"] = [-80, 0]
+                    elif provider == "frozen-pulse":
+                        # Uniform pressure perturbation supplies a finite response,
+                        # rather than testing only exact matching-state preservation.
+                        rt["conditions"]["initial_conditions"]["state"]["pressure"] *= 1.001
                 elif provider == "reverse":
                     rt["conditions"]["initial_conditions"]["state"]["velocity"] = [-80, 0]
                     bc["left"]["state"] = {"pressure": 172230, "temperature": 700, "velocity": [80, 0]}
@@ -38,13 +46,13 @@ def prepare(source, results, database):
                     rt["variable_dt"] = True
                     rt["cfl"] = 0.01
                 path.write_text(json.dumps(config, indent=2) + "\n")
-        if provider == "reverse":
+        if provider in ("reverse", "frozen-reverse"):
             path = directory / "expectations.json"
             expected = json.loads(path.read_text())
             expected["velocity"] = [-80, 0]
             path.write_text(json.dumps(expected, indent=2) + "\n")
     case = source / "TestCases/Axisymmetric/NavierStokes/PXChamber"
-    for scenario in ("heated", "reverse"):
+    for scenario in ("heated", "reverse", "frozen-heated", "frozen-reverse"):
         for ranks in (1, 2):
             directory = results / f"chamber-{scenario}-{ranks}"
             directory.mkdir(parents=True)
@@ -55,7 +63,9 @@ def prepare(source, results, database):
                       output_file_path=str(directory), dt=1e-8, final_time=1e-6,
                       initial_save_dt=1e-7, vis_steps=10, print_interval=10)
             rt["conditions"]["boundary_conditions"]["Inflow"]["file"] = str(case / "Tuvw_jet_inlet_profile.dat")
-            if scenario == "reverse":
+            if scenario.startswith("frozen-"):
+                rt["conditions"]["boundary_conditions"]["Top"]["type"] = "frozen-total-inlet"
+            if scenario.endswith("reverse"):
                 rt["conditions"]["initial_conditions"]["state"]["velocity"] = [-20, 0]
             (directory / "config.json").write_text(json.dumps(config, indent=2) + "\n")
 
@@ -79,11 +89,44 @@ def chamber_fields(directory):
     return coordinates, fields
 
 
-def check(results):
-    for provider in ("reference", "radial", "total", "reverse"):
-        channel.check(results / provider)
+def check_pulse(directory):
+    reference = {}
     measurements = {}
-    for scenario in ("heated", "reverse"):
+    for model in ("euler", "cns"):
+        for ranks in (1, 2):
+            case = directory / f"{model}-{ranks}"
+            reader = pv.get_reader(next(case.rglob("*.pvd")))
+            assert np.isclose(reader.time_values[-1], 2e-6, atol=1e-18, rtol=1e-12)
+            reader.set_active_time_point(len(reader.time_values) - 1)
+            grid = reader.read().combine()
+            for name, values in grid.point_data.items():
+                assert np.isfinite(values).all(), name
+            for name in ("Density", "Pressure"):
+                assert grid[name].min() > 0, name
+            pressure = np.asarray(grid["Pressure"])
+            response = float(np.max(np.abs(pressure - 172230 * 1.001)))
+            assert response > 0.01, "Frozen total boundary did not respond to pressure perturbation"
+            # Sort raw duplicate traces by geometry AND values to retain both DG sides.
+            fields = np.column_stack((grid.points[:, :2], grid["Density"], pressure,
+                                      grid["Velocity"][:, :2]))
+            order = np.lexsort(tuple(fields[:, column] for column in reversed(range(fields.shape[1]))))
+            fields = fields[order]
+            if ranks == 1:
+                reference[model] = fields
+            else:
+                np.testing.assert_allclose(fields, reference[model], rtol=1e-9, atol=1e-8)
+            measurements[f"{model}-{ranks}"] = {"maximum_pressure_change_Pa": response}
+    (directory / "response-measurements.json").write_text(json.dumps(measurements, indent=2) + "\n")
+
+
+def check(results):
+    for provider in ("reference", "radial", "total", "reverse", "frozen", "frozen-reverse", "frozen-pulse"):
+        if provider == "frozen-pulse":
+            check_pulse(results / provider)
+        else:
+            channel.check(results / provider)
+    measurements = {}
+    for scenario in ("heated", "reverse", "frozen-heated", "frozen-reverse"):
         reference = None
         for ranks in (1, 2):
             name = f"chamber-{scenario}-{ranks}"
@@ -92,7 +135,7 @@ def check(results):
             core = inlet & (xyz[:, 1] < 0.04)
             ux = fields["Velocity"][inlet, 0]
             temp = fields["Temperature"][inlet, 0]
-            if scenario == "heated":
+            if scenario.endswith("heated"):
                 assert fields["Temperature"].max() > 301, "No heated-inlet response"
                 assert ux.max() > 0, "No incoming velocity response"
                 assert ux.min() < -1e-8, "No resolved outgoing trace on the nominal inlet"
@@ -113,7 +156,7 @@ def check(results):
                     np.testing.assert_allclose(fields[field], reference[1][field], rtol=1e-9, atol=1e-8,
                                                err_msg=f"{scenario}: {field}")
     (results / "chamber-measurements.json").write_text(json.dumps(measurements, indent=2) + "\n")
-    print("PASS: four uniform channel families plus LTE heated/reverse chamber through 1 microsecond")
+    print("PASS: legacy and frozen uniform channels, pressure response and LTE chamber/MPI checks")
 
 
 def main():

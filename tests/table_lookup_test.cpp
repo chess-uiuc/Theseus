@@ -94,6 +94,62 @@ TEST(plato_LocalCharacteristic_reference)
           EXPECT_CLOSE((target[q] - reference[q]) / std::max(real_t(1), std::abs(reference[q])), 0, 1e-9);
         }
     }
+  // Independent enthalpy-root bracket, then host EOS conversion, for the
+  // distinct frozen model with real air11 at cold and dissociating temperatures.
+  for (const auto temperature : {300.0, 6000.0})
+    {
+      for (const auto qi : {-40.0, 0.0, 40.0})
+        {
+          mfem::Vector input, reservoir;
+          gas.ConservativeFromPhysical({PressureTemperature{10000, temperature}, {-qi, 0}}, input);
+          gas.ConservativeFromPhysical({PressureTemperature{10000, temperature}, {0, 0}}, reservoir);
+          const PointStateView state{input.HostRead()};
+          const long double gm1 = gas.gamma(state) - 1;
+          const long double ci = gas.sound_speed(state);
+          const long double J = -qi - 2 * ci / gm1;
+          const long double H = gas.gamma(state) * gas.R_gas(state) * gas.temperature(state) / gm1
+                                + qi * qi / 2;
+          long double lower = -J * gm1 / (gm1 + 2);
+          long double upper = 2 * ci;
+          for (int iteration = 0; iteration < 100; ++iteration)
+            {
+              const auto cb = (lower + upper) / 2;
+              const auto speed = 2 * cb / gm1 + J;
+              if (cb * cb / gm1 + speed * speed / 2 > H)
+                {
+                  upper = cb;
+                }
+              else
+                {
+                  lower = cb;
+                }
+            }
+          const auto cb = (lower + upper) / 2;
+          const auto speed = 2 * cb / gm1 + J;
+          const auto factor = 1 + gm1 * speed * speed / (2 * cb * cb);
+          const real_t pb = 10000 * std::pow(factor, -(gm1 + 1) / gm1);
+          const real_t Tb = temperature / factor;
+          mfem::Vector independent;
+          gas.ConservativeFromPhysical({PressureTemperature{pb, Tb}, {real_t(speed), 0}}, independent);
+          real_t payload[8];
+          for (int q = 0; q < 4; ++q)
+            {
+              payload[q] = reservoir[q];
+            }
+          payload[4] = 10000;
+          payload[5] = temperature;
+          payload[6] = 1;
+          payload[7] = 0;
+          real_t target[4];
+          BC::LocalCharacteristicState(gas, BCType::FrozenTotal, input.HostRead(), normal, payload, target);
+          for (int q = 0; q < 4; ++q)
+            {
+              EXPECT_CLOSE((target[q] - independent[q]) / std::max(real_t(1), std::abs(independent[q])), 0, 1e-9);
+            }
+          std::cout << "real_lte_frozen_total," << temperature << ',' << qi << ','
+                    << speed << ',' << pb << ',' << Tb << ',' << target[0] << '\n';
+        }
+    }
   return 0;
 }
 

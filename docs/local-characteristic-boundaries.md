@@ -68,7 +68,7 @@ For rho,p targets, T is obtained from the selected EOS. The inlet profile's T/u
 are reference data, not exactly prescribed final boundary T/u. All conserved
 energies use actual e(rho,T)+|u|²/2, including the LTE energy reference.
 
-## Frozen-property total inlet
+## Characteristic total inlet with pressure continuation
 
 For inward/resting interior flow, use local EOS R_i,gamma_i,c_i,T_i and
 H_i=gamma_i R_i T_i/(gamma_i−1)+|u_i|²/2. Set
@@ -90,6 +90,65 @@ It does not enforce a general equilibrium-EOS isentropic reservoir. Local gamma
 and R do not remove that approximation. The quadratic follows the inspected
 HEGEL model, including its use of interior H and its lack of direction projection
 in the quadratic; general oblique-flow acoustic compatibility is not guaranteed.
+
+## Frozen total inlet without pressure continuation
+
+`frozen-total-inlet` is a separate boundary selection with the same input fields:
+
+```json
+{
+  "type": "frozen-total-inlet",
+  "total_pressure": 10000,
+  "total_temperature": 300,
+  "direction": [0, -1]
+}
+```
+
+It always applies the frozen total-state equations above, for either sign of
+interior normal velocity. It uses `u_b=V_b*d` and actual EOS density/energy at
+`p_b,T_b` even when the target is outgoing. It does not switch to static pressure
+`p0`, extrapolate supersonic outward flow, or replace outgoing material with the
+interior state. Its intended regime is subsonic; no choking or all-Mach
+characteristic claim follows from evaluating this algebra outside that regime.
+The existing `characteristic-total-inlet` behavior is unchanged.
+
+The signed multiplier `V_b` is not clipped or replaced by its absolute value.
+A negative multiplier reverses the supplied direction: this is **not an
+inward-only boundary**. For aligned normal CPG flow, the larger physical root
+reduces to `c_b=c_i` and `V_b=-q_i`; an outward interior state can therefore
+produce an outward target. The prescribed direction is an axis for this signed
+velocity construction, not a guarantee of its orientation. For CPG at rest,
+root cancellation can leave a roundoff-sized signed velocity. Original LTE
+interpolation need not satisfy `c_i^2=gamma_i*R_i*T_i` exactly. Consequently,
+even matching resting LTE input/reservoir states need not be preserved by the
+frozen algebra: the actual-air11 fixture measures signed speeds of approximately
++0.0079 m/s at 300 K and -0.153 m/s at 6000 K with its specified 101-by-201 table
+at 10 kPa. These are model/table-consistency discrepancies, not velocities
+clipped or compensated by the implementation.
+
+The model follows the inspected HEGEL LTE `SUB_IN_TOT` state construction,
+including its frozen perfect-gas auxiliary enthalpy and total/static relations.
+It is not an exact equilibrium-LTE reservoir condition. The calculated `c_b`
+is an auxiliary frozen value; flux and stability assembly use the actual EOS
+sound speed of the resulting conserved target. General oblique-flow acoustic
+compatibility is not established by this one-dimensional construction.
+Reusable [LaTeX equations](equations/frozen-total-inlet.tex) give the full model.
+
+The target enters the selected Theseus numerical flux. Incoming targets use
+weak temperature/full-velocity entropy lifting, with a natural mass entropy
+component; outgoing targets use zero lifting. The pressure-continuation
+normal-velocity exception of `characteristic-total-inlet` does not apply to this
+selection. Normal viscous flux uses the existing interior constitutive assembly.
+These DG choices do not reproduce HEGEL's full finite-volume viscous/ghost
+assembly. A target velocity sign alone does not establish numerical mass-flux
+sign, particularly across a density jump.
+
+For an explicit PXChamber comparison, use `config-lte-frozen-total.json` beside
+its mesh and profile. It differs in boundary model only at Top from the local
+characteristic configuration, uses config-local input filenames and leaves
+transport selection to the executable. Build with `SUTHERLAND=ON` for the
+intended chamber calculation; conductivity remains tabulated for original LTE.
+No existing case or golden input is changed by selecting this optional file.
 
 ## EOS conversions and computational work
 
@@ -172,8 +231,9 @@ manufactured LTE, rotated/scaled normals, incoming/outgoing states, LTE energy
 offset/conversions, signed LLF mass flux and entropy/viscous assembly.
 
 The central `local-characteristic` recipe includes uniform reference/radial/total
-and reverse channels, Euler/CNS, one/two ranks, plus real-air11 heated and reverse
-chamber evolution through1microsecond at dt=1e-8, with finite positive fields,
+and reverse channels, Euler/CNS, one/two ranks, plus frozen-total incoming/outgoing
+uniform channels and a perturbed-pressure response. It also includes real-air11 heated and reverse
+chamber evolution with each total-inlet selection through1microsecond at dt=1e-8, with finite positive fields,
 thermal/flow response and complete coordinate-grouped rank comparisons. Logs,
 fields, measurements JSON and inlet CSVs are retained. These tests do not establish
 whole-chamber validation, developed recirculation, all-Mach behavior, measured wave
@@ -227,3 +287,9 @@ combining that backend with a local characteristic family is rejected during hos
 configuration. Its pressure inversion and entropy trace require separate support.
 The selected backend is never silently changed. The total inlet retains the
 frozen-property approximation described above for original LTE.
+
+The frozen-total fixtures additionally check near-zero signed velocity, independent
+oblique enthalpy-root bracketing, separation from the existing pressure continuation,
+full incoming velocity lifting when interior flow is outward, and real-air11
+cold/hot targets against an independent host EOS conversion. These checks do not
+require the resulting chamber top flow to become inward.

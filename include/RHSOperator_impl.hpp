@@ -276,13 +276,15 @@ namespace Theseus
               condition.type == int(BCType::SupersonicInflow) ||
               condition.type == int(BCType::CharacteristicReference) ||
               condition.type == int(BCType::CharacteristicPressure) ||
-              condition.type == int(BCType::CharacteristicTotal))
+              condition.type == int(BCType::CharacteristicTotal) ||
+              condition.type == int(BCType::FrozenTotal))
             {
               const auto *exterior_data = boundary_data + condition.data_index;
               mfem::real_t target[MAXEQ];
               if (condition.type == int(BCType::CharacteristicReference) ||
                   condition.type == int(BCType::CharacteristicPressure) ||
-                  condition.type == int(BCType::CharacteristicTotal))
+                  condition.type == int(BCType::CharacteristicTotal) ||
+                  condition.type == int(BCType::FrozenTotal))
                 {
                   BC::LocalCharacteristicState(gas_model, static_cast<BCType>(condition.type),
                       interior_state, normal + point * dimensions, exterior_data, target);
@@ -341,7 +343,7 @@ namespace Theseus
       {
         const auto type = static_cast<BCType>(bc_descriptors[i].type);
         if (type == BCType::CharacteristicReference || type == BCType::CharacteristicPressure ||
-            type == BCType::CharacteristicTotal)
+            type == BCType::CharacteristicTotal || type == BCType::FrozenTotal)
           {
             operator_cache.characteristicGradientBoundary = true;
           }

@@ -52,7 +52,7 @@ namespace Theseus
           const auto norm = std::sqrt(norm2);
           qi /= norm;
           qa /= norm;
-          if (qi >= c_i)
+          if (type != BCType::FrozenTotal && qi >= c_i)
             {
               for (int q = 0; q < L.nequations(); ++q)
                 {
@@ -64,7 +64,8 @@ namespace Theseus
           auto pressure = p_a;
           mfem::real_t velocity[MAXDIM] = {};
           ThermodynamicState thermo;
-          if (type == BCType::CharacteristicTotal && qi <= 0)
+          if (type == BCType::FrozenTotal ||
+              (type == BCType::CharacteristicTotal && qi <= 0))
             {
               const auto *total = data + L.nequations();
               const auto gamma = gas.gamma(I);
@@ -87,7 +88,9 @@ namespace Theseus
                   velocity[d] = speed * total[d + 2];
                   qb += velocity[d] * normal[d] / norm;
                 }
-              if (qb >= 0)
+              // The frozen total model keeps EOS p,T material for either sign.
+              // The existing characteristic total inlet retains its outgoing adaptation.
+              if (type != BCType::FrozenTotal && qb >= 0)
                 {
                   thermo = gas.boundary_rho_p(rho_i + (pressure - p_i) / (c_i * c_i), pressure);
                   for (int d = 0; d < L.dim; ++d)
